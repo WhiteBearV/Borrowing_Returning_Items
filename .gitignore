@@ -58,6 +58,11 @@ logs/
 # ===== Claude Code (ไม่ใช่โค้ดโปรเจค) =====
 .claude/
 
+# ===== Project docs (เก็บเฉพาะใน local) =====
+CLAUDE.md
+02-system-design.md
+01-proposal-*.pdf
+
 # ===== Misc =====
 *.pdf
 *.png
