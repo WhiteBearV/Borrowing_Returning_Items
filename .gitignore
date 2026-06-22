@@ -1,0 +1,67 @@
+# ===== Python / Backend =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables (ห้าม commit ด้วยเด็ดขาด)
+.env
+.env.local
+.env.*.local
+
+# Alembic (เก็บแค่ versions scripts ไม่เก็บ pycache)
+backend/alembic/__pycache__/
+
+# Uploads (รูปภาพ, ไฟล์ที่ user อัปโหลด)
+backend/uploads/
+
+# ===== Node / Frontend =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/build/
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===== Testing =====
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ===== Docker =====
+# ไม่ ignore docker-compose เพราะต้องการในโปรเจค
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Claude Code (ไม่ใช่โค้ดโปรเจค) =====
+.claude/
+
+# ===== Misc =====
+*.pdf
+*.png
+*.jpg
+*.jpeg
+!docs/**/*.png
+!docs/**/*.jpg

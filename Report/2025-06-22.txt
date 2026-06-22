@@ -1,0 +1,88 @@
+# รายงานความคืบหน้า — วันที่ 22 มิถุนายน 2025
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** ทีมพัฒนา
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend — วางโครงสร้างและ refactor
+
+- สร้างโครงสร้างโปรเจคทั้งหมดตาม CLAUDE.md ครบทุกโฟลเดอร์/ไฟล์ (backend + frontend)
+- app/core/config.py — Settings ด้วย pydantic-settings, property allowed_email_domains_list
+- app/core/database.py — async engine + AsyncSessionLocal + Base (SQLAlchemy 2.0 async)
+- app/core/security.py — refactor แยก private _create_token() ออกมา ลดโค้ดซ้ำระหว่าง create_access_token / create_refresh_token ประมาณ 10 บรรทัด
+- app/dependencies.py — get_db(), get_current_user(), require_admin() ครบ รองรับ email_verified check (HTTP 403)
+- app/models/ — ครบ 9 ตาราง (user, equipment, equipment_category, borrow_request, borrow_item, setting, auth_token, notification, audit_log) ใช้ SQLAlchemy 2.0 Mapped[] style
+- app/models/__init__.py — refactor: เหลือแค่ module import เพื่อให้ Alembic ค้นหา model, ลบ class re-export ที่ไม่มีใครใช้
+- app/services/__init__.py — refactor: ลบ re-export ทั้งหมดออก (yagni — ไม่มีใครเรียกผ่านชั้นนี้)
+- app/services/borrow_service.py — refactor: _get_setting_int() ลบ hardcode default ออก ค่าทุกตัวอ่านจาก settings table เท่านั้น
+- app/services/audit_service.py — refactor: แทน manual dict ด้วย AuditLogResponse.model_validate()
+- app/schemas/audit.py — สร้างใหม่: AuditLogResponse + PaginatedAuditLogs
+- app/services/notification_service.py — refactor: ย้าย inline imports (func, HTTPException, status) ขึ้น top-level
+- app/utils/scheduler.py — refactor: ย้าย imports ทั้งหมดขึ้น top-level, APScheduler jobs due_soon / overdue รันเที่ยงคืน
+- app/main.py — entry point ครบ: CORS, StaticFiles /uploads, lifespan start scheduler, router ทั้ง 8 ตัว
+- alembic/env.py — async migration setup ด้วย async_engine_from_config
+
+### Frontend — วางโครงสร้าง
+
+- src/context/AuthContext.jsx — AuthProvider + useAuthContext, check token on mount, login/logout
+- src/api/axiosInstance.js — base URL, JWT interceptor, auto-refresh on 401
+- src/hooks/useBorrowCart.js — cart state: addItem, removeItem, updateQuantity, clearCart
+- src/hooks/useAuth.js — wrapper สำหรับ useAuthContext
+- src/components/layout/ProtectedRoute.jsx — redirect ถ้าไม่มี user หรือ role ไม่ตรง
+- src/App.jsx — React Router v6 setup, nested routes สำหรับ student/admin
+- Pages skeleton — ครบทุกหน้าทั้ง student และ admin (placeholder TODO)
+
+### อื่น ๆ (Config, Docker)
+
+- docker-compose.yml — postgres:16-alpine + backend + frontend พร้อม healthcheck
+- docker-compose.prod.yml — production config, multi-worker uvicorn
+- backend/.env.example — ครบทุก environment variable ตาม CLAUDE.md
+
+### Skill / เครื่องมือทีม
+
+- รัน ponytail-review + ponytail-audit แล้วแก้ไข findings ทั้งหมด
+- แก้ไข skill daily-progress-report ให้บันทึกไฟล์ .txt ลง โฟลเดอร์ Report/ อัตโนมัติ
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| _get_setting_int ไม่มี fallback default | ลบตาม ponytail เพื่อบังคับ seed data | ต้องเขียน Alembic migration seed settings table ก่อน dev/test |
+| borrow_service มีหลาย TODO ยังไม่ implement | เป็น skeleton เฟสแรก | implement ทีละ function ในวันถัดไป |
+| auth_service.verify_email / refresh_token ยังไม่เสร็จ | skeleton | implement ในวันถัดไป |
+| frontend pages ทั้งหมดยังเป็น placeholder | เพิ่งวางโครงสร้าง | implement ทีละหน้าหลัง backend พร้อม |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Alembic migration seed — สร้าง migration เติม default rows ใน settings table (max_items_per_request=5, max_loan_days_durable=7, max_active_requests_per_student=2, max_renew_count=1, due_soon_notify_days_before=2)
+2. [ ] borrow_service.create_request() — implement เต็ม: ตรวจ stock, สร้าง BorrowRequest + BorrowItems, แจ้งเตือน admin
+3. [ ] borrow_service.approve_request() — implement: ลด quantity_available, คำนวณ due_date, consumable auto-return
+4. [ ] auth_service.verify_email() + refresh_token() — implement ให้สมบูรณ์
+5. [ ] frontend LoginPage.jsx + RegisterPage.jsx — implement จริง เชื่อมต่อ API
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~40% เสร็จ — โครงสร้างและ skeleton ครบ, business logic หลักใน borrow/auth ยังเป็น TODO
+**Frontend:** ~15% เสร็จ — routing/auth context พร้อม, pages ยังเป็น placeholder ทั้งหมด
+**ระยะรวม:** เฟสวางโครงสร้างเสร็จสมบูรณ์ เข้าสู่เฟส implement business logic
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- ไฟล์ Excel คลังอุปกรณ์เดิม — ยังรอทีมอื่นส่งมา; script backend/scripts/import_equipment.py ยังไม่ได้สร้าง
+- ALLOWED_EMAIL_DOMAINS — ยังต้องยืนยัน domain จริงกับอาจารย์ก่อน deploy (ปัจจุบันใช้ kmitl.ac.th, student.kmitl.ac.th)
+- Settings seed data — หลังลบ hardcode defaults ออก ถ้ารัน dev โดยไม่มี seed data จะ crash ทันที (scalar_one() raise ถ้าไม่มี row)
+- LINE OA — ยังไม่มี Channel Access Token ยังไม่ implement stretch goal นี้
+
+---
+
+บันทึกไฟล์: /home/maeb/TermPJ/Report/2025-06-22.txt
