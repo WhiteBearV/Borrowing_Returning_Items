@@ -66,6 +66,7 @@
 4. [ ] auth_service.verify_email() + refresh_token() — implement ให้สมบูรณ์
 5. [ ] frontend LoginPage.jsx + RegisterPage.jsx — implement จริง เชื่อมต่อ API
 
+
 ---
 
 ## สถานะโดยรวม

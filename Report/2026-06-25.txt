@@ -1,0 +1,65 @@
+# รายงานความคืบหน้า — วันที่ 25 มิถุนายน 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- `backend/app/schemas/auth.py` — ปรับ `student_id` และ `major` ใน `RegisterRequest` ให้เป็น required field (ไม่ใช่ Optional อีกต่อไป)
+- `backend/app/services/auth_service.py` — เพิ่ม auto-verify email ในโหมด dev (เมื่อ SMTP ไม่ได้ตั้งค่า) ผ่าน flag `_email_configured`
+- `backend/app/utils/email.py` — เพิ่ม dev mode: ถ้า `MAIL_USERNAME` เป็น placeholder จะ print token ลง console แทนส่งจริง ไม่ทำให้ระบบ crash
+- `backend/app/core/security.py` — แก้ปัญหา bcrypt version incompatibility กับ passlib โดย downgrade `bcrypt==4.0.1`
+- `backend/scripts/import_equipment.py` — เขียน migration script สำหรับดึงข้อมูลอุปกรณ์จาก Snipe-IT (MySQL) → PostgreSQL พร้อม status mapping และ category dedup
+- `backend/alembic/versions/` — รัน migration สร้างตาราง (`0001_initial_schema`, `0002_seed_settings`) สำเร็จ
+- `.env` — ตั้งค่า `SECRET_KEY` และเพิ่ม `cdti.ac.th` ใน `ALLOWED_EMAIL_DOMAINS`
+
+### Frontend
+- `frontend/src/pages/RegisterPage.jsx` — แยกช่อง ชื่อ/นามสกุล เพิ่มช่องคำนำหน้า (นาย/นาง/นางสาว) บังคับกรอกรหัสนักศึกษา 10 หลัก (`pattern="\d{10}"`) และบังคับเลือกสาขา
+
+### Database / Data
+- Import ข้อมูลอุปกรณ์จากระบบ Snipe-IT เดิม (fdt-asset-server) สำเร็จ
+  - Equipment: **1,103 รายการ** (available 896, unavailable 203, damaged 4)
+  - Categories: **12 หมวดหมู่**
+- สร้าง admin account: `admin@cdti.ac.th` พร้อมใช้งาน
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ |
+|---|---|---|
+| `bcrypt==5.0.0` ไม่ compatible กับ `passlib` | passlib ยังไม่รองรับ bcrypt 4.x+ API | downgrade เป็น `bcrypt==4.0.1` |
+| SSH เข้า fdt-asset-server ด้วย hostname ไม่ได้ | DNS resolve ล้มเหลวใน local network | ใช้ IP ตรง (172.16.46.64) แทน |
+| `status_labels` ใน Snipe-IT เสีย (id 9–36 เป็น concatenated string) | bug การใช้งาน Snipe-IT เดิม | ใช้ name-based fallback ใน migration script |
+| Email verification ใช้ไม่ได้ใน dev | SMTP ยังไม่ตั้งค่า | auto-verify ใน dev mode + print token ลง console |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบ flow admin อนุมัติ/ปฏิเสธคำขอยืม (`BorrowRequestsPage.jsx`)
+2. [ ] ทดสอบ flow นักศึกษายืม-คืนอุปกรณ์ครบวงจร
+3. [ ] ตรวจสอบ frontend pages ที่เหลือ (AllBorrows, AuditLog, Settings, Users)
+4. [ ] ตั้งค่า SMTP จริง (ยืนยัน email ของคณะกับอาจารย์)
+5. [ ] ทดสอบ scheduler (due_soon, overdue notifications)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** 95% — API ครบ, migration รันได้, email dev mode พร้อม, รอ SMTP จริงและ full integration test
+**Frontend:** 90% — ทุกหน้าพัฒนาแล้ว, RegisterPage ปรับ UX เสร็จ, รอ test ทุก flow
+**ฐานข้อมูล:** ✅ Import ข้อมูลจริงจาก Snipe-IT ครบ 1,103 รายการ
+**ระยะรวม:** ~95% — พร้อม integration test เต็มรูปแบบ
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ALLOWED_EMAIL_DOMAINS** — ปัจจุบันเพิ่ม `cdti.ac.th` สำหรับทดสอบ ก่อน deploy จริงต้องยืนยัน domain จริงกับอาจารย์
+- **SMTP** — ยังใช้ placeholder, ต้องตั้งค่า email จริงก่อน go-live
+- **requirements.txt** — ต้อง pin `bcrypt==4.0.1` ไว้เพื่อไม่ให้ pip install ขึ้น version ใหม่แล้วพัง
+- **LINE OA** — ยังไม่ implement (stretch goal)
+- **Excel import script** — รอไฟล์คลังอุปกรณ์จากทีมอื่น (แต่ได้ import จาก Snipe-IT แล้ว อาจไม่จำเป็น)

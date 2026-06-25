@@ -6,43 +6,72 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.borrow_request import BorrowRequest
+from app.models.notification import Notification
 from app.models.setting import Setting
+from app.models.user import User
 
 scheduler = AsyncIOScheduler()
+
+
+def _notif(db, user_id, notif_type, message, borrow_request_id=None):
+    db.add(Notification(
+        user_id=user_id,
+        borrow_request_id=borrow_request_id,
+        type=notif_type,
+        channel="in_app",
+        message=message,
+    ))
 
 
 async def _check_due_soon() -> None:
     """แจ้งเตือนรายการที่ใกล้ครบกำหนดคืน (รันทุกวันเที่ยงคืน)"""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Setting).where(Setting.key == "due_soon_notify_days_before"))
-        s = result.scalar_one_or_none()
-        target_date = date.today() + timedelta(days=int(s.value) if s else 1)
+        s = (await db.execute(select(Setting).where(Setting.key == "due_soon_notify_days_before"))).scalar_one_or_none()
+        target_date = date.today() + timedelta(days=int(s.value) if s else 2)
 
-        result = await db.execute(
+        rows = (await db.execute(
             select(BorrowRequest).where(
                 BorrowRequest.status == "approved",
                 BorrowRequest.due_date == target_date,
                 BorrowRequest.is_overdue == False,
             )
-        )
-        # TODO: ส่งแจ้งเตือน due_soon ให้นักศึกษา
-        for req in result.scalars().all():
-            pass
+        )).scalars().all()
+
+        for req in rows:
+            _notif(db, req.student_id, "due_soon",
+                   f"คำขอ {req.request_code} ครบกำหนดคืนในอีก {(target_date - date.today()).days} วัน ({req.due_date})",
+                   borrow_request_id=req.id)
+
+        if rows:
+            await db.commit()
 
 
 async def _check_overdue() -> None:
     """ตั้งค่า is_overdue=True และแจ้งเตือนรายการที่เกินกำหนดคืน (รันทุกวันเที่ยงคืน)"""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
+        rows = (await db.execute(
             select(BorrowRequest).where(
                 BorrowRequest.status == "approved",
                 BorrowRequest.due_date < date.today(),
                 BorrowRequest.is_overdue == False,
             )
-        )
-        for req in result.scalars().all():
+        )).scalars().all()
+
+        if not rows:
+            return
+
+        admins = (await db.execute(select(User).where(User.role == "admin", User.is_active == True))).scalars().all()
+
+        for req in rows:
             req.is_overdue = True
-            # TODO: ส่งแจ้งเตือน overdue ให้นักศึกษาและแอดมิน
+            _notif(db, req.student_id, "overdue",
+                   f"คำขอ {req.request_code} เกินกำหนดคืนแล้ว กรุณาคืนโดยด่วน",
+                   borrow_request_id=req.id)
+            for admin in admins:
+                _notif(db, admin.id, "overdue",
+                       f"คำขอ {req.request_code} เกินกำหนดคืน",
+                       borrow_request_id=req.id)
+
         await db.commit()
 
 

@@ -3,10 +3,10 @@ from pydantic import BaseModel, EmailStr
 
 class RegisterRequest(BaseModel):
     full_name: str
-    student_id: str | None = None
+    student_id: str
     email: EmailStr
     password: str
-    major: str | None = None  # comp_eng / digital_design
+    major: str  # comp_eng / digital_design
 
 
 class LoginRequest(BaseModel):

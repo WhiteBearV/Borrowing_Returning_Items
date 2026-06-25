@@ -2,23 +2,29 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 
 from app.core.config import settings
 
-mail_config = ConnectionConfig(
-    MAIL_USERNAME=settings.MAIL_USERNAME,
-    MAIL_PASSWORD=settings.MAIL_PASSWORD,
-    MAIL_FROM=settings.MAIL_FROM,
-    MAIL_PORT=settings.MAIL_PORT,
-    MAIL_SERVER=settings.MAIL_SERVER,
-    MAIL_STARTTLS=settings.MAIL_STARTTLS,
-    MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-)
+# ponytail: ถ้า MAIL_USERNAME ยังเป็น placeholder → dev mode, print แทนส่งจริง
+_email_configured = settings.MAIL_USERNAME not in ("", "your-email@example.com")
 
-fm = FastMail(mail_config)
+if _email_configured:
+    mail_config = ConnectionConfig(
+        MAIL_USERNAME=settings.MAIL_USERNAME,
+        MAIL_PASSWORD=settings.MAIL_PASSWORD,
+        MAIL_FROM=settings.MAIL_FROM,
+        MAIL_PORT=settings.MAIL_PORT,
+        MAIL_SERVER=settings.MAIL_SERVER,
+        MAIL_STARTTLS=settings.MAIL_STARTTLS,
+        MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
+        USE_CREDENTIALS=True,
+        VALIDATE_CERTS=True,
+    )
+    fm = FastMail(mail_config)
 
 
 async def send_email(to: str, subject: str, body_html: str) -> None:
-    """ส่งอีเมล HTML"""
+    """ส่งอีเมล HTML — ถ้า SMTP ไม่ตั้งค่าจะ print ลง console แทน"""
+    if not _email_configured:
+        print(f"\n[DEV EMAIL] To: {to}\nSubject: {subject}\n{body_html}\n")
+        return
     message = MessageSchema(
         subject=subject,
         recipients=[to],

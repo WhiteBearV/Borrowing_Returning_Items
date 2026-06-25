@@ -1,0 +1,122 @@
+# รายงานความคืบหน้า — วันที่ 23 มิถุนายน 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**Alembic Migrations (ใหม่ทั้งหมด)**
+- `alembic/versions/0001_initial_schema.py` — สร้างตารางทั้ง 9 ตาราง พร้อม index ครบ
+  (users, auth_tokens, equipment_categories, equipment, borrow_requests, borrow_items, notifications, audit_logs, settings)
+- `alembic/versions/0002_seed_settings.py` — seed ค่าเริ่มต้น 6 รายการ
+  (max_items_per_request=5, max_active_requests_per_student=2, max_loan_days_durable=7,
+   max_renew_count=1, max_renew_days=7, due_soon_notify_days_before=2)
+
+**auth_service.py — implement ครบทุก function**
+- `register()` — เพิ่มสร้าง AuthToken (secrets.token_urlsafe) + ส่งอีเมลยืนยัน
+- `verify_email()` — ตรวจ expires_at, ตั้ง email_verified=True, บันทึก used_at
+- `refresh_token()` — decode JWT, ตรวจ type=="refresh", คืน access token ใหม่
+- `forgot_password()` — สร้าง token + ส่งอีเมล, silent return ป้องกัน user enumeration
+- `reset_password()` — ตรวจ token, hash password ใหม่
+
+**borrow_service.py — implement ครบทุก function**
+- `create_request()` — ตรวจ max_active quota, ตรวจ max_items, ตรวจ stock ทุกรายการก่อน insert, แจ้ง admin ทุกคน
+- `approve_request()` — ลด quantity_available, consumable auto-return (returned=True ทันที), คำนวณ due_date, แจ้งนักศึกษา
+- `reject_request()` — เปลี่ยน status + rejection_reason + แจ้งนักศึกษา
+- `renew_item()` — ตรวจ renewed_count < max_renew_count, ต่อ extended_due_date
+- `return_item()` — บันทึก condition_on_return, คืน stock ถ้า ok, auto-complete request ถ้าครบทุก item
+- `list_requests()` — pagination + filter status/overdue, student เห็นแค่ของตัวเอง
+- `send_manual_reminder()` — admin ส่ง in_app reminder
+
+**scheduler.py — implement notification jobs**
+- `_check_due_soon()` — แจ้งเตือน student รายการครบกำหนดตาม due_soon_notify_days_before
+- `_check_overdue()` — ตั้ง is_overdue=True + แจ้ง student และ admin ทุกคน
+
+**main.py — bugfix**
+- เพิ่ม `os.makedirs(settings.UPLOAD_DIR, exist_ok=True)` ก่อน mount StaticFiles
+  (แก้ RuntimeError crash ถ้าโฟลเดอร์ uploads ยังไม่มี)
+
+---
+
+### Frontend
+
+**Auth pages**
+- `pages/LoginPage.jsx` — form email+password, redirect ตาม role (student→/dashboard, admin→/admin/dashboard)
+- `pages/RegisterPage.jsx` — form ครบ (full_name, student_id, email, password, major), success state แสดงข้อความตรวจอีเมล
+- `pages/VerifyEmailPage.jsx` — อ่าน ?token= จาก URL, เรียก verify API ตอน mount, แสดง success/error
+
+**Student pages (ทั้งหมด implement ใหม่)**
+- `pages/student/DashboardPage.jsx` — stat cards (active/pending/overdue) + shortcut links
+- `pages/student/EquipmentListPage.jsx` — search, filter หมวดหมู่, pagination, ปุ่มเพิ่มตะกร้าพร้อม badge
+- `pages/student/EquipmentDetailPage.jsx` — ตาราง spec, กด "เพิ่มตะกร้า → ไปหน้า borrow"
+- `pages/student/BorrowRequestPage.jsx` — checkout cart, consumable เลือกจำนวนได้, purpose, submit
+- `pages/student/MyBorrowsPage.jsx` — accordion รายการ, ต่อเวลา, ยกเลิก, download PDF
+- `pages/student/ProfilePage.jsx` — แสดง read-only fields + แก้ไข full_name/major
+
+**Admin pages (ทั้งหมด implement ใหม่)**
+- `pages/admin/DashboardPage.jsx` — stats 3 ตัว (pending/overdue/low_stock) จาก /dashboard/summary
+- `pages/admin/BorrowRequestsPage.jsx` — รายการ pending + accordion + อนุมัติ/ปฏิเสธพร้อม reject modal
+- `pages/admin/AllBorrowsPage.jsx` — ทุกคำขอ + filter status, ReturnModal (condition + damage_note)
+- `pages/admin/EquipmentManagePage.jsx` — ตาราง + ค้นหา, EquipmentModal เพิ่ม/แก้ไข, ปลดระวาง
+- `pages/admin/UsersPage.jsx` — ตาราง + filter role, toggle เปิด/ปิดบัญชี
+- `pages/admin/AuditLogPage.jsx` — ตารางอ่านอย่างเดียว + pagination
+- `pages/admin/SettingsPage.jsx` — แก้ไขค่า inline ทีละ key, บันทึกเฉพาะที่เปลี่ยน, flash ✓
+
+**Layout**
+- `components/layout/Sidebar.jsx` (ใหม่) — role-aware sidebar, NavLink highlight active, cart badge, user info + logout
+- `components/layout/ProtectedRoute.jsx` — ครอบ Outlet ด้วย flex layout (sidebar + main)
+
+**Context & API (ใหม่)**
+- `context/CartContext.jsx` — wrap useBorrowCart เป็น context แชร์ข้าม pages
+- `App.jsx` — เพิ่ม CartProvider
+- `api/usersApi.js`, `api/settingsApi.js`, `api/auditApi.js` — API calls สำหรับ admin
+
+**Bugfix**
+- `api/auditApi.js` — แก้ endpoint จาก `/audit` → `/audit-logs` ให้ตรงกับ router prefix
+
+---
+
+### อื่น ๆ
+
+- ไม่มีการเปลี่ยนแปลง Docker / infra วันนี้
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| `/uploads` StaticFiles crash ตอน startup | FastAPI ต้องการโฟลเดอร์มีอยู่ก่อน | แก้แล้ว: เพิ่ม os.makedirs ใน main.py |
+| auditApi.js เรียก path ผิด | frontend ใช้ /audit แต่ router ใช้ /audit-logs | แก้แล้ว |
+| Email จริงยังส่งไม่ได้ | MAIL_* ใน .env ยังไม่ได้ตั้งค่า | ต้องตั้งค่า Gmail App Password ก่อน deploy |
+| ยังไม่ได้ทดสอบ full stack end-to-end | ยังไม่ได้รัน docker compose จริง | next step |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] รัน `docker compose up --build` ทดสอบ stack ทั้งหมด
+2. [ ] ตั้งค่า `.env` จริง (DATABASE_URL, SECRET_KEY, MAIL_*)
+3. [ ] รัน `alembic upgrade head` สร้าง schema + seed settings
+4. [ ] ทดสอบ flow หลัก: register → verify email → login → ยืมอุปกรณ์ → admin อนุมัติ → คืน
+5. [ ] ตรวจสอบ ALLOWED_EMAIL_DOMAINS กับอาจารย์ว่า domain จริงคืออะไร
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** 98% — เหลือแค่ทดสอบ + ตั้งค่า email จริง
+**Frontend:** 100% — ครบทุกหน้า รวม layout sidebar
+**ระยะรวม:** ~95% — โค้ดพร้อม deploy ทดสอบได้แล้ว รอ full stack test ก่อน production
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ไฟล์ Excel คลังอุปกรณ์เดิม** — ยังรอทีมอื่นส่งมา เมื่อได้รับแล้วต้องเขียน `backend/scripts/import_equipment.py`
+- **ALLOWED_EMAIL_DOMAINS** — ยังไม่ยืนยันกับอาจารย์ ปัจจุบัน default = `kmitl.ac.th,student.kmitl.ac.th`
+- **LINE OA** — ยังไม่ implement (stretch goal), `LINE_CHANNEL_ACCESS_TOKEN` ใน .env ยังว่าง
+- **Email verification flow** — ถ้า MAIL_* ไม่ตั้งค่า register จะ error; พิจารณา bypass ตอน dev โดยให้ admin manually set email_verified=True ผ่าน DB
