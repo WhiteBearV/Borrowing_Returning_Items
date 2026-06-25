@@ -57,10 +57,8 @@ async def verify_email(db: AsyncSession, token: str) -> None:
         select(AuthToken).where(AuthToken.token == token, AuthToken.token_type == "email_verify")
     )
     auth_token = result.scalar_one_or_none()
-    if not auth_token or auth_token.used_at:
+    if not auth_token or auth_token.used_at or auth_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token.")
-    if auth_token.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token has expired.")
 
     user_result = await db.execute(select(User).where(User.id == auth_token.user_id))
     user = user_result.scalar_one()
@@ -132,10 +130,8 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
         select(AuthToken).where(AuthToken.token == token, AuthToken.token_type == "password_reset")
     )
     auth_token = result.scalar_one_or_none()
-    if not auth_token or auth_token.used_at:
+    if not auth_token or auth_token.used_at or auth_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token.")
-    if auth_token.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token has expired.")
 
     user_result = await db.execute(select(User).where(User.id == auth_token.user_id))
     user = user_result.scalar_one()

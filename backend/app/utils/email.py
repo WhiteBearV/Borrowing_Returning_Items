@@ -5,23 +5,22 @@ from app.core.config import settings
 # ถ้า MAIL_USERNAME ยังเป็น placeholder → print แทนส่งจริง (dev convenience)
 _email_configured = settings.MAIL_USERNAME not in ("", "your-email@example.com")
 
-if _email_configured:
-    mail_config = ConnectionConfig(
-        MAIL_USERNAME=settings.MAIL_USERNAME,
-        MAIL_PASSWORD=settings.MAIL_PASSWORD,
-        MAIL_FROM=settings.MAIL_FROM,
-        MAIL_PORT=settings.MAIL_PORT,
-        MAIL_SERVER=settings.MAIL_SERVER,
-        MAIL_STARTTLS=settings.MAIL_STARTTLS,
-        MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
-        USE_CREDENTIALS=True,
-        VALIDATE_CERTS=True,
-    )
-    fm = FastMail(mail_config)
+mail_config = ConnectionConfig(
+    MAIL_USERNAME=settings.MAIL_USERNAME or "dev",
+    MAIL_PASSWORD=settings.MAIL_PASSWORD or "dev",
+    MAIL_FROM=settings.MAIL_FROM or "dev@localhost",
+    MAIL_PORT=settings.MAIL_PORT,
+    MAIL_SERVER=settings.MAIL_SERVER,
+    MAIL_STARTTLS=settings.MAIL_STARTTLS,
+    MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
+    USE_CREDENTIALS=_email_configured,
+    VALIDATE_CERTS=_email_configured,
+    SUPPRESS_SEND=not _email_configured,
+)
+fm = FastMail(mail_config)
 
 
 async def send_email(to: str, subject: str, body_html: str) -> None:
-    """ส่งอีเมล HTML — ถ้า SMTP ไม่ตั้งค่าจะ print ลง console แทน"""
     if not _email_configured:
         print(f"\n[DEV EMAIL] To: {to}\nSubject: {subject}\n{body_html}\n")
         return

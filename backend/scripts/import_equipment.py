@@ -39,16 +39,11 @@ STATUS_MAP: dict[int, str] = {
 def map_status(status_id: int, status_name: str) -> str:
     if status_id in STATUS_MAP:
         return STATUS_MAP[status_id]
-    # bug statuses (id 9, 11-36): infer from name prefix
+    # bug statuses (id 9, 11-36): name starts with one of the available prefixes
     name = status_name or ""
-    if "อยู่ระหว่างการยืม" in name:
-        return "available"
-    if "Ready to Deploy" in name:
-        return "available"
-    return "unavailable"
+    return "available" if ("อยู่ระหว่างการยืม" in name or "Ready to Deploy" in name) else "unavailable"
 
 def q(s: object) -> str:
-    """Quote a value for SQL."""
     if s is None:
         return "NULL"
     return "'" + str(s).replace("'", "''") + "'"
@@ -99,7 +94,6 @@ def main() -> None:
             a.name,
             a.asset_tag,
             a.notes,
-            a._snipeit_lekh_khrphnth_7 AS asset_number,
             a.status_id,
             s.name AS status_name,
             c.name AS category_name,
