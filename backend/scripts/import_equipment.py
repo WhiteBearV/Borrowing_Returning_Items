@@ -8,15 +8,16 @@ Usage (run on Snipe-IT server):
 Then copy to this machine and run:
     psql $DATABASE_URL -f seed_equipment.sql
 """
+import os
 import sys
 import pymysql
 import uuid
 
 MYSQL = dict(
-    host="127.0.0.1",
-    user="snipeit",
-    password="2534163",
-    database="snipeit",
+    host=os.environ.get("SNIPEIT_DB_HOST", "127.0.0.1"),
+    user=os.environ.get("SNIPEIT_DB_USER", "snipeit"),
+    password=os.environ["SNIPEIT_DB_PASSWORD"],  # บังคับใส่ — ไม่มี default
+    database=os.environ.get("SNIPEIT_DB_NAME", "snipeit"),
     charset="utf8mb4",
 )
 
