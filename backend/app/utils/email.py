@@ -2,7 +2,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 
 from app.core.config import settings
 
-# ponytail: ถ้า MAIL_USERNAME ยังเป็น placeholder → dev mode, print แทนส่งจริง
+# ถ้า MAIL_USERNAME ยังเป็น placeholder → print แทนส่งจริง (dev convenience)
 _email_configured = settings.MAIL_USERNAME not in ("", "your-email@example.com")
 
 if _email_configured:

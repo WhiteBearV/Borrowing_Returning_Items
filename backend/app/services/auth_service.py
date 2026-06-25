@@ -11,7 +11,7 @@ from app.core.security import create_access_token, create_refresh_token, decode_
 from app.models.auth_token import AuthToken
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
-from app.utils.email import _email_configured, send_reset_password_email, send_verification_email
+from app.utils.email import send_reset_password_email, send_verification_email
 
 
 async def register(db: AsyncSession, body: RegisterRequest) -> None:
@@ -33,7 +33,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> None:
         password_hash=hash_password(body.password),
         role="student",
         major=body.major,
-        email_verified=not _email_configured,  # ponytail: auto-verify ใน dev mode
+        email_verified=settings.DEV_AUTO_VERIFY_EMAIL,  # True ได้เฉพาะตั้ง DEV_AUTO_VERIFY_EMAIL=true ใน .env
     )
     db.add(user)
     await db.flush()  # ได้ user.id ก่อน commit

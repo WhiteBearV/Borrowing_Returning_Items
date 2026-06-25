@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     ALLOWED_EMAIL_DOMAINS: str = "kmitl.ac.th,student.kmitl.ac.th"
 
+    # Dev
+    DEV_AUTO_VERIFY_EMAIL: bool = False  # ต้องตั้งชัดเจน ห้าม True ใน production
+
     # LINE OA
     LINE_CHANNEL_ACCESS_TOKEN: str = ""
 
