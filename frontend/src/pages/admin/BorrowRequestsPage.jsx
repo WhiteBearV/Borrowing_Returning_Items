@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
+import Pagination from '../../components/common/Pagination.jsx'
 
 export default function BorrowRequestsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -59,7 +60,7 @@ export default function BorrowRequestsPage() {
                   <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
                     {req.items.map((item) => (
                       <div key={item.id} className="flex justify-between px-3 py-2 text-sm text-gray-700">
-                        <span>{item.equipment_id}</span>
+                        <span>{item.equipment_name ?? item.equipment_id}</span>
                         <span className="text-gray-400">×{item.quantity}</span>
                       </div>
                     ))}
@@ -86,13 +87,7 @@ export default function BorrowRequestsPage() {
         </div>
       )}
 
-      {data.total > 20 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">← ก่อนหน้า</button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 20)}</span>
-          <button disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(page + 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">ถัดไป →</button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
 
       {/* Reject modal */}
       {rejectId && (

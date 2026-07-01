@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { auditApi } from '../../api/auditApi.js'
+import Pagination from '../../components/common/Pagination.jsx'
 
 export default function AuditLogPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -47,13 +48,7 @@ export default function AuditLogPage() {
         </div>
       )}
 
-      {data.total > 25 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">← ก่อนหน้า</button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 25)}</span>
-          <button disabled={page >= Math.ceil(data.total / 25)} onClick={() => setPage(page + 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">ถัดไป →</button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={25} onChange={setPage} />
     </div>
   )
 }

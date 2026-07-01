@@ -1,0 +1,57 @@
+# รายงานความคืบหน้า — วันที่ 30 มิถุนายน 2569 (Update รอบบ่าย)
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** นายวีรภัทร สาลีผล
+
+> อ้างอิงรายงานรอบเช้า: `Report/2026-06-30.txt`
+
+---
+
+## สิ่งที่ทำสำเร็จ (รอบบ่าย) ✅
+
+### Backend
+- **เพิ่ม `username` column ใน User model** (`app/models/user.py`) — nullable, unique, indexed
+  - ใช้สำหรับผู้ดูแลระบบที่ไม่มีรหัสนักศึกษา
+  - รูปแบบ: ชื่อภาษาอังกฤษ + 3 ตัวแรกของนามสกุล เช่น `JohnSmi`
+- **สร้าง Alembic migration** `0003_add_username_to_users.py` — รัน `alembic upgrade head` สำเร็จแล้ว
+- **เปลี่ยน `LoginRequest` schema** (`app/schemas/auth.py`) — `email: EmailStr` → `identifier: str` รองรับ student_id / username / email
+- **อัปเดต `auth_service.login()`** (`app/services/auth_service.py`) — ค้นหา user ด้วย `OR(student_id, username, email)` ในคิวรีเดียว
+
+### Frontend
+- **อัปเดต `authApi.login()`** (`src/api/authApi.js`) — เปลี่ยน param จาก `email` เป็น `identifier`
+- **อัปเดต `AuthContext.login()`** (`src/context/AuthContext.jsx`) — เปลี่ยน param ให้ตรงกัน
+- **ปรับ `LoginPage.jsx`** — เพิ่มแท็บสองโหมด:
+  - **นักศึกษา**: ช่อง "รหัสนักศึกษา" (placeholder: `เช่น 6501234567`)
+  - **ผู้ดูแลระบบ**: ช่อง "ชื่อผู้ใช้งาน" (placeholder: `เช่น JohnSmi`)
+  - เมื่อสลับแท็บ ล้าง form และ error อัตโนมัติ
+  - ลิงก์ "ลงทะเบียน" แสดงเฉพาะแท็บนักศึกษา (แอดมินไม่ self-register)
+
+---
+
+## ปัญหาที่พบ / ค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| Admin ยังไม่มี endpoint สร้างบัญชี | ไม่มี admin registration flow | ตั้ง `username` ตรงใน DB ด้วย SQL ไปก่อน หรือสร้าง admin-only endpoint ถ้าจำเป็น |
+
+---
+
+## แผนถัดไป 📋
+
+1. [ ] ทดสอบ login ทั้งสองโหมดบน full stack จริง (นักศึกษา student_id / แอดมิน username)
+2. [ ] พิจารณาเพิ่ม endpoint `POST /users/admin` (require_admin) สำหรับสร้างบัญชีผู้ดูแลใหม่พร้อม username
+3. [ ] ตั้ง `username` ให้บัญชีแอดมินที่มีอยู่แล้วใน DB ด้วย SQL
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~92% — เหลือ: admin creation endpoint, integration test
+**Frontend:** ~92% — เหลือ: image upload UI, edge case test
+**ระยะรวม:** ~92% — ฟีเจอร์ login แยก role เสร็จแล้ว
+
+---
+
+## หมายเหตุ ⚠️
+
+- ข้อ 1 จากที่ปรึกษาอาจารย์ (เปลี่ยน login เป็น Student ID / รหัสอาจารย์) — **เสร็จแล้ว**
+- การลบ `email` field ออกจาก LoginRequest ไม่กระทบ `forgot-password` เพราะ endpoint นั้นยังรับ `email` ตรงๆ แยกต่างหาก

@@ -68,8 +68,17 @@ async def verify_email(db: AsyncSession, token: str) -> None:
 
 
 async def login(db: AsyncSession, body: LoginRequest) -> TokenResponse:
-    """ตรวจสอบ credentials และคืน JWT access + refresh token"""
-    result = await db.execute(select(User).where(User.email == body.email))
+    """ตรวจสอบ credentials และคืน JWT access + refresh token — รองรับ student_id, username, หรือ email"""
+    from sqlalchemy import or_
+    result = await db.execute(
+        select(User).where(
+            or_(
+                User.student_id == body.identifier,
+                User.username == body.identifier,
+                User.email == body.identifier,
+            )
+        )
+    )
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")

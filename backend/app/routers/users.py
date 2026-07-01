@@ -45,3 +45,12 @@ async def update_user_status(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     return await users_service.update_status(db, user_id, body.is_active)
+
+
+@router.delete("/{user_id}", status_code=204)
+async def delete_user(
+    user_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await users_service.delete_user(db, user_id)

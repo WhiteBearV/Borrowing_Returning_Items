@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="ระบบยืม-คืนอุปกรณ์",
-    description="Equipment Borrowing System — CE & DD KMITL",
+    description="Equipment Borrowing System — CE & DD CDTI",
     version="1.0.0",
     lifespan=lifespan,
 )

@@ -71,6 +71,16 @@ async def retire_equipment(
     return Response(status_code=204)
 
 
+@router.delete("/equipment/{equipment_id}/permanent", status_code=204)
+async def delete_equipment_permanent(
+    equipment_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await equipment_service.delete_equipment(db, equipment_id)
+    return Response(status_code=204)
+
+
 @router.get("/equipment/{equipment_id}/qrcode")
 async def get_qrcode(
     equipment_id: uuid.UUID,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
+import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_STYLE = {
   pending:   'bg-yellow-100 text-yellow-700',
@@ -94,7 +95,7 @@ export default function MyBorrowsPage() {
                     {req.items.map((item) => (
                       <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm">
                         <div>
-                          <span className="text-gray-700">{item.equipment_id}</span>
+                          <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
                           <span className="ml-2 text-xs text-gray-400">×{item.quantity}</span>
                           {item.returned && (
                             <span className="ml-2 text-xs text-green-600">คืนแล้ว</span>
@@ -141,20 +142,7 @@ export default function MyBorrowsPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {data.total > 10 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">
-            ← ก่อนหน้า
-          </button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 10)}</span>
-          <button disabled={page >= Math.ceil(data.total / 10)} onClick={() => setPage(page + 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">
-            ถัดไป →
-          </button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={10} onChange={setPage} />
     </div>
   )
 }

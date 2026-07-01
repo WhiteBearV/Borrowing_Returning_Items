@@ -17,6 +17,7 @@ class BorrowRequestCreate(BaseModel):
 class BorrowItemResponse(BaseModel):
     id: uuid.UUID
     equipment_id: uuid.UUID
+    equipment_name: str | None = None
     item_type_snapshot: str
     quantity: int
     returned: bool
@@ -33,6 +34,9 @@ class BorrowRequestResponse(BaseModel):
     id: uuid.UUID
     request_code: str
     student_id: uuid.UUID
+    student_name: str | None = None
+    student_email: str | None = None
+    student_number: str | None = None
     purpose: str | None
     status: str
     requested_at: datetime

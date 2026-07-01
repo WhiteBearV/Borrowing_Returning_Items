@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { useCart } from '../../context/CartContext.jsx'
+import ConfirmModal from '../common/ConfirmModal.jsx'
 
 const STUDENT_NAV = [
   { to: '/dashboard',  label: 'หน้าหลัก' },
@@ -32,6 +34,7 @@ export default function Sidebar() {
   const { cart } = useCart()
   const navigate = useNavigate()
   const nav = user?.role === 'admin' ? ADMIN_NAV : STUDENT_NAV
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -67,12 +70,23 @@ export default function Sidebar() {
         <p className="text-xs font-medium text-gray-700 truncate">{user?.full_name}</p>
         <p className="text-xs text-gray-400 truncate">{user?.email}</p>
         <button
-          onClick={handleLogout}
+          onClick={() => setShowLogoutConfirm(true)}
           className="w-full text-left text-xs text-red-500 hover:text-red-700 mt-1"
         >
           ออกจากระบบ
         </button>
       </div>
+
+      {showLogoutConfirm && (
+        <ConfirmModal
+          title="ออกจากระบบ"
+          message="ต้องการออกจากระบบใช่หรือไม่?"
+          confirmLabel="ออกจากระบบ"
+          danger
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
     </aside>
   )
 }

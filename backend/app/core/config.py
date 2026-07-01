@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"
     UPLOAD_DIR: str = "./uploads"
-    ALLOWED_EMAIL_DOMAINS: str = "kmitl.ac.th,student.kmitl.ac.th"
+    ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th,student.cdti.ac.th"
 
     # Dev
     DEV_AUTO_VERIFY_EMAIL: bool = False  # ต้องตั้งชัดเจน ห้าม True ใน production

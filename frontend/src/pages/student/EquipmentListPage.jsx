@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { useCart } from '../../context/CartContext.jsx'
+import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', consumable: 'วัสดุสิ้นเปลือง' }
@@ -83,7 +84,7 @@ export default function EquipmentListPage() {
             return (
               <div key={eq.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-2">
                 {eq.image_url && (
-                  <img src={eq.image_url} alt={eq.name} className="w-full h-36 object-cover rounded-lg mb-1" />
+                  <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-36 object-cover rounded-lg mb-1" />
                 )}
                 <div className="flex items-start justify-between gap-2">
                   <Link to={`/equipment/${eq.id}`} className="font-semibold text-gray-800 hover:text-blue-600 leading-tight">
@@ -114,26 +115,7 @@ export default function EquipmentListPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {data.total > 12 && (
-        <div className="flex justify-center items-center gap-3 mt-8">
-          <button
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50"
-          >
-            ← ก่อนหน้า
-          </button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 12)}</span>
-          <button
-            disabled={page >= Math.ceil(data.total / 12)}
-            onClick={() => setPage(page + 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50"
-          >
-            ถัดไป →
-          </button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={12} onChange={setPage} />
     </div>
   )
 }

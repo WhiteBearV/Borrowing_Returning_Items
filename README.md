@@ -2,7 +2,7 @@
 
 ระบบเว็บแอปสำหรับจัดการการยืม-คืนอุปกรณ์ครุภัณฑ์และวัสดุสิ้นเปลือง  
 สำหรับนักศึกษาและอาจารย์ของสาขาวิศวกรรมคอมพิวเตอร์และสาขาออกแบบดิจิทัล  
-สถาบันเทคโนโลยีพระจอมเกล้าเจ้าคุณทหารลาดกระบัง (KMITL)
+สถาบันเทคโนโลยีดิจิทัลสวนจิตรลดา (CDTI)
 
 ---
 
@@ -98,7 +98,7 @@ docker compose -f docker-compose.prod.yml up --build
 | `SECRET_KEY` | JWT secret key |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | Gmail app password สำหรับส่งอีเมล |
 | `FRONTEND_URL` | URL ของ frontend (สำหรับ CORS + email links) |
-| `ALLOWED_EMAIL_DOMAINS` | Domain อีเมลที่อนุญาตลงทะเบียน เช่น `kmitl.ac.th` |
+| `ALLOWED_EMAIL_DOMAINS` | Domain อีเมลที่อนุญาตลงทะเบียน เช่น `cdti.ac.th` |
 
 ดูตัวอย่างทั้งหมดได้ที่ `backend/.env.example`
 

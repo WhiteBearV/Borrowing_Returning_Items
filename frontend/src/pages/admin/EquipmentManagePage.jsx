@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { equipmentApi } from '../../api/equipmentApi.js'
+import ConfirmModal from '../../components/common/ConfirmModal.jsx'
+import Pagination from '../../components/common/Pagination.jsx'
 
 const EMPTY_FORM = { code: '', name: '', category_id: '', item_type: 'durable', description: '', location: '', unit: '', quantity_total: 1, image_url: '' }
 
@@ -114,23 +116,41 @@ export default function EquipmentManagePage() {
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
   const [search, setSearch] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterType, setFilterType] = useState('')
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null) // null | 'create' | equipment object
+  const [confirm, setConfirm] = useState(null) // { title, message, onConfirm }
   const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoading(true)
-    equipmentApi.list({ search: search || undefined, page, page_size: 15 }).then(setData).finally(() => setLoading(false))
+    equipmentApi.list({
+      search: search || undefined,
+      category_id: filterCategory || undefined,
+      item_type: filterType || undefined,
+      page, page_size: 15,
+    }).then(setData).finally(() => setLoading(false))
   }
 
   useEffect(() => { equipmentApi.listCategories().then(setCategories).catch(() => {}) }, [])
-  useEffect(() => { load() }, [search, page])
+  useEffect(() => { load() }, [search, filterCategory, filterType, page])
 
-  const retire = async (id, name) => {
-    if (!confirm(`ปลดระวาง "${name}" ?`)) return
-    await equipmentApi.retire(id)
-    load()
-  }
+  const retire = (id, name) => setConfirm({
+    title: 'ปลดระวางอุปกรณ์',
+    message: `ปลดระวาง "${name}" ?\nอุปกรณ์จะไม่สามารถยืมได้อีก`,
+    confirmLabel: 'ปลดระวาง',
+    danger: true,
+    onConfirm: async () => { setConfirm(null); await equipmentApi.retire(id); load() },
+  })
+
+  const deletePermanent = (id, name) => setConfirm({
+    title: 'ลบอุปกรณ์ถาวร',
+    message: `ลบ "${name}" ออกจากระบบถาวร?\n(ทำได้เฉพาะอุปกรณ์ที่ไม่มีประวัติการยืม)`,
+    confirmLabel: 'ลบถาวร',
+    danger: true,
+    onConfirm: async () => { setConfirm(null); await equipmentApi.deletePermanent(id); load() },
+  })
 
   const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-blue-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400' }
   const STATUS_LABEL = { available: 'พร้อม', borrowed: 'ถูกยืม', under_repair: 'ซ่อม', damaged: 'เสียหาย', retired: 'ปลดระวาง' }
@@ -145,9 +165,22 @@ export default function EquipmentManagePage() {
         </button>
       </div>
 
-      <input type="text" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…" value={search}
-        onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-        className="w-full mb-4 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <div className="flex gap-3 mb-4">
+        <input type="text" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1) }}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">ทุกหมวดหมู่</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">ทุกประเภท</option>
+          <option value="durable">ครุภัณฑ์</option>
+          <option value="consumable">วัสดุสิ้นเปลือง</option>
+        </select>
+      </div>
 
       {loading ? (
         <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
@@ -173,7 +206,10 @@ export default function EquipmentManagePage() {
                     <div className="flex gap-3">
                       <button onClick={() => setModal(eq)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
                       {eq.status !== 'retired' && (
-                        <button onClick={() => retire(eq.id, eq.name)} className="text-xs text-red-500 hover:underline">ปลดระวาง</button>
+                        <button onClick={() => retire(eq.id, eq.name)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
+                      )}
+                      {eq.status === 'retired' && (
+                        <button onClick={() => deletePermanent(eq.id, eq.name)} className="text-xs text-red-600 hover:underline font-medium">ลบถาวร</button>
                       )}
                     </div>
                   </td>
@@ -185,13 +221,7 @@ export default function EquipmentManagePage() {
         </div>
       )}
 
-      {data.total > 15 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">← ก่อนหน้า</button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 15)}</span>
-          <button disabled={page >= Math.ceil(data.total / 15)} onClick={() => setPage(page + 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">ถัดไป →</button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={15} onChange={setPage} />
 
       {modal && (
         <EquipmentModal
@@ -199,6 +229,17 @@ export default function EquipmentManagePage() {
           categories={categories}
           onClose={() => setModal(null)}
           onSave={() => { setModal(null); load() }}
+        />
+      )}
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          danger={confirm.danger}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
         />
       )}
     </div>

@@ -40,3 +40,15 @@ class BorrowRequest(Base):
     notifications = relationship("Notification", back_populates="borrow_request")
 
     __table_args__ = (Index("ix_borrow_requests_status", "status"),)
+
+    @property
+    def student_name(self) -> str | None:
+        return self.student.full_name if self.student else None
+
+    @property
+    def student_email(self) -> str | None:
+        return self.student.email if self.student else None
+
+    @property
+    def student_number(self) -> str | None:
+        return self.student.student_id if self.student else None

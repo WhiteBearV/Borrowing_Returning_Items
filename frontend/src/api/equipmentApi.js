@@ -6,6 +6,7 @@ export const equipmentApi = {
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
   retire: (id) => api.delete(`/equipment/${id}`),
+  deletePermanent: (id) => api.delete(`/equipment/${id}/permanent`),
   qrcode: (id) => api.get(`/equipment/${id}/qrcode`, { responseType: 'blob' }).then((r) => r.data),
   listCategories: () => api.get('/equipment-categories').then((r) => r.data),
   createCategory: (data) => api.post('/equipment-categories', data).then((r) => r.data),

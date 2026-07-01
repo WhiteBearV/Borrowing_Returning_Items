@@ -1,0 +1,123 @@
+# รายงานความคืบหน้า — วันที่ 29 มิถุนายน 2569 (2026)
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System — CDTI)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**แก้ไข Bug**
+- `app/services/borrow_service.py` — `list_requests()`: เพิ่ม `selectinload(BorrowRequest.student)` ที่ขาดหายไป
+  - Root cause: ฟังก์ชันไม่ได้ eager load student relationship → Pydantic serialize `student_name` ไม่ได้ → 500 error → frontend แสดงรายการว่าง ทั้งที่ DB มีข้อมูล 6 pending requests
+
+**เพิ่ม Endpoint ใหม่**
+- `DELETE /equipment/{id}/permanent` (`app/routers/equipment.py`) — ลบอุปกรณ์ถาวร (admin only)
+  - Service: `equipment_service.delete_equipment()` — เช็ค `status == 'retired'` และไม่มี borrow_items อ้างอิงก่อนลบ
+- `DELETE /borrow-requests/{id}` (`app/routers/borrow.py`) — ลบประวัติการยืม (admin only)
+  - Service: `borrow_service.delete_request()` — อนุญาตเฉพาะ status: completed / rejected / cancelled
+  - Cascade: ลบ Notification → BorrowItem → BorrowRequest ตามลำดับ FK
+- `DELETE /users/{id}` (`app/routers/users.py`) — ลบ user ถาวร (admin only, ต้อง is_active=False ก่อน)
+  - Service: `users_service.delete_user()` — cascade ลบ notifications + borrow history ทั้งหมด
+
+**แก้ไข Cascade Bug ใน Test Teardown**
+- `app/services/users_service.py` — import `delete, BorrowItem, BorrowRequest, Notification`
+
+### Frontend
+
+**Component ใหม่**
+- `components/common/ConfirmModal.jsx` — Pop-up ยืนยันแบบ Overlay Modal ใช้แทน `window.confirm()` ทุกที่
+  - รองรับ `danger` prop (ปุ่มแดง) และ normal (ปุ่มน้ำเงิน)
+  - Props: `title`, `message`, `confirmLabel`, `danger`, `onConfirm`, `onCancel`
+
+**จัดการอุปกรณ์ (`pages/admin/EquipmentManagePage.jsx`)**
+- เปลี่ยน `window.confirm()` → ConfirmModal ทุกจุด
+- เพิ่มปุ่ม **"ลบถาวร"** (แดง) เฉพาะอุปกรณ์ที่ `status === 'retired'`
+- เปลี่ยนสีปุ่ม "ปลดระวาง" จากแดง → ส้ม (แยกความสำคัญจากลบถาวร)
+
+**ประวัติการยืม (`pages/admin/AllBorrowsPage.jsx`)**
+- เพิ่มปุ่ม **"ลบประวัติ"** (แดง) เฉพาะ status: completed / rejected / cancelled
+- เปลี่ยน `window.confirm()` → ConfirmModal (ครอบทั้ง "รับคืนทั้งหมด" และ "ลบประวัติ")
+- ใช้ state เดียว `confirmDelete` จัดการ action ได้ 2 แบบ
+
+**จัดการผู้ใช้ (`pages/admin/UsersPage.jsx`)**
+- เพิ่ม ConfirmModal import + state `confirm`
+- เปลี่ยน `window.confirm()` → ConfirmModal สำหรับปิด/เปิดใช้งาน และลบถาวร
+
+**Sidebar (`components/layout/Sidebar.jsx`)**
+- เพิ่ม Pop-up ยืนยัน **"ออกจากระบบ"** ก่อน logout จริง
+- ใช้ ConfirmModal + state `showLogoutConfirm`
+
+**API เพิ่ม**
+- `api/equipmentApi.js` — เพิ่ม `deletePermanent(id)`
+- `api/borrowApi.js` — เพิ่ม `deleteRequest(id)`
+- `api/usersApi.js` — เพิ่ม `deleteUser(id)` (เพิ่มไปตั้งแต่ session ก่อน)
+
+### Testing
+
+**เขียน Test Cases และรันผ่านทั้งหมด (49/49)**
+
+- `backend/tests/test_pdf.py` — 22 test cases (unit tests, ไม่ต้องการ DB)
+  - PDF generation, Thai font, helper functions (_status_th, _condition_th, _fmt_date)
+
+- `backend/tests/test_security.py` — 12 tests (unit tests)
+  - JWT roundtrip, tamper detection, expired token, bcrypt salt
+
+- `backend/tests/test_api_integration.py` — 17 tests (integration, DB จริง)
+  - Login flow, equipment filter, borrow lifecycle, quota, dashboard
+  - แก้ปัญหา cascade teardown: ต้องลบ Notification ก่อน BorrowRequest ก่อน User
+
+- `backend/pytest.ini` — ตั้งค่า `asyncio_mode = auto`, `asyncio_default_fixture_loop_scope = session`, `asyncio_default_test_loop_scope = session`
+- `backend/tests/conftest.py` — Session-scoped fixtures + `_delete_user_cascade()` helper
+
+**บันทึกผลการทดสอบ:** `result/test_results_2026-06-29.txt`
+
+### Bug Fix เพิ่มเติม (จากการทดสอบ manual ก่อนหน้า)
+
+สิ่งเหล่านี้ถูกแก้ในเซสชันนี้ แต่เกิดจาก bug ที่พบจากการทดสอบจริง:
+- แสดงชื่ออุปกรณ์จริงแทน UUID ใน borrow items (backend schema + service + frontend 3 หน้า)
+- PDF ใบยืม: เปลี่ยนจาก NotoSansThai → Garuda.ttf (รองรับทั้ง Thai + Latin)
+- Dashboard: เพิ่ม stat card "คำขอที่ยืมอยู่" และ "นักศึกษาที่ยืมอยู่"
+- Equipment page: เพิ่ม filter หมวดหมู่และประเภท
+- Settings page: แสดง label ภาษาไทยเป็นหลัก
+- AllBorrows: เพิ่มปุ่ม "รับคืนทั้งหมด"
+- แก้ชื่อสถาบัน KMITL → CDTI ทั่วทั้งระบบ
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| หน้า "อนุมัติคำขอ" แสดงรายการว่าง ทั้งที่ Dashboard แสดง 6 pending | `list_requests` ขาด `selectinload(student)` → 500 error → frontend ไม่แสดง error | **แก้แล้ว**: เพิ่ม selectinload ใน borrow_service.py:168 |
+| อุปกรณ์บางรายการ quantity_available ค้างจากการทดสอบ | test data จากการทดสอบ manual ก่อนหน้า (6 pending requests ยังอยู่ใน DB) | ลบด้วย admin UI หรือ `DELETE FROM borrow_requests WHERE status='pending'` ใน psql |
+| Test coverage ยังไม่ครอบคลุม delete endpoints ใหม่ | เพิ่ม endpoint 3 ตัวใหม่วันนี้ ยังไม่มีเวลาเขียนเทส | เพิ่ม test ใน test_api_integration.py ในโอกาสถัดไป |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบ full stack จริง: ล็อกอิน admin → อนุมัติคำขอ → รับคืน → ลบประวัติ → ลบ user
+2. [ ] ลบ test data ที่ค้างอยู่ใน DB (6 pending requests) ด้วย psql หรือ admin UI
+3. [ ] ทดสอบ ConfirmModal popup ทุกจุด: logout, ปลดระวาง, ลบถาวร, ลบประวัติ, ลบ user
+4. [ ] ยืนยัน ALLOWED_EMAIL_DOMAINS กับอาจารย์ (ปัจจุบัน: cdti.ac.th, student.cdti.ac.th)
+5. [ ] เตรียม deploy บน server จริงของคณะ (Docker Compose production)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~97% — endpoint ครบ, business logic ถูกต้อง, มี test suite; เหลือ: test coverage ของ delete endpoints ใหม่
+**Frontend:** ~95% — UI ครบทุกหน้า, UX ดีขึ้น (ConfirmModal แทน window.confirm); เหลือ: full stack test จริง
+**Testing:** ~85% — 49 tests ผ่าน; เหลือ: test delete endpoints, edge cases
+**ระยะรวม:** พร้อม deploy beta เพื่อทดสอบกับผู้ใช้จริง
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ALLOWED_EMAIL_DOMAINS** ยังรอยืนยันจากอาจารย์ — ปัจจุบันตั้งค่า `cdti.ac.th,student.cdti.ac.th` ใน .env.example แต่ยังไม่ได้ยืนยันกับ domain จริงที่ใช้
+- **LINE OA** — ยังไม่ implement (stretch goal); ใส่ `LINE_CHANNEL_ACCESS_TOKEN=` ว่างไว้ใน .env
+- **ข้อมูลอุปกรณ์จาก Snipe-IT** — import script อยู่ที่ `backend/scripts/import_equipment.py` และ `backend/scripts/seed_equipment.sql` แล้ว แต่ยังไม่ได้รันกับข้อมูลจริงบน production server
+- **Garuda.ttf font** ใน PDF — font file อยู่ที่ `backend/app/utils/fonts/` ต้องตรวจสอบว่า copy ติดไปใน Docker image ด้วย

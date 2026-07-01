@@ -3,7 +3,10 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api/axiosInstance.js'
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState({ pending_requests: 0, overdue_requests: 0, low_stock_items: 0 })
+  const [summary, setSummary] = useState({
+    pending_requests: 0, overdue_requests: 0, low_stock_items: 0,
+    active_borrows: 0, active_borrowers: 0,
+  })
 
   useEffect(() => {
     api.get('/dashboard/summary').then((r) => setSummary(r.data)).catch(() => {})
@@ -13,6 +16,8 @@ export default function DashboardPage() {
     { label: 'รออนุมัติ', value: summary.pending_requests, color: 'bg-yellow-50 text-yellow-700', href: '/admin/borrow-requests' },
     { label: 'เกินกำหนดคืน', value: summary.overdue_requests, color: 'bg-red-50 text-red-700', href: '/admin/borrows' },
     { label: 'สต็อกต่ำ', value: summary.low_stock_items, color: 'bg-orange-50 text-orange-700', href: '/admin/equipment' },
+    { label: 'คำขอที่ยืมอยู่', value: summary.active_borrows, color: 'bg-blue-50 text-blue-700', href: '/admin/borrows?status=approved' },
+    { label: 'นักศึกษาที่ยืมอยู่', value: summary.active_borrowers, color: 'bg-purple-50 text-purple-700', href: '/admin/borrows?status=approved' },
   ]
 
   const shortcuts = [
@@ -26,8 +31,16 @@ export default function DashboardPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-gray-800 mb-8">Admin Dashboard</h1>
 
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        {stats.map((s) => (
+      <div className="grid grid-cols-3 gap-4 mb-3">
+        {stats.slice(0, 3).map((s) => (
+          <Link key={s.label} to={s.href} className={`rounded-xl p-5 text-center ${s.color} hover:opacity-80 transition-opacity`}>
+            <p className="text-4xl font-bold">{s.value}</p>
+            <p className="text-sm mt-1">{s.label}</p>
+          </Link>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        {stats.slice(3).map((s) => (
           <Link key={s.label} to={s.href} className={`rounded-xl p-5 text-center ${s.color} hover:opacity-80 transition-opacity`}>
             <p className="text-4xl font-bold">{s.value}</p>
             <p className="text-sm mt-1">{s.label}</p>

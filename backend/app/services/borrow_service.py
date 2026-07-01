@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -58,7 +58,10 @@ async def _notify(
 async def _load_request(db: AsyncSession, request_id: uuid.UUID) -> BorrowRequest:
     result = await db.execute(
         select(BorrowRequest)
-        .options(selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment))
+        .options(
+            selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
+            selectinload(BorrowRequest.student),
+        )
         .where(BorrowRequest.id == request_id)
     )
     req = result.scalar_one_or_none()
@@ -162,7 +165,10 @@ async def list_requests(
     overdue_only: bool,
 ) -> PaginatedBorrowRequests:
     """นักศึกษาเห็นแค่ของตัวเอง / admin เห็นทั้งหมด"""
-    query = select(BorrowRequest).options(selectinload(BorrowRequest.items))
+    query = select(BorrowRequest).options(
+        selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
+        selectinload(BorrowRequest.student),
+    )
 
     if current_user.role != "admin":
         query = query.where(BorrowRequest.student_id == current_user.id)
@@ -351,6 +357,28 @@ async def return_item(
     await db.commit()
 
 
+async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
+    """รับคืนอุปกรณ์ทุกชิ้นใน request พร้อมกัน (condition=ok ทั้งหมด) — admin only"""
+    req = await _load_request(db, request_id)
+    if req.status != "approved":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
+
+    now = datetime.now(timezone.utc)
+    for item in req.items:
+        if not item.returned and item.item_type_snapshot == "durable":
+            item.returned = True
+            item.returned_at = now
+            item.condition_on_return = "ok"
+            item.equipment.quantity_available += item.quantity
+
+    req.status = "completed"
+    req.returned_at = now
+    await _notify(db, req.student_id, "returned_confirmed",
+                  f"รับคืนอุปกรณ์ทั้งหมดจากคำขอ {req.request_code} แล้ว",
+                  borrow_request_id=req.id)
+    await db.commit()
+
+
 async def generate_pdf(
     db: AsyncSession, current_user: User, request_id: uuid.UUID
 ) -> bytes:
@@ -358,6 +386,23 @@ async def generate_pdf(
     from app.utils.pdf import generate_borrow_pdf
     req = await get_request(db, current_user, request_id)
     return generate_borrow_pdf(req)
+
+
+async def delete_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
+    """ลบประวัติการยืม — อนุญาตเฉพาะ completed / rejected / cancelled"""
+    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
+    if req.status not in ("completed", "rejected", "cancelled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ลบได้เฉพาะคำขอที่เสร็จสิ้น / ปฏิเสธ / ยกเลิกแล้วเท่านั้น",
+        )
+    await db.execute(delete(Notification).where(Notification.borrow_request_id == request_id))
+    await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == request_id))
+    await db.execute(delete(BorrowRequest).where(BorrowRequest.id == request_id))
+    await db.commit()
 
 
 async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:

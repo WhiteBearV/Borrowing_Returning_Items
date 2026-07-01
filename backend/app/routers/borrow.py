@@ -90,6 +90,17 @@ async def renew_item(
     return {"detail": "Renewal successful."}
 
 
+@router.post("/{request_id}/return-all")
+async def return_all_items(
+    request_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """รับคืนอุปกรณ์ทุกชิ้นพร้อมกัน (condition=ok) — admin เท่านั้น"""
+    await borrow_service.return_all_items(db, admin, request_id)
+    return {"detail": "All items returned."}
+
+
 @router.post("/{request_id}/items/{item_id}/return")
 async def return_item(
     request_id: uuid.UUID,
@@ -111,6 +122,17 @@ async def download_pdf(
 ) -> Response:
     pdf_bytes = await borrow_service.generate_pdf(db, current_user, request_id)
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.delete("/{request_id}", status_code=204)
+async def delete_borrow_request(
+    request_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """ลบประวัติการยืม — เฉพาะ completed / rejected / cancelled"""
+    await borrow_service.delete_request(db, admin, request_id)
+    return Response(status_code=204)
 
 
 @router.post("/{request_id}/remind")

@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.borrow_item import BorrowItem
 from app.models.equipment import Equipment
 from app.models.equipment_category import EquipmentCategory
 from app.schemas.equipment import (
@@ -76,6 +77,20 @@ async def update_equipment(db: AsyncSession, equipment_id: uuid.UUID, body: Equi
 async def retire_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> None:
     eq = await get_equipment(db, equipment_id)
     eq.status = "retired"
+    await db.commit()
+
+
+async def delete_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> None:
+    """ลบอุปกรณ์ออกจาก DB ถาวร — อนุญาตเฉพาะ retired และไม่มีประวัติการยืม"""
+    eq = await get_equipment(db, equipment_id)
+    if eq.status != "retired":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ต้องปลดระวางก่อนลบ")
+    has_history = (await db.execute(
+        select(func.count(BorrowItem.id)).where(BorrowItem.equipment_id == equipment_id)
+    )).scalar() or 0
+    if has_history:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่สามารถลบได้ เนื่องจากมีประวัติการยืม")
+    await db.delete(eq)
     await db.commit()
 
 

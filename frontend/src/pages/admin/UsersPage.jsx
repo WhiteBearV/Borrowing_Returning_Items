@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { usersApi } from '../../api/usersApi.js'
+import ConfirmModal from '../../components/common/ConfirmModal.jsx'
+import Pagination from '../../components/common/Pagination.jsx'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 
@@ -8,6 +10,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1)
   const [roleFilter, setRoleFilter] = useState('')
   const [loading, setLoading] = useState(true)
+  const [confirm, setConfirm] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -16,12 +19,28 @@ export default function UsersPage() {
 
   useEffect(() => { load() }, [roleFilter, page])
 
-  const toggleStatus = async (user) => {
+  const toggleStatus = (user) => {
     const label = user.is_active ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'
-    if (!confirm(`${label} บัญชี "${user.full_name}" ?`)) return
-    await usersApi.updateStatus(user.id, !user.is_active)
-    load()
+    setConfirm({
+      title: `${label}บัญชี`,
+      message: `${label} "${user.full_name}" ?`,
+      confirmLabel: label,
+      danger: user.is_active,
+      onConfirm: async () => { setConfirm(null); await usersApi.updateStatus(user.id, !user.is_active); load() },
+    })
   }
+
+  const deleteUser = (user) => setConfirm({
+    title: 'ลบบัญชีถาวร',
+    message: `ลบบัญชี "${user.full_name}" ออกจากระบบถาวร?\nประวัติการยืมทั้งหมดจะถูกลบด้วย`,
+    confirmLabel: 'ลบถาวร',
+    danger: true,
+    onConfirm: async () => {
+      setConfirm(null)
+      try { await usersApi.deleteUser(user.id); load() }
+      catch (e) { alert(e.response?.data?.detail ?? 'ลบไม่สำเร็จ') }
+    },
+  })
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -62,11 +81,17 @@ export default function UsersPage() {
                       ? <span className="text-xs text-green-600">ยืนยันแล้ว</span>
                       : <span className="text-xs text-yellow-600">รอยืนยัน</span>}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-2.5 flex items-center gap-3">
                     <button onClick={() => toggleStatus(u)}
                       className={`text-xs hover:underline ${u.is_active ? 'text-red-500' : 'text-green-600'}`}>
                       {u.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                     </button>
+                    {!u.is_active && (
+                      <button onClick={() => deleteUser(u)}
+                        className="text-xs text-red-700 hover:underline font-medium">
+                        ลบถาวร
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -76,12 +101,17 @@ export default function UsersPage() {
         </div>
       )}
 
-      {data.total > 20 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">← ก่อนหน้า</button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 20)}</span>
-          <button disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(page + 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">ถัดไป →</button>
-        </div>
+      <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          danger={confirm.danger}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </div>
   )

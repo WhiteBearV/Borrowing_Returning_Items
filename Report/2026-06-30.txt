@@ -1,0 +1,66 @@
+# รายงานความคืบหน้า — วันที่ 30 มิถุนายน 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** นายวีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- แก้ bug `users_service.py::delete_user()` — FK constraint จาก `auth_tokens_user_id_fkey` ทำให้ลบ user ไม่ได้ แก้โดยเพิ่ม `DELETE FROM auth_tokens WHERE user_id = ?` ก่อนลบ user
+- เพิ่ม cascade delete `auth_tokens` ก่อน user ใน `services/users_service.py`
+
+### Frontend
+- แก้ `UsersPage.jsx` — เพิ่ม try/catch รอบ `deleteUser()` เพื่อแสดง error แทนที่จะ silent fail
+- แก้ image URL ใน `EquipmentListPage.jsx` และ `EquipmentDetailPage.jsx` — เติม base URL (`http://localhost:8000`) เมื่อ path ขึ้นต้นด้วย `/` เพื่อให้รูปโหลดจาก FastAPI แทน Vite
+- เพิ่ม `Pagination` component ใหม่ (`components/common/Pagination.jsx`) รองรับ: กระโดด ±5 หน้า, dropdown เลือกหน้า, ปุ่มก่อนหน้า/ถัดไป
+- ใช้ `<Pagination>` แทน pagination เดิมใน 7 หน้า: `EquipmentListPage`, `MyBorrowsPage`, `AllBorrowsPage`, `BorrowRequestsPage`, `UsersPage`, `AuditLogPage`, `EquipmentManagePage`
+
+### อื่น ๆ (Data, Docs)
+- SSH เข้า Snipe-IT server (ton@172.16.46.64) และ SCP รูปอุปกรณ์ 105 ไฟล์มาเก็บที่ `backend/uploads/equipment/`
+- Query MySQL ใน Snipe-IT เพื่อ map `asset_tag → image` แล้ว UPDATE ตาราง `equipment` ทั้งหมด 1,006 รายการ
+- NULL image_url 37 รายการที่ไฟล์รูปหายจาก Snipe-IT server (Dell Optiplex และอื่น ๆ)
+- ลบข้อมูล test จาก pytest ที่หลุดเข้า production DB: 3 หมวดหมู่ "หมวดทดสอบ_xxx" พร้อม equipment และ borrow_items ที่เกี่ยวข้อง
+- ลบ test user "นายสมเดจ เกจเวย์" ที่ค้างอยู่ใน DB
+- สร้างเอกสาร PDF บันทึกการปรึกษา (`Report/บันทึกการปรึกษา_2026-06-30.pdf`) ด้วย ReportLab + Garuda font (Thai+Latin) จาก 9 ประเด็นที่คุยกับอาจารย์
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ลบ user ผ่าน UI silent fail | FK constraint `auth_tokens_user_id_fkey` — ลบ user ก่อน token | แก้แล้ว: ลบ auth_tokens ก่อน user ใน service |
+| รูปอุปกรณ์ไม่ขึ้น (URL ผิด host) | `/uploads/...` resolve ไป Vite port 5173 แทน FastAPI 8000 | แก้แล้ว: เติม `VITE_API_URL` prefix เมื่อ path ขึ้นต้น `/` |
+| รูป 37 รายการแสดง broken icon | ไฟล์รูปถูกลบออกจาก Snipe-IT แล้ว | แก้แล้ว: SET image_url = NULL เพื่อไม่โชว์ broken icon |
+| pytest หมวดหมู่ทดสอบหลุดเข้า DB | conftest.py ไม่ cleanup `equipment_categories` หลังเทส | ยังไม่ได้แก้ conftest.py — ต้องเพิ่ม teardown |
+| Garuda font ไม่มี Unicode arrow `→` | Font ไม่รองรับ U+2192 | แก้แล้ว: เปลี่ยนเป็น `=>` ใน PDF |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบ full stack: backend + frontend + DB ทำงานร่วมกันครบ workflow ยืม-อนุมัติ-คืน
+2. [ ] แก้ `backend/tests/conftest.py` เพิ่ม teardown ลบ `equipment_categories` หลังรัน test
+3. [ ] พิจารณา implement ประเด็นจากการปรึกษาอาจารย์ (เรียงตามความสำคัญ):
+   - [ ] เปลี่ยน login เป็น Student ID / รหัสอาจารย์ แทน email (ข้อ 1)
+   - [ ] เพิ่ม image upload สำหรับอุปกรณ์แทน URL (ข้อ 4)
+   - [ ] ปรับรูปแบบเลขที่คำขอยืม (ข้อ 7)
+4. [ ] ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~90% — เหลือ: เพิ่ม feature จากที่ปรึกษา, full integration test
+**Frontend:** ~90% — เหลือ: image upload UI, ทดสอบ edge case ทุกหน้า
+**ระยะรวม:** ~90% — ระบบหลักครบ พร้อม full stack test และ deploy
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ALLOWED_EMAIL_DOMAINS** — ยังไม่ได้ยืนยัน domain จริงกับอาจารย์ ปัจจุบันใช้ `cdti.ac.th,student.cdti.ac.th`
+- **conftest.py cleanup** — ถ้ายังไม่แก้ รัน pytest บน DB จริงอาจทิ้งข้อมูล test ค้างทุกครั้ง
+- **รูป 37 รายการ** ที่ถูก NULL — อุปกรณ์พวกนี้ไม่มีรูปแสดง ควรให้แอดมิน upload รูปใหม่
+- **LINE OA** — ยังเป็น stretch goal รอ Channel Access Token

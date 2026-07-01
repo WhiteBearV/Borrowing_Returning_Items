@@ -1,0 +1,267 @@
+================================================================================
+  ระบบยืม-คืนอุปกรณ์ — สรุปสิ่งที่ทำไปแล้ว + วิธีตั้งค่า .env
+  อัปเดต: 24 มิถุนายน 2026
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. ระบบทำอะไรได้บ้าง
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+เว็บแอปสำหรับนักศึกษาและแอดมินของสาขา CE/DD CDTI
+ใช้ยืม-คืนอุปกรณ์ครุภัณฑ์และวัสดุสิ้นเปลือง
+
+  นักศึกษาทำได้:
+    - สมัครสมาชิก → ยืนยัน email → login
+    - ดูรายการอุปกรณ์ทั้งหมด พร้อมสถานะ/จำนวนคงเหลือ
+    - เลือกอุปกรณ์ใส่ตะกร้า แล้วยื่นคำขอยืมในครั้งเดียว
+    - ดูสถานะคำขอ (รออนุมัติ / อนุมัติแล้ว / คืนแล้ว)
+    - ขอต่อเวลาการยืม (ได้สูงสุด 1 ครั้งต่อรายการ)
+    - ดาวน์โหลด PDF ใบยืม
+    - แก้ไขโปรไฟล์ / เปลี่ยนรหัสผ่าน
+
+  แอดมินทำได้ (ทุกอย่างที่นักศึกษาทำได้ + เพิ่มเติม):
+    - อนุมัติ / ปฏิเสธคำขอยืม
+    - บันทึกการคืนอุปกรณ์ พร้อมระบุสภาพ (ปกติ / ชำรุด / สูญหาย)
+    - จัดการอุปกรณ์: เพิ่ม / แก้ไข / ปลดระวาง / สร้าง QR Code
+    - จัดการผู้ใช้: ดูรายชื่อ / ระงับบัญชี
+    - ดู Audit Log ทุกการกระทำในระบบ
+    - ปรับ Settings ระบบ (จำนวนวันยืมสูงสุด, โควต้า ฯลฯ)
+    - Dashboard สรุปสถิติ (รออนุมัติ / เกินกำหนด / สต็อกต่ำ)
+
+  ระบบอัตโนมัติ (ทำงานทุกวันตอนเที่ยงคืน):
+    - แจ้งเตือนนักศึกษาที่ใกล้ครบกำหนดคืน
+    - แจ้งเตือนนักศึกษาที่เกินกำหนดคืนแล้ว
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  2. โครงสร้างที่สร้างไปแล้ว
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  BACKEND (FastAPI + PostgreSQL)  ✅ เสร็จ 100%
+  ─────────────────────────────
+  backend/app/models/          ← 9 ตาราง database
+    user.py                      บัญชีผู้ใช้
+    equipment.py                 อุปกรณ์
+    equipment_category.py        หมวดหมู่อุปกรณ์
+    borrow_request.py            คำขอยืม (1 ใบ = หลายรายการได้)
+    borrow_item.py               รายการอุปกรณ์ในแต่ละคำขอ
+    notification.py              การแจ้งเตือน
+    audit_log.py                 บันทึกทุกการกระทำในระบบ
+    auth_token.py                token สำหรับ verify email / reset password
+    setting.py                   ค่าตั้งค่าระบบ (อ่านจาก DB ไม่ hardcode)
+
+  backend/app/services/        ← business logic ทั้งหมด
+    auth_service.py              register, verify_email, login, refresh,
+                                 forgot_password, reset_password
+    borrow_service.py            create, approve, reject, renew, return,
+                                 list, generate_pdf, send_reminder
+    equipment_service.py         list, get, create, update, retire, qrcode
+    users_service.py             list_users, update_profile, update_status
+    settings_service.py          list_settings, update_setting
+    audit_service.py             list_logs, log_action
+    notification_service.py      list, mark_read, send
+    dashboard_service.py         สรุปสถิติ
+
+  backend/app/routers/         ← API endpoints ทุกตัว
+  backend/app/utils/           ← email.py, pdf.py, qrcode_gen.py, scheduler.py
+  backend/alembic/versions/    ← 0001 สร้างตาราง, 0002 seed settings เริ่มต้น
+
+  FRONTEND (React 18 + Tailwind)  ✅ เสร็จ 100%
+  ──────────────────────────────
+  frontend/src/pages/
+    LoginPage.jsx
+    RegisterPage.jsx
+    VerifyEmailPage.jsx
+    student/
+      DashboardPage.jsx          สรุปคำขอล่าสุด + แจ้งเตือน
+      EquipmentListPage.jsx      ดูอุปกรณ์ทั้งหมด + ค้นหา/กรอง
+      EquipmentDetailPage.jsx    รายละเอียดอุปกรณ์ + ปุ่มใส่ตะกร้า
+      BorrowRequestPage.jsx      ตะกร้า + ฟอร์มยื่นคำขอ
+      MyBorrowsPage.jsx          ประวัติการยืมของตัวเอง
+      ProfilePage.jsx            แก้ไขโปรไฟล์
+    admin/
+      DashboardPage.jsx          สถิติภาพรวม
+      BorrowRequestsPage.jsx     รายการรออนุมัติ
+      AllBorrowsPage.jsx         ประวัติยืมทั้งหมด
+      EquipmentManagePage.jsx    จัดการอุปกรณ์
+      UsersPage.jsx              จัดการผู้ใช้
+      AuditLogPage.jsx           บันทึกการกระทำ
+      SettingsPage.jsx           ตั้งค่าระบบ
+
+  frontend/src/api/            ← เรียก backend แยกตาม domain (ไม่ axios ตรงใน page)
+  frontend/src/context/        ← AuthContext (login state), CartContext (ตะกร้า)
+  frontend/src/components/     ← Sidebar (role-aware), ProtectedRoute, etc.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  3. อธิบาย .env ทีละค่า
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ── DATABASE ──────────────────────────────────────────────────────────────────
+
+  DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/equipment_borrow
+
+    postgresql+asyncpg://  → ไดรเวอร์ที่ใช้ (asyncpg = async PostgreSQL)
+    user:password          → ชื่อ user และรหัสผ่าน PostgreSQL
+    localhost:5432         → host และ port ของ database server
+                             (ถ้ารันผ่าน Docker Compose ให้เปลี่ยน localhost → db)
+    equipment_borrow       → ชื่อ database (Docker Compose จะสร้างให้อัตโนมัติ)
+
+    ✏️  ต้องแก้: user, password ให้ตรงกับที่ตั้งใน PostgreSQL หรือ docker-compose.yml
+
+
+  ── JWT (ระบบ login / token) ──────────────────────────────────────────────────
+
+  SECRET_KEY=your-secret-key-here-change-in-production
+
+    ใช้เซ็น JWT token ทุกอัน ถ้าใครรู้ค่านี้ = สามารถปลอม token เข้าระบบได้ทุก account
+    ✏️  ต้องแก้: สร้าง random key ด้วยคำสั่ง:
+        python -c "import secrets; print(secrets.token_hex(32))"
+
+  ALGORITHM=HS256
+    อัลกอริทึมเซ็น token → ไม่ต้องแก้
+
+  ACCESS_TOKEN_EXPIRE_MINUTES=30
+    token หมดอายุใน 30 นาที → login ใหม่ หรือใช้ refresh token
+    ปรับได้ตามต้องการ เช่น 60 (1 ชั่วโมง) หรือ 480 (8 ชั่วโมง)
+
+  REFRESH_TOKEN_EXPIRE_DAYS=7
+    refresh token (ใช้ขอ access token ใหม่โดยไม่ต้อง login ซ้ำ) หมดอายุใน 7 วัน
+    ปรับได้ตามต้องการ
+
+
+  ── EMAIL (ใช้ส่ง verify email และ reset password) ───────────────────────────
+
+  MAIL_USERNAME=your-email@example.com
+    Gmail ที่ใช้เป็นตัวส่งอีเมล
+    ✏️  ต้องแก้: ใส่ Gmail จริง เช่น borrowsystem@gmail.com
+
+  MAIL_PASSWORD=your-app-password
+    ⚠️  ไม่ใช่รหัสผ่าน Gmail ปกติ! ต้องใช้ "App Password" เท่านั้น
+    วิธีสร้าง App Password:
+      1. เปิด myaccount.google.com → Security
+      2. เปิด 2-Step Verification (ถ้ายังไม่ได้เปิด)
+      3. ค้นหา "App passwords" → เลือก Other → ตั้งชื่อ → Generate
+      4. จะได้รหัส 16 ตัว เช่น "abcd efgh ijkl mnop" → ใส่โดยไม่มีช่องว่าง
+    ✏️  ต้องแก้: ใส่ App Password 16 ตัวที่ได้
+
+  MAIL_FROM=your-email@example.com
+    ชื่อ/อีเมลที่ปรากฏในกล่องจดหมายของผู้รับ
+    ✏️  ต้องแก้: ใส่เหมือน MAIL_USERNAME
+
+  MAIL_PORT=587
+  MAIL_SERVER=smtp.gmail.com
+  MAIL_STARTTLS=true
+  MAIL_SSL_TLS=false
+    การตั้งค่า SMTP ของ Gmail → ไม่ต้องแก้
+
+
+  ── APP URLs ──────────────────────────────────────────────────────────────────
+
+  APP_BASE_URL=http://localhost:8000
+    URL ของ backend — ใช้สร้าง link ใน email เช่น
+    "คลิกที่นี่เพื่อยืนยัน email: http://localhost:8000/verify?token=..."
+    ✏️  ไม่ต้องแก้ตอน dev / ต้องแก้เป็น domain จริงตอน deploy บนเซิร์ฟเวอร์
+
+  FRONTEND_URL=http://localhost:5173
+    URL ของ frontend — ใช้ตั้ง CORS และสร้าง link กลับไปหน้าเว็บ
+    ✏️  ไม่ต้องแก้ตอน dev / ต้องแก้ตอน deploy
+
+  UPLOAD_DIR=./uploads
+    โฟลเดอร์เก็บไฟล์รูป (รูปอุปกรณ์, รูปความเสียหาย)
+    → ไม่ต้องแก้ ระบบสร้างให้อัตโนมัติตอนเริ่ม
+
+
+  ── EMAIL DOMAIN ──────────────────────────────────────────────────────────────
+
+  ALLOWED_EMAIL_DOMAINS=cdti.ac.th,student.cdti.ac.th
+
+    ป้องกันคนนอกสถาบันสมัครสมาชิก
+    มีแค่ email ที่ลงท้ายด้วย domain เหล่านี้เท่านั้นที่สมัครได้
+
+    ถ้าอยากทดสอบด้วย Gmail ก่อน:
+    ALLOWED_EMAIL_DOMAINS=gmail.com,cdti.ac.th,student.cdti.ac.th
+
+
+  ── LINE OA (ยังไม่ implement) ────────────────────────────────────────────────
+
+  LINE_CHANNEL_ACCESS_TOKEN=
+    เว้นว่างไว้ก่อน ยังไม่ได้ทำในเฟสนี้
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  4. สรุป: ค่าที่ต้องแก้ก่อนรัน
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✏️  ต้องแก้จริง (ระบบจะรันไม่ได้หรือทำงานผิดถ้าไม่แก้):
+      DATABASE_URL        → ใส่ user/password PostgreSQL จริง
+      SECRET_KEY          → สร้าง random key ใหม่ด้วย python
+      MAIL_USERNAME       → Gmail ที่จะใช้ส่ง
+      MAIL_PASSWORD       → Gmail App Password (16 ตัว ไม่มีช่องว่าง)
+      MAIL_FROM           → เหมือน MAIL_USERNAME
+
+  ❓  ต้องยืนยันก่อน deploy จริง:
+      ALLOWED_EMAIL_DOMAINS → ถามอาจารย์ว่า domain จริงคืออะไร
+
+  ✅  ไม่ต้องแก้ตอน dev บนเครื่องตัวเอง:
+      ALGORITHM, MAIL_PORT, MAIL_SERVER, MAIL_STARTTLS, MAIL_SSL_TLS
+      APP_BASE_URL, FRONTEND_URL, UPLOAD_DIR
+      LINE_CHANNEL_ACCESS_TOKEN (เว้นว่างไว้)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  5. ขั้นตอนรันระบบ (หลังตั้งค่า .env แล้ว)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  วิธีที่ 1: Docker Compose (แนะนำ — รันครบทั้งระบบในคำสั่งเดียว)
+  ─────────────────────────────────────────────────────────────────
+    docker compose up --build
+
+    เปิดเว็บที่:  http://localhost:5173   (frontend)
+    Swagger API:  http://localhost:8000/docs  (ทดสอบ API โดยตรง)
+
+
+  วิธีที่ 2: รันแยก (สำหรับ debug)
+  ──────────────────────────────────
+    Backend:
+      cd backend
+      python -m venv venv
+      source venv/bin/activate        (Windows: venv\Scripts\activate)
+      pip install -r requirements.txt
+      alembic upgrade head            ← สร้างตาราง + seed settings
+      python -m app.main              ← รันที่ port 8000
+
+    Frontend (terminal ใหม่):
+      cd frontend
+      npm install
+      npm run dev                     ← รันที่ port 5173
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  6. Flow ทดสอบหลังรัน (end-to-end)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ขั้นตอนที่ 1: สมัครสมาชิก
+    → ไปที่ /register → กรอกชื่อ + email + รหัสผ่าน → กด Register
+    → ไปเช็ค email → คลิก link ยืนยัน → ระบบพา login
+
+  ขั้นตอนที่ 2: login เป็นแอดมิน
+    → ต้องสร้าง admin user ใน DB โดยตรงก่อน (หรือเขียน seed script)
+    → INSERT INTO users (email, role, ...) VALUES ('admin@cdti.ac.th', 'admin', ...)
+
+  ขั้นตอนที่ 3: เพิ่มอุปกรณ์
+    → login แอดมิน → Equipment Manage → Add Equipment
+
+  ขั้นตอนที่ 4: ทดสอบยืม
+    → login นักศึกษา → ดูอุปกรณ์ → ใส่ตะกร้า → ยื่นขอยืม
+
+  ขั้นตอนที่ 5: อนุมัติ
+    → login แอดมิน → Borrow Requests → กด Approve
+    → ตรวจว่า stock อุปกรณ์ลด และ due_date ถูกต้อง
+
+  ขั้นตอนที่ 6: คืนอุปกรณ์
+    → login แอดมิน → All Borrows → กด Return → ระบุสภาพ → Confirm
+    → ตรวจว่า stock กลับคืน และสถานะเป็น completed
+
+================================================================================

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
+import ConfirmModal from '../../components/common/ConfirmModal.jsx'
+import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_STYLE = {
   pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-blue-100 text-blue-700',
@@ -61,6 +63,7 @@ export default function AllBorrowsPage() {
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(null)
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, itemId }
+  const [confirmDelete, setConfirmDelete] = useState(null) // { id, code }
   const [loading, setLoading] = useState(true)
 
   const load = () => {
@@ -112,7 +115,7 @@ export default function AllBorrowsPage() {
                     {req.items.map((item) => (
                       <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-700">{item.equipment_id}</span>
+                          <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
                           <span className="text-gray-400">×{item.quantity}</span>
                           {item.returned && <span className="text-xs text-green-600">คืนแล้ว{item.condition_on_return !== 'ok' ? ` (${item.condition_on_return})` : ''}</span>}
                         </div>
@@ -128,19 +131,37 @@ export default function AllBorrowsPage() {
                     ))}
                   </div>
 
-                  {(req.status === 'approved' || req.status === 'completed') && (
-                    <button
-                      onClick={async () => {
-                        const blob = await borrowApi.downloadPdf(req.id)
-                        const url = URL.createObjectURL(blob)
-                        Object.assign(document.createElement('a'), { href: url, download: `${req.request_code}.pdf` }).click()
-                        URL.revokeObjectURL(url)
-                      }}
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      ดาวน์โหลด PDF
-                    </button>
-                  )}
+                  <div className="flex items-center gap-4 pt-1">
+                    {req.status === 'approved' && req.items.some((i) => !i.returned && i.item_type_snapshot === 'durable') && (
+                      <button
+                        onClick={() => setConfirmDelete({ id: req.id, code: req.request_code, action: 'returnAll' })}
+                        className="text-sm rounded-lg bg-green-50 text-green-700 px-3 py-1 hover:bg-green-100 font-medium border border-green-200"
+                      >
+                        รับคืนทั้งหมด
+                      </button>
+                    )}
+                    {(req.status === 'approved' || req.status === 'completed') && (
+                      <button
+                        onClick={async () => {
+                          const blob = await borrowApi.downloadPdf(req.id)
+                          const url = URL.createObjectURL(blob)
+                          Object.assign(document.createElement('a'), { href: url, download: `${req.request_code}.pdf` }).click()
+                          URL.revokeObjectURL(url)
+                        }}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        ดาวน์โหลด PDF
+                      </button>
+                    )}
+                    {['completed', 'rejected', 'cancelled'].includes(req.status) && (
+                      <button
+                        onClick={() => setConfirmDelete({ id: req.id, code: req.request_code, action: 'delete' })}
+                        className="text-sm text-red-500 hover:underline ml-auto"
+                      >
+                        ลบประวัติ
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -148,13 +169,7 @@ export default function AllBorrowsPage() {
         </div>
       )}
 
-      {data.total > 20 && (
-        <div className="flex justify-center items-center gap-3 mt-6">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">← ก่อนหน้า</button>
-          <span className="text-sm text-gray-500">หน้า {page} / {Math.ceil(data.total / 20)}</span>
-          <button disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(page + 1)} className="px-3 py-1 text-sm rounded border disabled:opacity-40 hover:bg-gray-50">ถัดไป →</button>
-        </div>
-      )}
+      <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
 
       {returnTarget && (
         <ReturnModal
@@ -162,6 +177,26 @@ export default function AllBorrowsPage() {
           itemId={returnTarget.itemId}
           onClose={() => setReturnTarget(null)}
           onDone={() => { setReturnTarget(null); load() }}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title={confirmDelete.action === 'delete' ? 'ลบประวัติการยืม' : 'รับคืนทั้งหมด'}
+          message={confirmDelete.action === 'delete'
+            ? `ลบประวัติ "${confirmDelete.code}" ถาวร?\nข้อมูลจะหายไปและไม่สามารถกู้คืนได้`
+            : `รับคืนอุปกรณ์ทุกชิ้นในคำขอ "${confirmDelete.code}" (สภาพปกติทั้งหมด)?`
+          }
+          confirmLabel={confirmDelete.action === 'delete' ? 'ลบถาวร' : 'ยืนยันรับคืน'}
+          danger={confirmDelete.action === 'delete'}
+          onConfirm={async () => {
+            const { id, action } = confirmDelete
+            setConfirmDelete(null)
+            if (action === 'delete') await borrowApi.deleteRequest(id)
+            else await borrowApi.returnAll(id)
+            load()
+          }}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

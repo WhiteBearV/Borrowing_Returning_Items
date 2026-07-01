@@ -12,7 +12,9 @@ export const borrowApi = {
     api.post(`/borrow-requests/${id}/items/${itemId}/renew`).then((r) => r.data),
   returnItem: (id, itemId, data) =>
     api.post(`/borrow-requests/${id}/items/${itemId}/return`, data).then((r) => r.data),
+  returnAll: (id) => api.post(`/borrow-requests/${id}/return-all`).then((r) => r.data),
   downloadPdf: (id) =>
     api.get(`/borrow-requests/${id}/pdf`, { responseType: 'blob' }).then((r) => r.data),
   remind: (id) => api.post(`/borrow-requests/${id}/remind`).then((r) => r.data),
+  deleteRequest: (id) => api.delete(`/borrow-requests/${id}`),
 }

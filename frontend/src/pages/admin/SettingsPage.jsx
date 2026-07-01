@@ -39,8 +39,8 @@ export default function SettingsPage() {
           return (
             <div key={s.key} className="px-5 py-4 flex items-start gap-4">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-700 font-mono">{s.key}</p>
-                {s.description && <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>}
+                <p className="text-sm font-medium text-gray-800">{s.description || s.key}</p>
+                <p className="text-xs text-gray-400 font-mono mt-0.5">{s.key}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <input

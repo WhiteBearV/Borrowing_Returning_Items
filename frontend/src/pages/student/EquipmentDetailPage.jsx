@@ -31,7 +31,7 @@ export default function EquipmentDetailPage() {
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         {eq.image_url && (
-          <img src={eq.image_url} alt={eq.name} className="w-full h-56 object-cover" />
+          <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-56 object-cover" />
         )}
         <div className="p-6 space-y-4">
           <div className="flex items-start justify-between gap-4">

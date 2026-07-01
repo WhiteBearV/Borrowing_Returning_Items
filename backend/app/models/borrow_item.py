@@ -34,3 +34,7 @@ class BorrowItem(Base):
 
     borrow_request = relationship("BorrowRequest", back_populates="items")
     equipment = relationship("Equipment", back_populates="borrow_items")
+
+    @property
+    def equipment_name(self) -> str | None:
+        return self.equipment.name if self.equipment else None
