@@ -70,3 +70,6 @@ CLAUDE.md
 *.jpeg
 !docs/**/*.png
 !docs/**/*.jpg
+
+# Test output / screenshots
+result/
