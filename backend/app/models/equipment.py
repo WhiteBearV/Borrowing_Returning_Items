@@ -1,11 +1,19 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+# ตารางเชื่อม many-to-many — อุปกรณ์หนึ่งชิ้นอยู่ได้หลายหมวดพร้อมกัน (เช่น สายไฟ = Electronic + วัสดุ)
+equipment_category_links = Table(
+    "equipment_category_links",
+    Base.metadata,
+    Column("equipment_id", ForeignKey("equipment.id", ondelete="CASCADE"), primary_key=True),
+    Column("category_id", ForeignKey("equipment_categories.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Equipment(Base):
@@ -14,9 +22,6 @@ class Equipment(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    category_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("equipment_categories.id"), nullable=False, index=True
-    )
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / consumable
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -32,7 +37,9 @@ class Equipment(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    category = relationship("EquipmentCategory", back_populates="equipment")
+    categories = relationship(
+        "EquipmentCategory", secondary=equipment_category_links, back_populates="equipment"
+    )
     borrow_items = relationship("BorrowItem", back_populates="equipment")
 
     __table_args__ = (

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -20,7 +20,7 @@ class EquipmentResponse(BaseModel):
     id: uuid.UUID
     code: str
     name: str
-    category_id: uuid.UUID
+    categories: list[CategoryResponse]
     item_type: str
     description: str | None
     image_url: str | None
@@ -36,10 +36,21 @@ class EquipmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HolderInfo(BaseModel):
+    """ผู้ที่กำลังครอบครองอุปกรณ์ชิ้นนี้อยู่ (ยืมแล้วยังไม่คืน)"""
+    holder_name: str
+    due_date: date | None
+    quantity: int
+
+
+class EquipmentDetailResponse(EquipmentResponse):
+    holders: list[HolderInfo]
+
+
 class EquipmentCreate(BaseModel):
     code: str
     name: str
-    category_id: uuid.UUID
+    category_ids: list[uuid.UUID]
     item_type: str  # durable / consumable
     description: str | None = None
     image_url: str | None = None
@@ -51,7 +62,7 @@ class EquipmentCreate(BaseModel):
 
 class EquipmentUpdate(BaseModel):
     name: str | None = None
-    category_id: uuid.UUID | None = None
+    category_ids: list[uuid.UUID] | None = None
     description: str | None = None
     image_url: str | None = None
     location: str | None = None

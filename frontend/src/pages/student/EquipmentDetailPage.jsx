@@ -48,8 +48,9 @@ export default function EquipmentDetailPage() {
               {[
                 ['รหัสอุปกรณ์', eq.code],
                 ['ประเภท', TYPE_LABEL[eq.item_type]],
+                ['หมวดหมู่', (eq.categories ?? []).map((c) => c.name).join(', ') || '—'],
                 ['ที่เก็บ', eq.location ?? '—'],
-                eq.item_type === 'consumable' && ['คงเหลือ', `${eq.quantity_available} ${eq.unit ?? 'ชิ้น'}`],
+                ['เหลือให้ยืม', `${eq.quantity_available} ${eq.unit ?? 'ชิ้น'}`],
               ].filter(Boolean).map(([label, val]) => (
                 <tr key={label}>
                   <td className="py-2 pr-4 font-medium text-gray-500 w-28">{label}</td>
@@ -59,8 +60,30 @@ export default function EquipmentDetailPage() {
             </tbody>
           </table>
 
+          {eq.holders?.length > 0 && (
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium text-gray-500 mb-2">ผู้ครอบครองในขณะนี้</p>
+              <ul className="space-y-1 text-sm text-gray-600">
+                {eq.holders.map((h, i) => (
+                  <li key={i} className="flex justify-between">
+                    <span>{h.holder_name}{h.quantity > 1 ? ` ×${h.quantity}` : ''}</span>
+                    <span className="text-gray-400">{h.due_date ? `กำหนดคืน ${h.due_date}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {eq.description && (
             <p className="text-sm text-gray-600 border-t pt-4">{eq.description}</p>
+          )}
+
+          {!available && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-600">
+              {eq.quantity_available <= 0
+                ? (eq.item_type === 'consumable' ? 'อุปกรณ์หมด' : 'ถูกยืมอยู่ทั้งหมด')
+                : STATUS_LABEL[eq.status]} · ยืมไม่ได้ตอนนี้
+            </div>
           )}
 
           <button

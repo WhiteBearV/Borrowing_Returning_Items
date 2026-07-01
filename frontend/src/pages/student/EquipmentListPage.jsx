@@ -34,6 +34,10 @@ export default function EquipmentListPage() {
   const isAvailable = (eq) =>
     eq.quantity_available > 0 && (eq.item_type === 'consumable' || eq.status === 'available')
 
+  // เหตุผลที่ยืมไม่ได้ — หมดสต็อกก่อน แล้วจึงดูสถานะครุภัณฑ์
+  const unavailableReason = (eq) =>
+    eq.quantity_available <= 0 ? (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่') : STATUS_LABEL[eq.status]
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -97,8 +101,10 @@ export default function EquipmentListPage() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-400">{TYPE_LABEL[eq.item_type]} · {eq.code}</p>
-                {eq.item_type === 'consumable' && (
-                  <p className="text-xs text-gray-500">คงเหลือ: {eq.quantity_available} {eq.unit ?? 'ชิ้น'}</p>
+                {available ? (
+                  <p className="text-xs text-gray-500">เหลือให้ยืม: {eq.quantity_available} {eq.unit ?? 'ชิ้น'}</p>
+                ) : (
+                  <p className="text-xs text-red-500">{unavailableReason(eq)} · ยืมไม่ได้ตอนนี้</p>
                 )}
                 <button
                   disabled={!available || inCart}

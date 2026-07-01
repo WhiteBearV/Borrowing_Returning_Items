@@ -20,7 +20,7 @@ from tests.conftest import auth
 
 async def test_login_success(client: AsyncClient, test_student: User):
     r = await client.post("/auth/login", json={
-        "email": test_student.email,
+        "identifier": test_student.email,
         "password": "Test1234!",
     })
     assert r.status_code == 200
@@ -29,7 +29,7 @@ async def test_login_success(client: AsyncClient, test_student: User):
 
 async def test_login_wrong_password(client: AsyncClient, test_student: User):
     r = await client.post("/auth/login", json={
-        "email": test_student.email,
+        "identifier": test_student.email,
         "password": "WrongPassword",
     })
     assert r.status_code in (400, 401)
@@ -48,7 +48,7 @@ async def test_login_unverified_email(client: AsyncClient):
         await db.commit()
 
     r = await client.post("/auth/login", json={
-        "email": f"noverify_{uid.hex[:4]}@cdti.ac.th",
+        "identifier": f"noverify_{uid.hex[:4]}@cdti.ac.th",
         "password": "Test1234!",
     })
     assert r.status_code == 403
@@ -77,16 +77,33 @@ async def test_list_equipment_filter_by_type(client: AsyncClient, student_token:
 
 
 async def test_list_equipment_filter_by_category(
-    client: AsyncClient, student_token: str, test_equipment: Equipment
+    client: AsyncClient, student_token: str, test_equipment: Equipment, test_category
 ):
     r = await client.get(
         "/equipment",
-        params={"category_id": str(test_equipment.category_id)},
+        params={"category_id": str(test_category.id)},
         headers=auth(student_token),
     )
     assert r.status_code == 200
     ids = [i["id"] for i in r.json()["items"]]
     assert str(test_equipment.id) in ids
+
+
+async def test_equipment_multiple_categories(client: AsyncClient, admin_token: str):
+    h = auth(admin_token)
+    suffix = uuid.uuid4().hex[:6]
+    c1 = (await client.post("/equipment-categories", json={"name": f"cat_a_{suffix}"}, headers=h)).json()
+    c2 = (await client.post("/equipment-categories", json={"name": f"cat_b_{suffix}"}, headers=h)).json()
+    r = await client.post("/equipment", json={
+        "code": f"MULTI-{suffix}", "name": "อุปกรณ์หลายหมวด",
+        "category_ids": [c1["id"], c2["id"]], "item_type": "durable", "quantity_total": 1,
+    }, headers=h)
+    assert r.status_code == 201, r.text
+    returned = {c["id"] for c in r.json()["categories"]}
+    assert returned == {c1["id"], c2["id"]}
+    # ต้องเจอเมื่อ filter ด้วยหมวดใดหมวดหนึ่ง
+    ids = [i["id"] for i in (await client.get("/equipment", params={"category_id": c2["id"]}, headers=h)).json()["items"]]
+    assert r.json()["id"] in ids
 
 
 async def test_unauthorized_without_token(client: AsyncClient):

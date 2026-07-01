@@ -15,4 +15,6 @@ class EquipmentCategory(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    equipment = relationship("Equipment", back_populates="category")
+    equipment = relationship(
+        "Equipment", secondary="equipment_category_links", back_populates="categories"
+    )

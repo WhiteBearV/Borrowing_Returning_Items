@@ -3,18 +3,30 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 
-const EMPTY_FORM = { code: '', name: '', category_id: '', item_type: 'durable', description: '', location: '', unit: '', quantity_total: 1, image_url: '' }
+const EMPTY_FORM = { code: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', quantity_total: 1, image_url: '' }
 
 function EquipmentModal({ initial, categories, onClose, onSave }) {
   const isEdit = !!initial?.id
-  const [form, setForm] = useState(isEdit ? { ...initial, image_url: initial.image_url ?? '' } : EMPTY_FORM)
+  const [form, setForm] = useState(
+    isEdit
+      ? { ...initial, image_url: initial.image_url ?? '', category_ids: (initial.categories ?? []).map((c) => c.id) }
+      : EMPTY_FORM,
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const toggleCategory = (id) =>
+    setForm((f) => ({
+      ...f,
+      category_ids: f.category_ids.includes(id)
+        ? f.category_ids.filter((c) => c !== id)
+        : [...f.category_ids, id],
+    }))
 
   const submit = async (e) => {
     e.preventDefault()
+    if (form.category_ids.length === 0) { setError('เลือกหมวดหมู่อย่างน้อย 1 หมวด'); return }
     setError('')
     setLoading(true)
     try {
@@ -59,23 +71,30 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </div>
           ))}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">หมวดหมู่ *</label>
-              <select required value={form.category_id} onChange={set('category_id')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— เลือก —</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">หมวดหมู่ * (เลือกได้หลายหมวด)</label>
+            <div className="flex flex-wrap gap-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
+              {categories.map((c) => {
+                const on = form.category_ids.includes(c.id)
+                return (
+                  <button type="button" key={c.id} onClick={() => toggleCategory(c.id)}
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                      on ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>
+                    {c.name}
+                  </button>
+                )
+              })}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">ประเภท *</label>
-              <select value={form.item_type} onChange={set('item_type')} disabled={isEdit}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50">
-                <option value="durable">ครุภัณฑ์</option>
-                <option value="consumable">วัสดุสิ้นเปลือง</option>
-              </select>
-            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">ประเภท *</label>
+            <select value={form.item_type} onChange={set('item_type')} disabled={isEdit}
+              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50">
+              <option value="durable">ครุภัณฑ์</option>
+              <option value="consumable">วัสดุสิ้นเปลือง</option>
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -189,7 +208,7 @@ export default function EquipmentManagePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['รหัส', 'ชื่อ', 'ประเภท', 'คงเหลือ', 'สถานะ', ''].map((h) => (
+                {['รหัส', 'ชื่อ', 'หมวดหมู่', 'ประเภท', 'คงเหลือ', 'สถานะ', ''].map((h) => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -199,6 +218,7 @@ export default function EquipmentManagePage() {
                 <tr key={eq.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{eq.name}</td>
+                  <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500">{eq.item_type === 'durable' ? 'ครุภัณฑ์' : 'สิ้นเปลือง'}</td>
                   <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
                   <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[eq.status] ?? ''}`}>{STATUS_LABEL[eq.status] ?? eq.status}</td>

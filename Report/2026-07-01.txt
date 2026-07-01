@@ -1,0 +1,75 @@
+# รายงานความคืบหน้า — วันที่ 1 กรกฎาคม 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- **แก้ test login ที่ล้มเหลว 3 เคส** (`tests/test_api_integration.py`) — schema `LoginRequest` เปลี่ยนไปใช้ field `identifier` (รองรับ login ด้วย student_id / username / email) แต่ test ยังส่ง key `"email"` อยู่ ทำให้คืน 422 แทน 200/401/403 แก้เป็น `identifier` ครบทั้ง 3 จุด
+- **เพิ่มฟีเจอร์ "ผู้ครอบครองอุปกรณ์ในขณะนั้น"** ตาม proposal ข้อ 3.1 (ฝั่งนักศึกษา):
+  - `schemas/equipment.py` — เพิ่ม `HolderInfo` + `EquipmentDetailResponse`
+  - `services/equipment_service.py` — เพิ่ม `get_holders()` query หา borrow ที่ `returned=False` และ request `status=approved` join ชื่อผู้ยืม + กำหนดคืน (ใช้ `extended_due_date` ก่อนถ้ามีต่อเวลา)
+  - `routers/equipment.py` — endpoint รายละเอียดอุปกรณ์คืน holders ด้วย
+- **เปลี่ยนความสัมพันธ์ Equipment ↔ Category เป็น many-to-many** (อุปกรณ์ 1 ชิ้นอยู่ได้หลายหมวดพร้อมกัน เช่น สายไฟ = Electronic + วัสดุ):
+  - `models/equipment.py` — เพิ่มตารางเชื่อม `equipment_category_links`, เปลี่ยน `category_id` (FK เดี่ยว) → `categories` (relationship M2M)
+  - `models/equipment_category.py` — `equipment` relationship ใช้ secondary table
+  - `schemas/equipment.py` — response คืน `categories: list`, create/update รับ `category_ids: list`
+  - `services/equipment_service.py` — filter หมวดผ่าน join, eager-load `selectinload(Equipment.categories)`, เพิ่ม `_resolve_categories()` ตรวจ id หมวดว่ามีจริง, แก้ create/update ให้ set categories
+  - `alembic/versions/0004_equipment_categories_m2m.py` — migration สร้างตารางเชื่อม + ย้ายข้อมูลเดิม (1104 ชิ้น) + drop คอลัมน์เดิม (upgrade แล้ว)
+  - `scripts/import_equipment.py` — แก้ให้ emit INSERT ลงตารางเชื่อมแทน category_id (กันพังถ้า re-run)
+- **เพิ่ม/แก้ tests** — เพิ่ม `test_equipment_multiple_categories` (create อุปกรณ์ 2 หมวด + filter), แก้ `conftest.py` fixture ให้ใช้ `categories=[cat]` และ re-fetch category ใน session เดียวกัน
+- ผลรวม: **50 tests ผ่านทั้งหมด**
+
+### Frontend
+- **หน้า Login** (`pages/LoginPage.jsx`) — ลบ tab นักศึกษา/ผู้ดูแลระบบออก เหลือ 2 ช่อง (รหัสประจำตัว + รหัสผ่าน) ให้ระบบ auto-detect role เอง (backend match identifier แล้วส่ง role กลับ, redirect ตาม `user.role`)
+- **แสดงจำนวนคงเหลือให้ยืม + สถานะถูกยืม**:
+  - `pages/student/EquipmentListPage.jsx` — ทุกชิ้นโชว์ "เหลือให้ยืม: X ชิ้น" ถ้ายืมไม่ได้ขึ้นข้อความแดงบอกเหตุผลจริง (ถูกยืมอยู่ / หมด / ซ่อม / เสียหาย) + เพิ่ม helper `unavailableReason()`
+  - `pages/student/EquipmentDetailPage.jsx` — เพิ่มแถว "เหลือให้ยืม" ให้ครุภัณฑ์ด้วย + แบนเนอร์แดงเมื่อยืมไม่ได้ + กล่อง "ผู้ครอบครองในขณะนี้" (ชื่อ + จำนวน + กำหนดคืน) + แถว "หมวดหมู่"
+- **รองรับหลายหมวดในหน้า admin** (`pages/admin/EquipmentManagePage.jsx`) — เปลี่ยน select หมวดเดี่ยวเป็น chip เลือกได้หลายหมวด (`toggleCategory`), บังคับเลือกอย่างน้อย 1 หมวด, เพิ่มคอลัมน์ "หมวดหมู่" ในตารางจัดการ, แก้ payload ให้ส่ง `category_ids`
+- Frontend build ผ่านไม่มี error
+
+### อื่น ๆ (Config, Docker, Docs, Data)
+- **แก้ข้อมูล:** ย้าย "สายไฟ" จากหมวด Electronic → เพิ่มให้อยู่ทั้ง Electronic + วัสดุ (ใช้ประโยชน์ M2M), item_type=consumable ถูกอยู่แล้ว
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| test login คืน 422 | schema เปลี่ยนเป็น `identifier` แต่ test ยังใช้ `email` | แก้ test แล้ว ✅ |
+| อุปกรณ์อยู่ได้หมวดเดียว | schema เดิม `category_id` เป็น FK เดี่ยว | เปลี่ยนเป็น M2M แล้ว ✅ |
+| test M2M error "already attached to session" | fixture category (session-scoped) ผูกกับ session เก่า | re-fetch ด้วย `db.get()` ใน session เดียวกัน ✅ |
+| รหัสผ่านบัญชีเดิมใน DB กู้ไม่ได้ | bcrypt เป็น one-way hash | รอเจ้าของตัดสินใจ reset รหัสใหม่ (admin/student) |
+| งานทั้งหมดยัง uncommitted | ยังไม่ได้ commit | รอยืนยันก่อน commit |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Commit งานชุดนี้ (login, holders, M2M categories, จำนวนคงเหลือ)
+2. [ ] Reset รหัสผ่านบัญชีทดสอบ (admin@cdti.ac.th, student 6610301006) + ลบ account ขยะ noverify_2f50
+3. [ ] ทดสอบ full stack ผ่าน `docker compose up --build` end-to-end (register → verify → login → ยืม → อนุมัติ → คืน → ดูผู้ครอบครอง)
+4. [ ] จัดการโฟลเดอร์ `result/` ที่ยัง untracked (เพิ่มลง .gitignore หรือลบ)
+5. [ ] ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — โครงสร้างครบ, 50 tests ผ่าน, เหลือทดสอบ full stack จริง
+**Frontend:** ~99% — ทุกหน้าครบ build ผ่าน, เหลือทดสอบ end-to-end บน docker
+**ระยะรวม:** ระบบครบตาม proposal (MVP) ทุกข้อแล้ว รวมถึงฟีเจอร์ "ดูผู้ครอบครองอุปกรณ์" ที่เพิ่งเติมเต็ม เหลือขั้นตอน deploy/ทดสอบจริง + งานจัดการข้อมูลเริ่มต้น
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending Items (CLAUDE.md ข้อ 10):**
+  - `ALLOWED_EMAIL_DOMAINS` — ยังต้องยืนยัน domain อีเมลจริงกับอาจารย์ก่อน deploy
+  - Excel import — ใช้ข้อมูลจาก Snipe-IT (import แล้ว 1104 ชิ้น) `import_equipment.py` อัปเดตให้เข้ากับ schema M2M แล้ว
+  - LINE OA — ยัง out of scope (มีแค่ config placeholder)
+- **Migration 0004 เป็น breaking change** — ถ้ามีเครื่องอื่น/DB อื่นที่ยังไม่ upgrade ต้องรัน `alembic upgrade head` ก่อนใช้งาน (คอลัมน์ `equipment.category_id` ถูกลบแล้ว)
+- **การเพิ่มอุปกรณ์บังคับเลือกหมวดอย่างน้อย 1 หมวด** ทั้ง frontend + backend — ประเภท (ครุภัณฑ์/วัสดุ) กับ หมวดหมู่ ยังเป็นคนละ field แยกกัน

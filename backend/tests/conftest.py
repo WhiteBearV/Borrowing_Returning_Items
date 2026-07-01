@@ -122,11 +122,12 @@ async def test_category():
 async def test_equipment(test_category: EquipmentCategory):
     eq_id = uuid.uuid4()
     async with AsyncSessionLocal() as db:
+        cat = await db.get(EquipmentCategory, test_category.id)
         eq = Equipment(
             id=eq_id,
             code=f"TEST-{eq_id.hex[:6].upper()}",
             name="Arduino Uno R3 (ทดสอบ)",
-            category_id=test_category.id,
+            categories=[cat],
             item_type="durable",
             quantity_total=5,
             quantity_available=5,

@@ -134,11 +134,16 @@ def main() -> None:
 
         print(
             f"INSERT INTO equipment "
-            f"(id, code, name, category_id, item_type, status, "
+            f"(id, code, name, item_type, status, "
             f"quantity_total, quantity_available, description, location) VALUES ("
-            f"{q(uid)}, {q(code)}, {q(name)}, {q(cat_uid)}, 'durable', {q(status)}, "
+            f"{q(uid)}, {q(code)}, {q(name)}, 'durable', {q(status)}, "
             f"1, {qty_available}, {q(notes)}, {q(location)}"
             f") ON CONFLICT (code) DO NOTHING;"
+        )
+        print(
+            f"INSERT INTO equipment_category_links (equipment_id, category_id) "
+            f"SELECT id, {q(cat_uid)} FROM equipment WHERE code = {q(code)} "
+            f"ON CONFLICT DO NOTHING;"
         )
 
     print()

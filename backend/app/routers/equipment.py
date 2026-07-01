@@ -10,6 +10,7 @@ from app.schemas.equipment import (
     CategoryCreate,
     CategoryResponse,
     EquipmentCreate,
+    EquipmentDetailResponse,
     EquipmentResponse,
     EquipmentUpdate,
     PaginatedEquipment,
@@ -33,13 +34,16 @@ async def list_equipment(
     return await equipment_service.list_equipment(db, page, page_size, category_id, item_type, status, search)
 
 
-@router.get("/equipment/{equipment_id}", response_model=EquipmentResponse)
+@router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)
 async def get_equipment(
     equipment_id: uuid.UUID,
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> EquipmentResponse:
-    return await equipment_service.get_equipment(db, equipment_id)
+) -> EquipmentDetailResponse:
+    eq = await equipment_service.get_equipment(db, equipment_id)
+    holders = await equipment_service.get_holders(db, equipment_id)
+    base = EquipmentResponse.model_validate(eq, from_attributes=True)
+    return EquipmentDetailResponse(**base.model_dump(), holders=holders)
 
 
 @router.post("/equipment", response_model=EquipmentResponse, status_code=201)
