@@ -1,13 +1,14 @@
+import os
 import uuid
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
-from app.models.equipment import Equipment
+from app.models.equipment import Equipment, equipment_category_links
 from app.models.equipment_category import EquipmentCategory
 from app.models.user import User
 from app.schemas.equipment import (
@@ -19,7 +20,25 @@ from app.schemas.equipment import (
     HolderInfo,
     PaginatedEquipment,
 )
+from app.core.config import settings
 from app.utils.qrcode_gen import generate_qr_png
+
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+async def save_image(file: UploadFile) -> str:
+    """บันทึกไฟล์รูปอุปกรณ์ลง UPLOAD_DIR แล้วคืน path relative (/uploads/<uuid>.<ext>) สำหรับเก็บใน image_url"""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type.")
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:  # จำกัด 5MB กันไฟล์ใหญ่เกิน
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB).")
+    filename = f"{uuid.uuid4().hex}{ext}"
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
+        f.write(contents)
+    return f"/uploads/{filename}"
 
 
 async def list_equipment(
@@ -43,6 +62,10 @@ async def list_equipment(
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
+
+    # เรียงของที่ยืมได้ (status=available และยังเหลือ) ไว้หน้า ที่เหลือกองท้าย แล้วเรียงตามชื่อ
+    borrowable = ((Equipment.status == "available") & (Equipment.quantity_available > 0))
+    query = query.order_by(borrowable.desc(), Equipment.name)
 
     query = query.options(selectinload(Equipment.categories))
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
@@ -92,6 +115,7 @@ async def create_equipment(db: AsyncSession, body: EquipmentCreate) -> Equipment
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
     data = body.model_dump(exclude={"category_ids"})
+    data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
     eq = Equipment(**data)
     eq.categories = await _resolve_categories(db, body.category_ids)
     eq.quantity_available = body.quantity_total
@@ -104,6 +128,8 @@ async def update_equipment(db: AsyncSession, equipment_id: uuid.UUID, body: Equi
     eq = await get_equipment(db, equipment_id)
     for field, value in body.model_dump(exclude_none=True, exclude={"category_ids"}).items():
         setattr(eq, field, value)
+    if body.image_urls is not None:
+        eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
     if body.category_ids is not None:
         eq.categories = await _resolve_categories(db, body.category_ids)
     await db.commit()
@@ -149,3 +175,33 @@ async def create_category(db: AsyncSession, body: CategoryCreate) -> EquipmentCa
     await db.commit()
     await db.refresh(cat)
     return cat
+
+
+async def update_category(db: AsyncSession, category_id: uuid.UUID, body: CategoryCreate) -> EquipmentCategory:
+    """เปลี่ยนชื่อหมวดหมู่ — กันชื่อซ้ำกับหมวดอื่น"""
+    cat = (await db.execute(select(EquipmentCategory).where(EquipmentCategory.id == category_id))).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+    dup = (await db.execute(
+        select(EquipmentCategory).where(EquipmentCategory.name == body.name, EquipmentCategory.id != category_id)
+    )).scalar_one_or_none()
+    if dup:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already exists.")
+    cat.name = body.name
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
+async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
+    """ลบหมวดหมู่ — ห้ามลบถ้ายังมีอุปกรณ์ผูกอยู่ (ต้องย้ายอุปกรณ์ออกก่อน)"""
+    cat = (await db.execute(select(EquipmentCategory).where(EquipmentCategory.id == category_id))).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+    count = (await db.execute(
+        select(func.count()).select_from(equipment_category_links).where(equipment_category_links.c.category_id == category_id)
+    )).scalar() or 0
+    if count > 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"ยังมีอุปกรณ์ {count} ชิ้นในหมวดนี้ ย้ายออกก่อนลบ")
+    await db.delete(cat)
+    await db.commit()

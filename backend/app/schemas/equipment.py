@@ -24,6 +24,7 @@ class EquipmentResponse(BaseModel):
     item_type: str
     description: str | None
     image_url: str | None
+    image_urls: list[str] = []
     location: str | None
     unit: str | None
     quantity_total: int
@@ -53,7 +54,7 @@ class EquipmentCreate(BaseModel):
     category_ids: list[uuid.UUID]
     item_type: str  # durable / consumable
     description: str | None = None
-    image_url: str | None = None
+    image_urls: list[str] = []
     location: str | None = None
     unit: str | None = None
     quantity_total: int = 1
@@ -64,7 +65,7 @@ class EquipmentUpdate(BaseModel):
     name: str | None = None
     category_ids: list[uuid.UUID] | None = None
     description: str | None = None
-    image_url: str | None = None
+    image_urls: list[str] | None = None
     location: str | None = None
     unit: str | None = None
     quantity_total: int | None = None

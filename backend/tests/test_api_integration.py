@@ -10,7 +10,8 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
-from app.models.equipment import Equipment
+from app.models.equipment import Equipment, equipment_category_links
+from app.models.equipment_category import EquipmentCategory
 from app.models.notification import Notification
 from app.models.user import User
 from tests.conftest import auth
@@ -104,6 +105,13 @@ async def test_equipment_multiple_categories(client: AsyncClient, admin_token: s
     # ต้องเจอเมื่อ filter ด้วยหมวดใดหมวดหนึ่ง
     ids = [i["id"] for i in (await client.get("/equipment", params={"category_id": c2["id"]}, headers=h)).json()["items"]]
     assert r.json()["id"] in ids
+
+    # cleanup — ลบอุปกรณ์และหมวดหมู่ที่สร้างในเทสต์นี้ ไม่ให้ค้างใน DB
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(equipment_category_links).where(equipment_category_links.c.equipment_id == r.json()["id"]))
+        await db.execute(delete(Equipment).where(Equipment.code == f"MULTI-{suffix}"))
+        await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id.in_([c1["id"], c2["id"]])))
+        await db.commit()
 
 
 async def test_unauthorized_without_token(client: AsyncClient):

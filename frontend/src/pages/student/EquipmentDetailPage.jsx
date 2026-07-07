@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 
-const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง' }
+const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', consumable: 'วัสดุสิ้นเปลือง' }
+
+const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
 export default function EquipmentDetailPage() {
   const { id } = useParams()
@@ -12,6 +14,7 @@ export default function EquipmentDetailPage() {
   const { cart, addItem } = useCart()
   const [eq, setEq] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [activeImg, setActiveImg] = useState(0)
 
   useEffect(() => {
     equipmentApi.get(id).then(setEq).catch(() => navigate('/equipment')).finally(() => setLoading(false))
@@ -20,18 +23,54 @@ export default function EquipmentDetailPage() {
   if (loading) return <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
   if (!eq) return null
 
+  const images = eq.image_urls?.length ? eq.image_urls : (eq.image_url ? [eq.image_url] : [])
   const inCart = cart.some((c) => c.equipment.id === eq.id)
-  const available = eq.quantity_available > 0 && (eq.item_type === 'consumable' || eq.status === 'available')
+  const available = eq.status === 'available' && eq.quantity_available > 0
+  // เหตุผลที่ยืมไม่ได้ — ดู status ก่อน (unavailable/damaged/…) ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
+  const reason = eq.status !== 'available'
+    ? (STATUS_LABEL[eq.status] ?? eq.status)
+    : (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <button onClick={() => navigate('/equipment')} className="text-sm text-gray-400 hover:text-gray-600 mb-6 flex items-center gap-1">
+      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-gray-600 mb-6 flex items-center gap-1">
         ← กลับ
       </button>
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        {eq.image_url && (
-          <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-56 object-cover" />
+        {images.length > 0 && (
+          <div>
+            <div className="relative bg-gray-50">
+              <img src={imgSrc(images[activeImg] ?? images[0])} alt={eq.name} className="w-full h-72 object-contain" />
+              {images.length > 1 && (
+                <>
+                  <button type="button" aria-label="รูปก่อนหน้า"
+                    onClick={() => setActiveImg((i) => (i - 1 + images.length) % images.length)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 shadow flex items-center justify-center text-gray-600 hover:bg-white">
+                    ‹
+                  </button>
+                  <button type="button" aria-label="รูปถัดไป"
+                    onClick={() => setActiveImg((i) => (i + 1) % images.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 shadow flex items-center justify-center text-gray-600 hover:bg-white">
+                    ›
+                  </button>
+                  <span className="absolute bottom-2 right-3 text-xs bg-black/50 text-white rounded-full px-2 py-0.5">
+                    {activeImg + 1}/{images.length}
+                  </span>
+                </>
+              )}
+            </div>
+            {images.length > 1 && (
+              <div className="flex gap-2 p-3 overflow-x-auto">
+                {images.map((url, i) => (
+                  <button key={url} type="button" onClick={() => setActiveImg(i)}
+                    className={`shrink-0 rounded-lg overflow-hidden border-2 ${i === activeImg ? 'border-blue-500' : 'border-transparent'}`}>
+                    <img src={imgSrc(url)} alt="" className="w-14 h-14 object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <div className="p-6 space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -39,7 +78,7 @@ export default function EquipmentDetailPage() {
             <span className={`shrink-0 text-sm px-3 py-1 rounded-full font-medium ${
               available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
             }`}>
-              {STATUS_LABEL[eq.status] ?? eq.status}
+              {available ? 'พร้อมให้ยืม' : reason}
             </span>
           </div>
 
@@ -80,9 +119,7 @@ export default function EquipmentDetailPage() {
 
           {!available && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-600">
-              {eq.quantity_available <= 0
-                ? (eq.item_type === 'consumable' ? 'อุปกรณ์หมด' : 'ถูกยืมอยู่ทั้งหมด')
-                : STATUS_LABEL[eq.status]} · ยืมไม่ได้ตอนนี้
+              {reason} · ยืมไม่ได้ตอนนี้
             </div>
           )}
 

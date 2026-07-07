@@ -18,6 +18,16 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserCreateRequest(BaseModel):
+    email: EmailStr
+    full_name: str
+    password: str
+    role: str = "student"  # student / admin
+    username: str | None = None
+    student_id: str | None = None
+    major: str | None = None
+
+
 class UserUpdateRequest(BaseModel):
     full_name: str | None = None
     major: str | None = None

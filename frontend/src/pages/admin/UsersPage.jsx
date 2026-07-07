@@ -11,6 +11,7 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [confirm, setConfirm] = useState(null)
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -46,12 +47,18 @@ export default function UsersPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">จัดการผู้ใช้</h1>
-        <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1) }}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">ทุก role</option>
-          <option value="student">นักศึกษา</option>
-          <option value="admin">Admin</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1) }}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">ทุก role</option>
+            <option value="student">นักศึกษา</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button onClick={() => setShowAdd(true)}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            + เพิ่มผู้ใช้
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -113,6 +120,98 @@ export default function UsersPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+
+      {showAdd && (
+        <AddUserModal
+          onClose={() => setShowAdd(false)}
+          onCreated={() => { setShowAdd(false); setPage(1); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function AddUserModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({
+    role: 'student', first_name: '', last_name: '', email: '', password: '',
+    student_id: '', username: '', major: 'comp_eng',
+  })
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSaving(true)
+    // ส่งเฉพาะ field ที่เกี่ยวกับ role นั้น ๆ (ค่าว่าง -> undefined)
+    const payload = {
+      role: form.role,
+      full_name: `${form.first_name} ${form.last_name}`.trim(),
+      email: form.email,
+      password: form.password,
+      student_id: form.role === 'student' ? form.student_id || undefined : undefined,
+      major: form.role === 'student' ? form.major : undefined,
+      username: form.role === 'admin' ? form.username || undefined : undefined,
+    }
+    try {
+      await usersApi.create(payload)
+      onCreated()
+    } catch (err) {
+      setError(err.response?.data?.detail ?? 'สร้างบัญชีไม่สำเร็จ')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center px-4 z-50">
+      <form onSubmit={submit} className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 space-y-3">
+        <h2 className="text-lg font-bold text-gray-800">เพิ่มผู้ใช้ใหม่</h2>
+
+        {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+        <div className="flex gap-2">
+          {['student', 'admin'].map((r) => (
+            <button type="button" key={r} onClick={() => setForm({ ...form, role: r })}
+              className={`flex-1 rounded-lg py-2 text-sm font-medium border ${form.role === r ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}>
+              {r === 'student' ? 'นักศึกษา' : 'Admin'}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <input className={input} placeholder="ชื่อ" required value={form.first_name} onChange={set('first_name')} />
+          <input className={input} placeholder="นามสกุล" required value={form.last_name} onChange={set('last_name')} />
+        </div>
+        <input className={input} type="email" placeholder="อีเมล" required value={form.email} onChange={set('email')} />
+        <input className={input} type="password" placeholder="รหัสผ่าน" required minLength={6} value={form.password} onChange={set('password')} />
+
+        {form.role === 'student' ? (
+          <>
+            <input className={input} placeholder="รหัสนักศึกษา" value={form.student_id} onChange={set('student_id')} />
+            <select className={input} value={form.major} onChange={set('major')}>
+              <option value="comp_eng">วิศวกรรมคอมพิวเตอร์</option>
+              <option value="digital_design">ออกแบบดิจิทัล</option>
+            </select>
+          </>
+        ) : (
+          <input className={input} placeholder="ชื่อผู้ใช้ (username) สำหรับล็อกอิน" value={form.username} onChange={set('username')} />
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button type="button" onClick={onClose}
+            className="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            ยกเลิก
+          </button>
+          <button type="submit" disabled={saving}
+            className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            {saving ? 'กำลังสร้าง…' : 'สร้างบัญชี'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

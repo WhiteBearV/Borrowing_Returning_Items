@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
-from app.schemas.user import PaginatedUsers, UserResponse, UserStatusUpdateRequest, UserUpdateRequest
+from app.schemas.user import (
+    PaginatedUsers,
+    UserCreateRequest,
+    UserResponse,
+    UserStatusUpdateRequest,
+    UserUpdateRequest,
+)
 from app.services import users_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -35,6 +41,16 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedUsers:
     return await users_service.list_users(db, page, page_size, role, major)
+
+
+@router.post("", response_model=UserResponse, status_code=201)
+async def create_user(
+    body: UserCreateRequest,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """แอดมินสร้างบัญชีผู้ใช้ใหม่ (student หรือ admin)"""
+    return await users_service.create_user(db, body)
 
 
 @router.patch("/{user_id}/status", response_model=UserResponse)

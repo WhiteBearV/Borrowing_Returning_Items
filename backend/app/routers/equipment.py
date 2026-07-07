@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +44,15 @@ async def get_equipment(
     holders = await equipment_service.get_holders(db, equipment_id)
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
     return EquipmentDetailResponse(**base.model_dump(), holders=holders)
+
+
+@router.post("/equipment/upload-image")
+async def upload_equipment_image(
+    file: UploadFile,
+    _admin: User = Depends(require_admin),
+) -> dict[str, str]:
+    """อัปโหลดรูปอุปกรณ์ คืน image_url สำหรับใส่ตอนสร้าง/แก้ไขอุปกรณ์"""
+    return {"image_url": await equipment_service.save_image(file)}
 
 
 @router.post("/equipment", response_model=EquipmentResponse, status_code=201)
@@ -110,3 +119,23 @@ async def create_category(
     db: AsyncSession = Depends(get_db),
 ) -> CategoryResponse:
     return await equipment_service.create_category(db, body)
+
+
+@router.patch("/equipment-categories/{category_id}", response_model=CategoryResponse)
+async def update_category(
+    category_id: uuid.UUID,
+    body: CategoryCreate,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> CategoryResponse:
+    return await equipment_service.update_category(db, category_id, body)
+
+
+@router.delete("/equipment-categories/{category_id}", status_code=204)
+async def delete_category(
+    category_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await equipment_service.delete_category(db, category_id)
+    return Response(status_code=204)

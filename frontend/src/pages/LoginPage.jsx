@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ identifier: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPw, setShowPw] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -54,13 +55,27 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
-            <input
-              type="password"
-              required
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="relative">
+              <input
+                type={showPw ? 'text' : 'password'}
+                required
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                aria-label="กดค้างเพื่อแสดงรหัสผ่าน"
+                onMouseDown={() => setShowPw(true)}
+                onMouseUp={() => setShowPw(false)}
+                onMouseLeave={() => setShowPw(false)}
+                onTouchStart={() => setShowPw(true)}
+                onTouchEnd={() => setShowPw(false)}
+                className="absolute inset-y-0 right-0 px-3 text-gray-400 hover:text-gray-600 select-none"
+              >
+                {showPw ? '🙈' : '👁'}
+              </button>
+            </div>
           </div>
 
           <button

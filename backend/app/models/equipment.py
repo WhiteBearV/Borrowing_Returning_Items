@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,7 +24,8 @@ class Equipment(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / consumable
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # cover = image_urls[0] (sync อัตโนมัติ)
+    image_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เฉพาะ consumable
     quantity_total: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

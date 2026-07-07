@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 
-const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง' }
+const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', consumable: 'วัสดุสิ้นเปลือง' }
 
 export default function EquipmentListPage() {
@@ -12,10 +12,21 @@ export default function EquipmentListPage() {
   const { cart, addItem } = useCart()
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
-  const [search, setSearch] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+
+  // เก็บ filter ไว้ใน URL เพื่อให้กดย้อนกลับจากหน้ารายละเอียดแล้วหมวด/หน้าเดิมยังอยู่
+  const [params, setParams] = useSearchParams()
+  const search = params.get('q') ?? ''
+  const categoryId = params.get('cat') ?? ''
+  const page = Number(params.get('page') || 1)
+  const patch = (obj) => setParams((prev) => {
+    const p = new URLSearchParams(prev)
+    for (const [k, v] of Object.entries(obj)) v ? p.set(k, v) : p.delete(k)
+    return p
+  }, { replace: true })
+  const setSearch = (v) => patch({ q: v, page: '' })
+  const setCategoryId = (v) => patch({ cat: v, page: '' })
+  const setPage = (v) => patch({ page: v > 1 ? String(v) : '' })
 
   const cartIds = new Set(cart.map((c) => c.equipment.id))
 
@@ -31,12 +42,13 @@ export default function EquipmentListPage() {
       .finally(() => setLoading(false))
   }, [search, categoryId, page])
 
-  const isAvailable = (eq) =>
-    eq.quantity_available > 0 && (eq.item_type === 'consumable' || eq.status === 'available')
+  const isAvailable = (eq) => eq.status === 'available' && eq.quantity_available > 0
 
-  // เหตุผลที่ยืมไม่ได้ — หมดสต็อกก่อน แล้วจึงดูสถานะครุภัณฑ์
+  // เหตุผลที่ยืมไม่ได้ — ดู status ก่อน (unavailable/damaged/…), ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
   const unavailableReason = (eq) =>
-    eq.quantity_available <= 0 ? (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่') : STATUS_LABEL[eq.status]
+    eq.status !== 'available'
+      ? (STATUS_LABEL[eq.status] ?? eq.status)
+      : (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -61,12 +73,12 @@ export default function EquipmentListPage() {
           type="text"
           placeholder="ค้นหาชื่ออุปกรณ์…"
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          onChange={(e) => setSearch(e.target.value)}
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
           value={categoryId}
-          onChange={(e) => { setCategoryId(e.target.value); setPage(1) }}
+          onChange={(e) => setCategoryId(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">ทุกหมวดหมู่</option>
@@ -88,7 +100,7 @@ export default function EquipmentListPage() {
             return (
               <div key={eq.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-2">
                 {eq.image_url && (
-                  <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-36 object-cover rounded-lg mb-1" />
+                  <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-36 object-contain rounded-lg mb-1 bg-gray-50" />
                 )}
                 <div className="flex items-start justify-between gap-2">
                   <Link to={`/equipment/${eq.id}`} className="font-semibold text-gray-800 hover:text-blue-600 leading-tight">
@@ -97,7 +109,7 @@ export default function EquipmentListPage() {
                   <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
                     available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                   }`}>
-                    {STATUS_LABEL[eq.status] ?? eq.status}
+                    {available ? 'พร้อมให้ยืม' : unavailableReason(eq)}
                   </span>
                 </div>
                 <p className="text-xs text-gray-400">{TYPE_LABEL[eq.item_type]} · {eq.code}</p>

@@ -8,8 +8,37 @@ from app.models.auth_token import AuthToken
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.notification import Notification
+from app.core.security import hash_password
 from app.models.user import User
-from app.schemas.user import PaginatedUsers, UserUpdateRequest
+from app.schemas.user import PaginatedUsers, UserCreateRequest, UserUpdateRequest
+
+
+async def create_user(db: AsyncSession, body: UserCreateRequest) -> User:
+    """แอดมินสร้างบัญชีผู้ใช้ใหม่ (student หรือ admin) — verified ทันที ไม่ต้องยืนยันอีเมล"""
+    if body.role not in ("student", "admin"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role.")
+    exists = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if exists:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
+    if body.student_id:
+        dup = (await db.execute(select(User).where(User.student_id == body.student_id))).scalar_one_or_none()
+        if dup:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student ID already registered.")
+    user = User(
+        email=body.email,
+        full_name=body.full_name,
+        username=body.username,
+        student_id=body.student_id,
+        major=body.major,
+        password_hash=hash_password(body.password),
+        role=body.role,
+        email_verified=True,
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 async def update_profile(db: AsyncSession, user: User, body: UserUpdateRequest) -> User:

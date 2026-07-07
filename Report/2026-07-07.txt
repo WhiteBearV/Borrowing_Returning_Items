@@ -1,0 +1,85 @@
+# รายงานความคืบหน้า — วันที่ 7 กรกฎาคม 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- **Endpoint สร้างผู้ใช้ (admin เท่านั้น)** — เพิ่ม `POST /users` สร้างได้ทั้ง student และ admin
+  - `schemas/user.py`: เพิ่ม `UserCreateRequest` (email, full_name, password, role, username, student_id, major)
+  - `services/users_service.py`: เพิ่ม `create_user()` — เช็คอีเมล/รหัสนักศึกษาซ้ำ, hash password, verified ทันที
+  - `routers/users.py`: route `POST /users` ครอบด้วย `require_admin`
+- **Image upload + แกลเลอรี่หลายรูป**
+  - `models/equipment.py`: เพิ่มคอลัมน์ `image_urls` (JSON list), `image_url` เดิมกลายเป็น cover (รูปแรก) sync อัตโนมัติ
+  - `alembic/versions/0005_equipment_image_urls.py`: migration เพิ่มคอลัมน์ + backfill รูปเดิม (รันแล้ว)
+  - `services/equipment_service.py`: เพิ่ม `save_image()` (จำกัดนามสกุล jpg/png/webp/gif + ขนาด ≤5MB), sync cover ใน create/update
+  - `routers/equipment.py`: `POST /equipment/upload-image`
+- **จัดการหมวดหมู่ (admin)** — เพิ่ม `update_category()` (เปลี่ยนชื่อ) และ `delete_category()` (กันลบถ้ายังมีอุปกรณ์ผูกอยู่) + routes `PATCH/DELETE /equipment-categories/{id}`
+- **เรียงลำดับอุปกรณ์** — `list_equipment()` เพิ่ม `ORDER BY (status=available AND qty>0) DESC, name` → ของยืมได้ขึ้นก่อน ยืมไม่ได้กองท้าย (ครอบทุกหน้า pagination)
+- **แก้ test ให้ cleanup ตัวเอง** — `tests/test_api_integration.py::test_equipment_multiple_categories` ลบ equipment/category/M2M links ที่สร้างท้ายเทสต์ (รันผ่าน ไม่มี junk ค้าง)
+
+### Frontend
+- **หน้า Login** (`pages/LoginPage.jsx`): ปุ่มกดค้างเพื่อโชว์รหัสผ่าน (กด=เห็น ปล่อย=ซ่อน)
+- **หน้าจัดการผู้ใช้** (`pages/admin/UsersPage.jsx`): ปุ่ม "+ เพิ่มผู้ใช้" + modal (สลับ student/admin, ช่องชื่อ-นามสกุลแยก, กรอก student_id/major หรือ username)
+- **หน้าจัดการอุปกรณ์** (`pages/admin/EquipmentManagePage.jsx`):
+  - อัปโหลดหลายรูป (ต่อท้ายไม่ทับ) + preview + ป้าย "ปก" + ปุ่มลบทีละรูป
+  - เพิ่มคอลัมน์รูป (thumbnail) ในตาราง
+  - ช่องเลือก status ใน modal แก้ไข (พร้อม/ไม่อนุญาต/เสียหาย/ซ่อม/ปลดระวาง)
+  - modal "จัดการหมวดหมู่" (เพิ่ม/เปลี่ยนชื่อ/ลบ)
+  - เพิ่ม helper `errMsg()` แปลง error 422 (array) เป็น string กัน React จอขาว
+- **หน้ารายการอุปกรณ์ (นักศึกษา)** (`pages/student/EquipmentListPage.jsx`):
+  - เก็บ filter (คำค้น/หมวด/หน้า) ไว้ใน URL → กดย้อนกลับแล้วหมวดเดิมยังอยู่
+  - รูปการ์ด `object-contain` (ไม่โดน crop)
+  - badge สถานะอ่านจาก `status` จริง (unavailable/damaged/หมด) ไม่เดามั่วว่า "ถูกยืมอยู่"
+- **หน้ารายละเอียด (นักศึกษา)** (`pages/student/EquipmentDetailPage.jsx`): แกลเลอรี่รูปใหญ่ `object-contain` + ปุ่มลูกศร ‹ › + thumbnail strip + badge/เหตุผลตาม status
+- **api** (`equipmentApi.js`, `usersApi.js`): เพิ่ม uploadImage, updateCategory, deleteCategory, users.create
+
+### อื่น ๆ (Data cleanup / Config)
+- ลบ test junk ที่ค้างใน DB: 4 categories (`cat_*`) + 2 equipment (`MULTI-*`)
+- ตั้งรหัส + username ให้บัญชี admin (`admin@cdti.ac.th` / `Admin`) เพื่อให้ล็อกอินได้
+- **จัดหมวดหมู่คลังอุปกรณ์** (แก้ข้อมูลใน DB โดยตรง):
+  - ย้าย "ตะกั่ว" + "Soldering paste" เป็น consumable, รวมเหลือชนิดละ 1 รายการ qty=12, เข้าหมวด "วัสดุ"
+  - ย้าย Sensor training kit (515xxx) + embedded kit (121xxx) → หมวด embedded
+  - สร้างหมวด "TV" + ย้าย TV/Apple TV 12 ชิ้นเข้าไป (ลบแท็ก "ไม่ระบุหมวดหมู่")
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ล็อกอิน admin ไม่ได้ (401) | บัญชี admin ไม่มี username/student_id + จำรหัสไม่ได้ | รีเซ็ตรหัส + เติม username=Admin (แก้แล้ว) |
+| อัปโหลดรูปแล้วจอขาว | axios ตั้ง Content-Type=json → FormData ไม่มี boundary + error 422 เป็น array render ตรง ๆ | override header multipart + `errMsg()` (แก้แล้ว) |
+| เลือกหมวดในหน้านักศึกษาไม่ได้ | handler เรียก setPage(1) ต่อท้าย เขียนทับ URL param ที่เพิ่ง set (อ่าน prev เก่า) | เอา setPage(1) ที่ซ้ำออก (แก้แล้ว) |
+| ของ status=unavailable ขึ้น "พร้อมให้ยืม"/"ถูกยืมอยู่" ผิด | frontend ไม่รู้จักค่า status `unavailable` เดาจาก qty=0 | อ่าน status เป็นหลัก (แก้แล้ว) |
+| `equipment.status` ไม่เปลี่ยนเป็น borrowed ตอนของถูกยืมหมด | borrow_service ลดแค่ quantity_available | frontend คำนวณเอาถูกแล้ว; ถ้าจะ sync field status ด้วยต้องแก้ borrow_service (ยังไม่ทำ) |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Commit งานทั้งหมดวันนี้ (ตอนนี้ยังเป็น working tree ยังไม่ commit)
+2. [ ] จัดหมวดที่ยังก้ำกึ่ง: IoT gateway (118/119), IoT control (219), สายไฟ (ติด 2 หมวด), แก้ชื่อหมวด "โตะตู้" → "โต๊ะตู้"
+3. [ ] Bootstrap admin คนแรก (ยังต้อง INSERT SQL) — พิจารณา CLI script หรือ env-gated route
+4. [ ] ทดสอบ full stack end-to-end หลังงานวันนี้ (register/login 2 โหมด, borrow flow, upload รูป)
+5. [ ] (ถ้าต้องการ) sync `equipment.status` ใน borrow_service ตอนอนุมัติ/คืน
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~98% — เหลือ bootstrap admin, (optional) sync status field
+**Frontend:** ~98% — UI ครบทุกหน้าแล้ว เหลือขัดเกลา/ทดสอบ
+**ระยะรวม:** โค้ดครบเกือบสมบูรณ์ + วันนี้เน้นเก็บงาน UX (upload/แกลเลอรี่/จัดการผู้ใช้-หมวดหมู่) และ data cleanup คลังอุปกรณ์ ตัวบล็อกหลักที่เหลือคือ full stack test + commit
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **งานวันนี้ยังไม่ได้ commit** — working tree มี 15 ไฟล์แก้ + migration 0005 ใหม่ ควร commit ก่อนทำต่อ
+- **การแก้ข้อมูลคลังทำโดยตรงบน DB** (ไม่ผ่าน migration/seed) — ถ้า reset DB ใหม่ต้องทำซ้ำ ควรพิจารณาเขียนลง `scripts/` หรือ seed
+- **ALLOWED_EMAIL_DOMAINS** (CLAUDE.md Pending #10) — ยังต้องยืนยัน domain จริงกับอาจารย์ก่อน deploy
+- **ไฟล์ Excel คลังอุปกรณ์เดิม** (CLAUDE.md Pending #10) — ข้อมูลปัจจุบัน import มาจาก Snipe-IT, การจัดหมวด/ประเภทหลายอย่างยังต้องรีวิวกับเจ้าของข้อมูล
+- **LINE OA** — ยังเป็น stretch goal ยังไม่ได้ token
