@@ -33,16 +33,14 @@ async def _get_setting_int(db: AsyncSession, key: str) -> int:
     return int(result.scalar_one().value)
 
 
-async def _next_request_code(db: AsyncSession) -> str:
-    """สร้างรหัสคำขอแบบ REQ-YYYY-XXXX"""
-    year = date.today().year
-    result = await db.execute(
-        select(func.count(BorrowRequest.id)).where(
-            BorrowRequest.request_code.like(f"REQ-{year}-%")
-        )
-    )
-    count = result.scalar() or 0
-    return f"REQ-{year}-{count + 1:04d}"
+def _build_request_code(user: User, rid: uuid.UUID) -> str:
+    """สร้างรหัสคำขอที่ไม่ซ้ำและระบุตัวผู้ยืมได้ เช่น REQ-2026-6512345678-a1b2c3
+
+    ใช้ hex 6 ตัวจาก uuid ของคำขอ (unique อยู่แล้วโดยธรรมชาติ) เป็น suffix
+    จึงไม่มีปัญหาชนกันตอนหลายคนกดส่งพร้อมกัน ต่างจากแบบเดิมที่ count+1 (race ได้)
+    """
+    ident = user.student_id or user.username or "USER"
+    return f"REQ-{date.today().year}-{ident}-{rid.hex[:6]}"
 
 
 async def _notify(
@@ -132,8 +130,10 @@ async def create_request(
             )
         equipment_map[eq.id] = eq
 
+    rid = uuid.uuid4()
     req = BorrowRequest(
-        request_code=await _next_request_code(db),
+        id=rid,
+        request_code=_build_request_code(current_user, rid),
         student_id=current_user.id,
         purpose=body.purpose,
         status="pending",

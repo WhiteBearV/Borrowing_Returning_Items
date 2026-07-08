@@ -12,7 +12,7 @@ class BorrowRequest(Base):
     __tablename__ = "borrow_requests"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    request_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)  # REQ-2026-0001
+    request_code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)  # REQ-2026-<student_id>-<hex6>
     student_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
