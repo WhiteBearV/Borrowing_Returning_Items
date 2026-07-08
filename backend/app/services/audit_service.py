@@ -2,13 +2,15 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.audit_log import AuditLog
 from app.schemas.audit import AuditLogResponse, PaginatedAuditLogs
 
 
 async def list_logs(db: AsyncSession, page: int, page_size: int, action: str | None) -> PaginatedAuditLogs:
-    query = select(AuditLog).order_by(AuditLog.created_at.desc())
+    # โหลด actor มาด้วยเพื่อแสดงชื่อผู้ทำ (ไม่ใช่แค่ UUID)
+    query = select(AuditLog).options(selectinload(AuditLog.actor)).order_by(AuditLog.created_at.desc())
     if action:
         query = query.where(AuditLog.action == action)
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0

@@ -23,3 +23,14 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     actor = relationship("User", back_populates="audit_logs")
+
+    @property
+    def actor_name(self) -> str | None:
+        return self.actor.full_name if self.actor else None
+
+    @property
+    def actor_identifier(self) -> str | None:
+        """เลขนักศึกษา / username ของผู้ทำ เพื่อระบุตัวตนได้ชัดกว่าชื่อ"""
+        if not self.actor:
+            return None
+        return self.actor.student_id or self.actor.username or self.actor.email

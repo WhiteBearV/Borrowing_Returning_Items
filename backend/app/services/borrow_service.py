@@ -18,6 +18,13 @@ from app.schemas.borrow import (
     PaginatedBorrowRequests,
     ReturnItemRequest,
 )
+from app.services import audit_service
+
+# สถานะตอนสรุปผลอุปกรณ์ แยกตามชนิด
+DURABLE_CONDITIONS = {"ok", "damaged", "lost"}
+CONSUMABLE_CONDITIONS = {"returned_full", "used_up", "discarded"}  # คืนครบ / ใช้หมด / เสียหายทิ้ง
+STOCK_RETURN_CONDITIONS = {"ok", "returned_full"}   # สถานะที่คืนของเข้าสต็อก
+PHOTO_REQUIRED_CONDITIONS = {"damaged", "lost", "discarded"}  # ต้องแนบรูปหลักฐาน
 
 
 async def _get_setting_int(db: AsyncSession, key: str) -> int:
@@ -252,6 +259,8 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
     await _notify(db, req.student_id, "approved",
                   f"คำขอ {req.request_code} ได้รับการอนุมัติแล้ว กรุณาคืนภายใน {req.due_date}",
                   borrow_request_id=req.id)
+    await audit_service.log_action(db, admin.id, "approve_request", "borrow_requests", req.id,
+                                   {"request_code": req.request_code, "due_date": str(req.due_date)})
     await db.commit()
 
 
@@ -274,6 +283,8 @@ async def reject_request(
     await _notify(db, req.student_id, "rejected",
                   f"คำขอ {req.request_code} ถูกปฏิเสธ: {reason}",
                   borrow_request_id=req.id)
+    await audit_service.log_action(db, admin.id, "reject_request", "borrow_requests", req.id,
+                                   {"request_code": req.request_code, "reason": reason})
     await db.commit()
 
 

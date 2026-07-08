@@ -8,6 +8,7 @@ from sqlalchemy import delete, text
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
 from app.main import app
+from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
@@ -32,6 +33,8 @@ async def _delete_user_cascade(uid: uuid.UUID) -> None:
             await db.execute(delete(Notification).where(Notification.borrow_request_id == req_id))
             await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == req_id))
         await db.execute(delete(Notification).where(Notification.user_id == uid))
+        # audit_logs อ้าง actor_id → ต้องลบก่อนลบ user (FK)
+        await db.execute(delete(AuditLog).where(AuditLog.actor_id == uid))
         await db.execute(delete(User).where(User.id == uid))
         await db.commit()
 

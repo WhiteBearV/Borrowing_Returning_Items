@@ -8,6 +8,8 @@ from pydantic import BaseModel
 class AuditLogResponse(BaseModel):
     id: uuid.UUID
     actor_id: uuid.UUID
+    actor_name: str | None = None
+    actor_identifier: str | None = None
     action: str
     target_table: str
     target_id: uuid.UUID

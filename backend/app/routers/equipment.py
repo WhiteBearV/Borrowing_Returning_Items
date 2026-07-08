@@ -58,39 +58,39 @@ async def upload_equipment_image(
 @router.post("/equipment", response_model=EquipmentResponse, status_code=201)
 async def create_equipment(
     body: EquipmentCreate,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentResponse:
-    return await equipment_service.create_equipment(db, body)
+    return await equipment_service.create_equipment(db, admin, body)
 
 
 @router.patch("/equipment/{equipment_id}", response_model=EquipmentResponse)
 async def update_equipment(
     equipment_id: uuid.UUID,
     body: EquipmentUpdate,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentResponse:
-    return await equipment_service.update_equipment(db, equipment_id, body)
+    return await equipment_service.update_equipment(db, admin, equipment_id, body)
 
 
 @router.delete("/equipment/{equipment_id}", status_code=204)
 async def retire_equipment(
     equipment_id: uuid.UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    await equipment_service.retire_equipment(db, equipment_id)
+    await equipment_service.retire_equipment(db, admin, equipment_id)
     return Response(status_code=204)
 
 
 @router.delete("/equipment/{equipment_id}/permanent", status_code=204)
 async def delete_equipment_permanent(
     equipment_id: uuid.UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    await equipment_service.delete_equipment(db, equipment_id)
+    await equipment_service.delete_equipment(db, admin, equipment_id)
     return Response(status_code=204)
 
 
