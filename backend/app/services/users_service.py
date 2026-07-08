@@ -5,7 +5,6 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import equipment_service
-from app.models.audit_log import AuditLog
 from app.models.auth_token import AuthToken
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
@@ -94,8 +93,8 @@ async def delete_user(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(delete(BorrowRequest).where(BorrowRequest.student_id == user_id))
     await db.execute(delete(Notification).where(Notification.user_id == user_id))
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user_id))
-    # audit_logs อ้าง actor_id → ต้องลบก่อนลบ user (FK)
-    await db.execute(delete(AuditLog).where(AuditLog.actor_id == user_id))
+    # ไม่ลบ audit_logs — ต้องเก็บประวัติไว้ (ห้ามลบ audit trail ด้วยการลบบัญชี)
+    # FK เป็น ON DELETE SET NULL: actor_id กลายเป็น null แต่ actor_name/identifier snapshot ยังอยู่
     await db.execute(delete(User).where(User.id == user_id))
     await db.commit()
 

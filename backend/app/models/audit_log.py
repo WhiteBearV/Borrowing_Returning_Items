@@ -12,9 +12,13 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    actor_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    # actor_id เป็น null ได้ (SET NULL เมื่อ user ถูกลบ) แต่ actor_name/identifier snapshot
+    # ไว้ตั้งแต่ตอนบันทึก จึงยังรู้ว่าใครทำแม้ user จะถูกลบไปแล้ว — ประวัติลบไม่ได้
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    actor_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)  # เลขนศ./username
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     # approve_request / reject_request / confirm_return / create_equipment / update_equipment
     target_table: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -23,14 +27,3 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     actor = relationship("User", back_populates="audit_logs")
-
-    @property
-    def actor_name(self) -> str | None:
-        return self.actor.full_name if self.actor else None
-
-    @property
-    def actor_identifier(self) -> str | None:
-        """เลขนักศึกษา / username ของผู้ทำ เพื่อระบุตัวตนได้ชัดกว่าชื่อ"""
-        if not self.actor:
-            return None
-        return self.actor.student_id or self.actor.username or self.actor.email

@@ -256,7 +256,7 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
     await _notify(db, req.student_id, "approved",
                   f"คำขอ {req.request_code} ได้รับการอนุมัติแล้ว กรุณาคืนภายใน {req.due_date}",
                   borrow_request_id=req.id)
-    await audit_service.log_action(db, admin.id, "approve_request", "borrow_requests", req.id,
+    await audit_service.log_action(db, admin, "approve_request", "borrow_requests", req.id,
                                    {"request_code": req.request_code, "due_date": str(req.due_date)})
     await db.commit()
 
@@ -280,7 +280,7 @@ async def reject_request(
     await _notify(db, req.student_id, "rejected",
                   f"คำขอ {req.request_code} ถูกปฏิเสธ: {reason}",
                   borrow_request_id=req.id)
-    await audit_service.log_action(db, admin.id, "reject_request", "borrow_requests", req.id,
+    await audit_service.log_action(db, admin, "reject_request", "borrow_requests", req.id,
                                    {"request_code": req.request_code, "reason": reason})
     await db.commit()
 
@@ -368,7 +368,7 @@ async def return_item(
     await _notify(db, req.student_id, "returned_confirmed",
                   f"รับคืนอุปกรณ์จากคำขอ {req.request_code} แล้ว",
                   borrow_request_id=req.id)
-    await audit_service.log_action(db, admin.id, "confirm_return", "borrow_items", item.id,
+    await audit_service.log_action(db, admin, "confirm_return", "borrow_items", item.id,
                                    {"request_code": req.request_code,
                                     "condition": body.condition_on_return})
     await db.commit()
@@ -400,7 +400,7 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
     await _notify(db, req.student_id, "returned_confirmed",
                   f"รับคืนครุภัณฑ์จากคำขอ {req.request_code} แล้ว",
                   borrow_request_id=req.id)
-    await audit_service.log_action(db, admin.id, "confirm_return", "borrow_requests", req.id,
+    await audit_service.log_action(db, admin, "confirm_return", "borrow_requests", req.id,
                                    {"request_code": req.request_code, "durable_all": True})
     await db.commit()
 

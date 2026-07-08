@@ -122,7 +122,7 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     eq.quantity_available = body.quantity_total
     db.add(eq)
     await db.flush()  # ได้ eq.id ก่อนบันทึก audit
-    await audit_service.log_action(db, admin.id, "create_equipment", "equipment", eq.id,
+    await audit_service.log_action(db, admin, "create_equipment", "equipment", eq.id,
                                    {"code": eq.code, "name": eq.name})
     await db.commit()
     return await get_equipment(db, eq.id)
@@ -137,7 +137,7 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
     if body.category_ids is not None:
         eq.categories = await _resolve_categories(db, body.category_ids)
-    await audit_service.log_action(db, admin.id, "update_equipment", "equipment", eq.id,
+    await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id,
                                    {"code": eq.code, "fields": sorted(changed.keys())})
     await db.commit()
     return await get_equipment(db, equipment_id)
@@ -146,7 +146,7 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
 async def retire_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID) -> None:
     eq = await get_equipment(db, equipment_id)
     eq.status = "retired"
-    await audit_service.log_action(db, admin.id, "retire_equipment", "equipment", eq.id,
+    await audit_service.log_action(db, admin, "retire_equipment", "equipment", eq.id,
                                    {"code": eq.code, "name": eq.name})
     await db.commit()
 
@@ -162,7 +162,7 @@ async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     if has_history:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่สามารถลบได้ เนื่องจากมีประวัติการยืม")
     # log ก่อนลบ เพราะหลัง delete จะอ้าง target_id ไม่ได้แล้ว
-    await audit_service.log_action(db, admin.id, "delete_equipment", "equipment", eq.id,
+    await audit_service.log_action(db, admin, "delete_equipment", "equipment", eq.id,
                                    {"code": eq.code, "name": eq.name})
     await db.delete(eq)
     await db.commit()

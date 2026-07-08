@@ -163,16 +163,17 @@ async def test_create_and_retire_equipment_write_audit(
             await db.commit()
 
 
-async def test_delete_user_with_audit_logs_does_not_break_fk(
+async def test_delete_user_preserves_audit_trail(
     client: AsyncClient, admin_token: str
 ):
-    """ลบ user ที่มี audit log อ้างอยู่ต้องไม่ติด FK (regression: audit ทำงานแล้ว actor_id ถูกอ้าง)
+    """ลบ user แล้ว audit log ต้องยังอยู่ (ห้ามลบ audit trail ด้วยการลบบัญชี)
 
-    ใช้ user โยนทิ้งที่ใส่ audit log ตรงๆ ไม่ต้องสร้าง admin ใหม่
+    หลังลบ: actor_id ถูก SET NULL แต่ actor_name/identifier snapshot ยังอยู่ → ยังรู้ว่าใครทำ
     """
     from app.core.security import hash_password  # local เพื่อไม่รบกวน import ส่วนบน
 
     uid = uuid.uuid4()
+    target = uuid.uuid4()  # ใช้ระบุ log ตัวนี้หลัง actor_id ถูก null
     async with AsyncSessionLocal() as db:
         db.add(User(
             id=uid, full_name="ผู้ใช้โยนทิ้ง",
@@ -180,9 +181,10 @@ async def test_delete_user_with_audit_logs_does_not_break_fk(
             password_hash=hash_password("Test1234!"),
             role="admin", email_verified=True, is_active=False,  # inactive เพื่อให้ลบได้
         ))
-        # จำลอง audit log ที่อ้าง user นี้เป็น actor
-        db.add(AuditLog(actor_id=uid, action="update_equipment", target_table="equipment",
-                        target_id=uuid.uuid4(), detail={"note": "regression"}))
+        # audit log ที่อ้าง user นี้ พร้อม snapshot ชื่อ/รหัส (เหมือน log_action จริง)
+        db.add(AuditLog(actor_id=uid, actor_name="ผู้ใช้โยนทิ้ง", actor_identifier="STAFF999",
+                        action="update_equipment", target_table="equipment",
+                        target_id=target, detail={"note": "regression"}))
         await db.commit()
 
     try:
@@ -190,11 +192,15 @@ async def test_delete_user_with_audit_logs_does_not_break_fk(
         assert (await client.delete(f"/users/{uid}", headers=auth(admin_token))).status_code == 204
         async with AsyncSessionLocal() as db:
             assert await db.get(User, uid) is None
-            assert (await db.execute(
-                select(AuditLog).where(AuditLog.actor_id == uid)
-            )).scalar_one_or_none() is None
+            log = (await db.execute(
+                select(AuditLog).where(AuditLog.target_id == target)
+            )).scalar_one_or_none()
+            assert log is not None, "audit log ต้องยังอยู่หลังลบ user"
+            assert log.actor_id is None, "actor_id ต้องถูก SET NULL"
+            assert log.actor_name == "ผู้ใช้โยนทิ้ง", "snapshot ชื่อผู้ทำต้องยังอยู่"
+            assert log.actor_identifier == "STAFF999"
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(AuditLog).where(AuditLog.actor_id == uid))
+            await db.execute(delete(AuditLog).where(AuditLog.target_id == target))
             await db.execute(delete(User).where(User.id == uid))
             await db.commit()

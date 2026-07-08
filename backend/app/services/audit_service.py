@@ -2,15 +2,15 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.audit_log import AuditLog
+from app.models.user import User
 from app.schemas.audit import AuditLogResponse, PaginatedAuditLogs
 
 
 async def list_logs(db: AsyncSession, page: int, page_size: int, action: str | None) -> PaginatedAuditLogs:
-    # โหลด actor มาด้วยเพื่อแสดงชื่อผู้ทำ (ไม่ใช่แค่ UUID)
-    query = select(AuditLog).options(selectinload(AuditLog.actor)).order_by(AuditLog.created_at.desc())
+    # actor_name/identifier เป็น snapshot column แล้ว ไม่ต้อง join user
+    query = select(AuditLog).order_by(AuditLog.created_at.desc())
     if action:
         query = query.where(AuditLog.action == action)
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
@@ -25,11 +25,20 @@ async def list_logs(db: AsyncSession, page: int, page_size: int, action: str | N
 
 async def log_action(
     db: AsyncSession,
-    actor_id: uuid.UUID,
+    actor: User,
     action: str,
     target_table: str,
     target_id: uuid.UUID,
     detail: dict | None = None,
 ) -> None:
-    """บันทึกการกระทำของ admin ลง audit_logs"""
-    db.add(AuditLog(actor_id=actor_id, action=action, target_table=target_table, target_id=target_id, detail=detail))
+    """บันทึกการกระทำของ admin ลง audit_logs
+
+    snapshot ชื่อ/รหัสผู้ทำไว้ในตัว log เลย เพื่อให้รู้ว่าใครทำแม้ user จะถูกลบภายหลัง
+    (audit trail ต้องลบไม่ได้ด้วยการลบบัญชี)
+    """
+    db.add(AuditLog(
+        actor_id=actor.id,
+        actor_name=actor.full_name,
+        actor_identifier=actor.student_id or actor.username or actor.email,
+        action=action, target_table=target_table, target_id=target_id, detail=detail,
+    ))
