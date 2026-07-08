@@ -11,6 +11,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str
     major: str | None
+    avatar_url: str | None = None
     email_verified: bool
     is_active: bool
     created_at: datetime

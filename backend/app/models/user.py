@@ -19,6 +19,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="student")  # student / admin
     major: Mapped[str | None] = mapped_column(String(50), nullable=True)  # comp_eng / digital_design
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # รูปโปรไฟล์ (/uploads/...)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     line_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

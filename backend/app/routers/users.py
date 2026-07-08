@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, require_admin
@@ -29,6 +29,16 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     return await users_service.update_profile(db, current_user, body)
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """อัปโหลด/เปลี่ยนรูปโปรไฟล์ของตัวเอง"""
+    return await users_service.update_avatar(db, current_user, file)
 
 
 @router.get("", response_model=PaginatedUsers)

@@ -53,6 +53,14 @@ async def update_profile(db: AsyncSession, user: User, body: UserUpdateRequest) 
     return user
 
 
+async def update_avatar(db: AsyncSession, user: User, file: UploadFile) -> User:
+    """อัปโหลดรูปโปรไฟล์ของผู้ใช้เอง — ใช้ save_image ตัวเดียวกับรูปอุปกรณ์"""
+    user.avatar_url = await equipment_service.save_image(file)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def list_users(
     db: AsyncSession, page: int, page_size: int, role: str | None, major: str | None
 ) -> PaginatedUsers:

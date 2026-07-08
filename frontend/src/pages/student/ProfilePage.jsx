@@ -7,12 +7,33 @@ const MAJORS = [
   { value: 'digital_design', label: 'ออกแบบดิจิทัล' },
 ]
 
+const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
+
 export default function ProfilePage() {
-  const { user, login } = useAuthContext()
+  const { user, setUser } = useAuthContext()
   const [form, setForm] = useState({ full_name: user?.full_name ?? '', major: user?.major ?? '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      // override header ให้ axios ตั้ง multipart boundary เอง (default instance เป็น json)
+      const res = await api.post('/users/me/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setUser(res.data)
+    } catch (err) {
+      setError(err.response?.data?.detail ?? 'อัปโหลดรูปไม่สำเร็จ')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -34,6 +55,22 @@ export default function ProfilePage() {
       <h1 className="text-2xl font-bold text-gray-800 mb-6">โปรไฟล์</h1>
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+        {/* Avatar */}
+        <div className="flex flex-col items-center gap-3 pb-4 border-b border-gray-100">
+          {user?.avatar_url ? (
+            <img src={imgSrc(user.avatar_url)} alt="avatar"
+              className="w-24 h-24 rounded-full object-cover border border-gray-200" />
+          ) : (
+            <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center text-3xl font-bold text-blue-600">
+              {(user?.full_name ?? '?').trim().charAt(0)}
+            </div>
+          )}
+          <label className="text-sm text-blue-600 hover:underline cursor-pointer">
+            {uploading ? 'กำลังอัปโหลด…' : 'เปลี่ยนรูปโปรไฟล์'}
+            <input type="file" accept="image/*" onChange={uploadAvatar} disabled={uploading} className="hidden" />
+          </label>
+        </div>
+
         {/* Read-only fields */}
         <div className="space-y-3 pb-4 border-b border-gray-100">
           {[
