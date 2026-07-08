@@ -244,12 +244,9 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Equipment '{eq.name}' no longer has sufficient stock.",
             )
+        # หักสต็อกทั้ง durable และ consumable — ของออกจากคลังแล้ว
+        # consumable ไม่ auto-คืนอีกต่อไป: admin ต้องสรุปผลภายหลัง (คืนครบ/ใช้หมด/เสียหาย)
         eq.quantity_available -= item.quantity
-        if item.item_type_snapshot == "consumable":
-            # เบิกแล้วหักสต็อก ไม่ต้องคืน
-            item.returned = True
-            item.returned_at = now
-            item.condition_on_return = "ok"
 
     req.status = "approved"
     req.approved_by = admin.id
@@ -329,14 +326,12 @@ async def return_item(
     db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, body: ReturnItemRequest
 ) -> None:
     """
-    ยืนยันรับคืนอุปกรณ์ (admin only):
-    - บันทึก condition_on_return + damage_note
-    - condition=ok → เพิ่ม quantity_available กลับ
-    - ทุก item returned → request.status = completed
+    ยืนยันรับคืน/สรุปผลอุปกรณ์ (admin only):
+    - durable ใช้สถานะ ok/damaged/lost ; consumable ใช้ returned_full/used_up/discarded
+    - สถานะที่คืนของเข้าคลัง (ok, returned_full) → เพิ่ม quantity_available กลับ
+    - สถานะที่เสียหาย (damaged/lost/discarded) ต้องแนบรูปหลักฐานอย่างน้อย 1 รูป
+    - ทุก item สรุปผลครบ → request.status = completed
     """
-    if body.condition_on_return not in ("ok", "damaged", "lost"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid condition value.")
-
     req = await _load_request(db, request_id)
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
@@ -347,13 +342,21 @@ async def return_item(
     if item.returned:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item already returned.")
 
+    valid = CONSUMABLE_CONDITIONS if item.item_type_snapshot == "consumable" else DURABLE_CONDITIONS
+    if body.condition_on_return not in valid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid condition value for this item type.")
+    # เสียหาย/สูญหาย/ทิ้ง ต้องมีรูปหลักฐาน
+    if body.condition_on_return in PHOTO_REQUIRED_CONDITIONS and not body.damage_photo_urls:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ต้องแนบรูปความเสียหายอย่างน้อย 1 รูป")
+
     now = datetime.now(timezone.utc)
     item.returned = True
     item.returned_at = now
     item.condition_on_return = body.condition_on_return
     item.damage_note = body.damage_note
+    item.damage_photo_urls = body.damage_photo_urls
 
-    if body.condition_on_return == "ok":
+    if body.condition_on_return in STOCK_RETURN_CONDITIONS:
         item.equipment.quantity_available += item.quantity
 
     # ถ้าทุก item returned แล้ว → complete request
@@ -365,11 +368,18 @@ async def return_item(
     await _notify(db, req.student_id, "returned_confirmed",
                   f"รับคืนอุปกรณ์จากคำขอ {req.request_code} แล้ว",
                   borrow_request_id=req.id)
+    await audit_service.log_action(db, admin.id, "confirm_return", "borrow_items", item.id,
+                                   {"request_code": req.request_code,
+                                    "condition": body.condition_on_return})
     await db.commit()
 
 
 async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
-    """รับคืนอุปกรณ์ทุกชิ้นใน request พร้อมกัน (condition=ok ทั้งหมด) — admin only"""
+    """รับคืนครุภัณฑ์ (durable) ทุกชิ้นพร้อมกันแบบสภาพปกติ — admin only
+
+    วัสดุสิ้นเปลือง (consumable) ไม่รวมในปุ่มนี้ ต้องสรุปผลทีละชิ้น (คืนครบ/ใช้หมด/เสียหาย)
+    request จะ completed ก็ต่อเมื่อทุก item สรุปผลครบแล้วเท่านั้น
+    """
     req = await _load_request(db, request_id)
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
@@ -382,11 +392,16 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
             item.condition_on_return = "ok"
             item.equipment.quantity_available += item.quantity
 
-    req.status = "completed"
-    req.returned_at = now
+    # complete เฉพาะเมื่อไม่มี item ค้างสรุป (รวมวัสดุที่ยังไม่ถูกสรุปผล)
+    if all(i.returned for i in req.items):
+        req.status = "completed"
+        req.returned_at = now
+
     await _notify(db, req.student_id, "returned_confirmed",
-                  f"รับคืนอุปกรณ์ทั้งหมดจากคำขอ {req.request_code} แล้ว",
+                  f"รับคืนครุภัณฑ์จากคำขอ {req.request_code} แล้ว",
                   borrow_request_id=req.id)
+    await audit_service.log_action(db, admin.id, "confirm_return", "borrow_requests", req.id,
+                                   {"request_code": req.request_code, "durable_all": True})
     await db.commit()
 
 

@@ -13,6 +13,10 @@ const STATUS_LABEL = {
   pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ถูกปฏิเสธ',
   cancelled: 'ยกเลิกแล้ว', completed: 'คืนครบแล้ว',
 }
+const ITEM_CONDITION_LABEL = {
+  ok: 'คืนแล้ว', damaged: 'เสียหาย', lost: 'สูญหาย',
+  returned_full: 'คืนครบ', used_up: 'ใช้หมด', discarded: 'เสียหาย/ทิ้ง',
+}
 
 export default function MyBorrowsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -97,8 +101,13 @@ export default function MyBorrowsPage() {
                         <div>
                           <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
                           <span className="ml-2 text-xs text-gray-400">×{item.quantity}</span>
-                          {item.returned && (
-                            <span className="ml-2 text-xs text-green-600">คืนแล้ว</span>
+                          {item.returned ? (
+                            <span className={`ml-2 text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
+                              {ITEM_CONDITION_LABEL[item.condition_on_return] ?? 'คืนแล้ว'}
+                            </span>
+                          ) : (
+                            req.status === 'approved' && item.item_type_snapshot === 'consumable' &&
+                            <span className="ml-2 text-xs text-blue-500">เบิกแล้ว (รอสรุป)</span>
                           )}
                           {item.renewed_count > 0 && (
                             <span className="ml-2 text-xs text-blue-500">ต่อเวลา {item.renewed_count}×</span>

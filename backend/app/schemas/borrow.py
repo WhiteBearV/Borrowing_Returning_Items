@@ -24,6 +24,7 @@ class BorrowItemResponse(BaseModel):
     returned_at: datetime | None
     condition_on_return: str | None
     damage_note: str | None
+    damage_photo_urls: list[str] | None = None
     renewed_count: int
     extended_due_date: date | None
 
@@ -56,8 +57,10 @@ class RejectRequest(BaseModel):
 
 
 class ReturnItemRequest(BaseModel):
-    condition_on_return: str  # ok / damaged / lost
+    # durable: ok / damaged / lost ; consumable: returned_full / used_up / discarded
+    condition_on_return: str
     damage_note: str | None = None
+    damage_photo_urls: list[str] | None = None
 
 
 class PaginatedBorrowRequests(BaseModel):
