@@ -1,0 +1,94 @@
+# รายงานความคืบหน้า — วันที่ 8 กรกฎาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+ตรวจโปรเจกต์เทียบบันทึกการปรึกษา 30 มิ.ย. (9 ข้อ) แบบเช็คว่าฟังก์ชันใช้งานได้จริง
+พบว่าเสร็จจริงแค่ 1/9, ทำครึ่งเดียว 2, ยังไม่ทำ 5, และมี 1 ข้อที่เขียนไว้แต่เป็น dead code
+วันนี้จัดการข้อที่ "พัง/เร่งด่วน" + งานที่ผู้ใช้ขอเพิ่ม รวม 4 commits (+ security fix)
+
+### Backend
+- **[advisor #8] Audit log ใช้งานได้จริง** — เดิม `audit_service.log_action()` ไม่เคยถูกเรียก
+  (audit_logs ว่างตลอด) เสียบเข้า approve/reject/return (borrow_service.py) และ
+  create/update/retire/delete equipment (equipment_service.py + routers/equipment.py thread admin)
+  เพิ่ม actor_name/actor_identifier ใน schemas/audit.py
+- **[advisor #7] แก้เลขคำขอชนกัน** — เดิม `_next_request_code` ใช้ count+1 (race ได้ → ชน
+  unique constraint 500) เปลี่ยนเป็น `_build_request_code` = REQ-{ปี}-{student_id}-{hex6 จาก
+  uuid คำขอ} (borrow_service.py, models/borrow_request.py ขยาย 30→40, migration 0006)
+- **[#3] วัสดุสิ้นเปลือง 3 สถานะ** — แก้บั๊ก approve แล้วขึ้น "คืนแล้ว" ผิด
+  approve_request เลิก auto-mark consumable returned; return_item รับสถานะ
+  returned_full/used_up/discarded (คืนสต็อกเฉพาะ ok/returned_full); return_all_items
+  รับคืนเฉพาะ durable, completed เมื่อทุก item สรุปครบ (borrow_service.py)
+  *แก้ Business Rule ใน CLAUDE.md หัวข้อ 5 (การอนุมัติ/การคืน) ให้ตรงพฤติกรรมใหม่*
+- **[#1] บังคับรูปความเสียหาย** — condition damaged/lost/discarded ต้องแนบ
+  damage_photo_urls ≥1 รูป (schemas/borrow.py + borrow_service.py)
+- **[#2] รูปโปรไฟล์ผู้ใช้** — users.avatar_url (migration 0007) + POST /users/me/avatar
+  (users_service.update_avatar reuse equipment_service.save_image), routers/users.py
+- **[security] Audit trail แก้ไม่ได้** — จาก security review พบว่า delete_user เดิม
+  hard-delete audit_logs ของ actor (admin ลบบัญชีเพื่อลบร่องรอยตัวเองได้ = tampering)
+  แก้: snapshot actor_name/identifier ตอนเขียน log, FK actor_id เป็น ON DELETE SET NULL
+  (migration 0008), delete_user เลิกลบ audit_logs
+
+### Frontend
+- **AuditLogPage.jsx** — เพิ่มคอลัมน์ "ผู้ทำ", แปลง action เป็นไทย, กดแถวเปิด modal
+  ดูรายละเอียดเต็ม (ใคร/ทำอะไร/เมื่อไหร่/detail)
+- **AllBorrowsPage.jsx** — แสดงชื่อผู้ยืม (student_name + รหัส) ในแต่ละแถว;
+  ReturnModal เลือกสถานะตามชนิดอุปกรณ์ + อัปโหลดรูปความเสียหาย; ปุ่มสรุปผลวัสดุ;
+  แสดง thumbnail รูปความเสียหาย
+- **MyBorrowsPage.jsx** — แสดงสถานะวัสดุถูกต้อง (เบิกแล้ว/คืนครบ/ใช้หมด/เสียหาย)
+- **ProfilePage.jsx** — แสดงรูปโปรไฟล์ (ไม่มี → อักษรแรกของชื่อ) + ปุ่มเปลี่ยนรูป
+- **AuthContext.jsx** — เปิด setUser เพื่อรีเฟรชรูปทันที
+
+### อื่น ๆ (Test, Config, Docs)
+- เพิ่ม test 3 ไฟล์: test_advisor_fixes.py, test_consumable_return.py, test_profile_avatar.py
+  รวมทั้งหมด 64 tests ผ่านหมด (เดิม 50)
+- migration 0006, 0007, 0008
+- อัปเดต CLAUDE.md หัวข้อ 5 (Business Rules) ให้ตรงพฤติกรรมใหม่
+- ลบบัญชี test admin ขยะ (admin_3f0ac3@) ที่หลุดค้างใน DB
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| audit log ตารางว่างตลอด | log_action เขียนไว้แต่ไม่เคยถูกเรียก (dead code) | เสียบ log_action ทุก action ของ admin — แก้แล้ว |
+| เลขคำขอชนกันได้ | count+1 race เมื่อกดพร้อมกัน | ใช้ hex จาก uuid คำขอเป็น suffix — แก้แล้ว |
+| อนุมัติวัสดุแล้วขึ้น "คืนแล้ว" | approve auto-mark consumable returned | เปลี่ยนเป็นสรุปผล 3 สถานะภายหลัง — แก้แล้ว |
+| delete_user ลบ audit_logs (tampering) | เดิมลบ log เพื่อเลี่ยง FK | ON DELETE SET NULL + snapshot ผู้ทำ — แก้แล้ว |
+| บัญชี 6610301006 เป็น student ไม่ใช่ admin | เข้าใจสลับ | ถ้าต้องใช้ทดสอบ admin ต้องเปลี่ยน role (ยังไม่ทำ) |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] advisor #2 — log ซื้ออุปกรณ์เข้าคลัง (แนบใบสั่งซื้อ/ใบเสร็จ) + ปลดระวางพร้อม
+       เหตุผล+ผู้รับผิดชอบ (ตอนนี้ retire_equipment ไม่เก็บเหตุผล)
+2. [ ] advisor #4 — บังคับให้อุปกรณ์มีรูป ≥1 รูปตอนสร้าง (schemas/equipment.py + create_equipment)
+3. [ ] advisor #6 — เพิ่ม field ราคา/ต้นทุนใน equipment + คำนวณต้นทุนวัสดุที่ใช้ไป
+       แสดงใน Dashboard admin
+4. [ ] advisor #3 — PDF draft preview ก่อนกดส่งคำขอ (ตอนนี้ดู PDF ได้หลังสร้างคำขอเท่านั้น)
+5. [ ] Full-stack test end-to-end กับบัญชีจริง (admin + student 6610301006)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — โครงสร้าง+ฟีเจอร์หลักครบ, เหลือ advisor #2/#4/#5/#6/#9 (ฟีเจอร์เสริม)
+**Frontend:** ~98% — หน้าหลักครบ, เหลือ UI ของ advisor #3 (PDF draft) และ #9 (bundle)
+**ระยะรวม:** พร้อม deploy ได้ระดับหนึ่ง — advisor ข้อ "พัง/เร่งด่วน" (#7,#8) + security ปิดหมดแล้ว
+เหลือฟีเจอร์เสริมตามข้อเสนออาจารย์
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Bootstrap admin คนแรก** (Pending Items) — ยังต้อง INSERT SQL เอง ไม่มี CLI/route
+  เป็น blocker ของการ deploy เครื่องใหม่
+- **advisor #5 (ยืมวัสดุเป็นหน่วยย่อย/เศษส่วน)** — ตอนนี้ borrow_item.quantity เป็น Integer
+  ยืมเศษ (เช่น สายไฟ 1 ซม.) ยังไม่ได้ ต้องเปลี่ยน data type ถ้าจะทำ
+- **ALLOWED_EMAIL_DOMAINS / LINE OA** (Pending Items) — รอยืนยันก่อน deploy จริง
+- Data cleanup บางส่วนทำมือบน DB (จัดหมวดก้ำกึ่ง) — reset DB แล้วต้องทำซ้ำ
