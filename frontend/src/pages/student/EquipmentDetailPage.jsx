@@ -4,7 +4,7 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 
 const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
-const TYPE_LABEL = { durable: 'ครุภัณฑ์', consumable: 'วัสดุสิ้นเปลือง' }
+const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
@@ -29,7 +29,7 @@ export default function EquipmentDetailPage() {
   // เหตุผลที่ยืมไม่ได้ — ดู status ก่อน (unavailable/damaged/…) ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
   const reason = eq.status !== 'available'
     ? (STATUS_LABEL[eq.status] ?? eq.status)
-    : (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่')
+    : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">

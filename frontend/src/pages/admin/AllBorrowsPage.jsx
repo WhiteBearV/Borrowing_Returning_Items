@@ -241,7 +241,20 @@ export default function AllBorrowsPage() {
                         }}
                         className="text-sm text-blue-600 hover:underline"
                       >
-                        ดาวน์โหลด PDF
+                        ใบยืม PDF
+                      </button>
+                    )}
+                    {req.status === 'completed' && (
+                      <button
+                        onClick={async () => {
+                          const blob = await borrowApi.downloadReturnPdf(req.id)
+                          const url = URL.createObjectURL(blob)
+                          Object.assign(document.createElement('a'), { href: url, download: `${req.request_code}-ใบรับคืน.pdf` }).click()
+                          URL.revokeObjectURL(url)
+                        }}
+                        className="text-sm text-emerald-600 hover:underline"
+                      >
+                        ใบรับคืน PDF
                       </button>
                     )}
                     {['completed', 'rejected', 'cancelled'].includes(req.status) && (

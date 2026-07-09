@@ -42,15 +42,17 @@ export default function MyBorrowsPage() {
     load()
   }
 
-  const downloadPdf = async (id, code) => {
-    const blob = await borrowApi.downloadPdf(id)
+  const saveBlob = (blob, filename) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${code}.pdf`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
+  const downloadPdf = async (id, code) => saveBlob(await borrowApi.downloadPdf(id), `${code}.pdf`)
+  const downloadReturnPdf = async (id, code) =>
+    saveBlob(await borrowApi.downloadReturnPdf(id), `${code}-ใบรับคืน.pdf`)
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -140,7 +142,15 @@ export default function MyBorrowsPage() {
                         onClick={() => downloadPdf(req.id, req.request_code)}
                         className="text-sm text-blue-600 hover:underline"
                       >
-                        ดาวน์โหลด PDF
+                        ใบยืม PDF
+                      </button>
+                    )}
+                    {req.status === 'completed' && (
+                      <button
+                        onClick={() => downloadReturnPdf(req.id, req.request_code)}
+                        className="text-sm text-emerald-600 hover:underline"
+                      >
+                        ใบรับคืน PDF
                       </button>
                     )}
                   </div>

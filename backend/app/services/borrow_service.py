@@ -13,6 +13,7 @@ from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
 from app.schemas.borrow import (
+    BorrowItemResponse,
     BorrowRequestCreate,
     BorrowRequestResponse,
     PaginatedBorrowRequests,
@@ -412,6 +413,58 @@ async def generate_pdf(
     from app.utils.pdf import generate_borrow_pdf
     req = await get_request(db, current_user, request_id)
     return generate_borrow_pdf(req)
+
+
+async def generate_return_pdf(
+    db: AsyncSession, current_user: User, request_id: uuid.UUID
+) -> bytes:
+    """สร้าง PDF ใบรับคืนอุปกรณ์ (สรุปสภาพเมื่อคืน) — เจ้าของหรือ admin"""
+    from app.utils.pdf import generate_return_pdf as _gen
+    req = await get_request(db, current_user, request_id)
+    return _gen(req)
+
+
+async def generate_preview_pdf(
+    db: AsyncSession, current_user: User, body: BorrowRequestCreate
+) -> bytes:
+    """สร้าง PDF 'ร่างใบยืม' จากตะกร้า ก่อนกดส่งคำขอจริง — ไม่บันทึกลง DB
+
+    ให้ผู้ยืมเห็นเอกสารตัวอย่างก่อนยืนยัน (advisor #3) โดยประกอบ object แบบเดียวกับ
+    response จริงจากรายการอุปกรณ์ในตะกร้า แล้วส่งเข้าตัวสร้าง PDF ร่วม
+    """
+    from app.utils.pdf import generate_preview_pdf as _gen
+
+    ids = [it.equipment_id for it in body.items]
+    result = await db.execute(select(Equipment).where(Equipment.id.in_(ids)))
+    eq_map = {e.id: e for e in result.scalars().all()}
+
+    items = [
+        BorrowItemResponse(
+            id=uuid.uuid4(),
+            equipment_id=it.equipment_id,
+            equipment_name=(eq_map[it.equipment_id].name if it.equipment_id in eq_map else None),
+            item_type_snapshot=(eq_map[it.equipment_id].item_type if it.equipment_id in eq_map else "durable"),
+            quantity=it.quantity,
+            returned=False, returned_at=None, condition_on_return=None,
+            damage_note=None, damage_photo_urls=None, renewed_count=0, extended_due_date=None,
+        )
+        for it in body.items
+    ]
+    req = BorrowRequestResponse(
+        id=uuid.uuid4(),
+        request_code="(ร่าง — ยังไม่ส่งคำขอ)",
+        student_id=current_user.id,
+        student_name=current_user.full_name,
+        student_email=current_user.email,
+        student_number=current_user.student_id,
+        purpose=body.purpose,
+        status="pending",
+        requested_at=datetime.now(timezone.utc),
+        approved_by=None, approved_at=None, rejection_reason=None,
+        due_date=None, is_overdue=False, returned_at=None,
+        items=items,
+    )
+    return _gen(req)
 
 
 async def delete_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:

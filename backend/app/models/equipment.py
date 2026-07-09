@@ -22,7 +22,9 @@ class Equipment(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / consumable
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / material / consumable
+    # durable = ครุภัณฑ์ (ทะเบียน), material = วัสดุใช้ซ้ำ (บอร์ด/คิต), consumable = วัสดุสิ้นเปลือง (ใช้หมด)
+    # material ยืมแบบจำนวน (เหมือน consumable) แต่คืนแบบ ok/damaged/lost (เหมือน durable)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # cover = image_urls[0] (sync อัตโนมัติ)
     image_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)

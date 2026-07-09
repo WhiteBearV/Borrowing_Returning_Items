@@ -5,7 +5,7 @@ import { useCart } from '../../context/CartContext.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
-const TYPE_LABEL = { durable: 'ครุภัณฑ์', consumable: 'วัสดุสิ้นเปลือง' }
+const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
 
 export default function EquipmentListPage() {
   const navigate = useNavigate()
@@ -48,7 +48,7 @@ export default function EquipmentListPage() {
   const unavailableReason = (eq) =>
     eq.status !== 'available'
       ? (STATUS_LABEL[eq.status] ?? eq.status)
-      : (eq.item_type === 'consumable' ? 'หมด' : 'ถูกยืมอยู่')
+      : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">

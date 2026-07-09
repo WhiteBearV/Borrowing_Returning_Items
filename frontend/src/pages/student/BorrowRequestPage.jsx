@@ -10,16 +10,30 @@ export default function BorrowRequestPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const cartPayload = () => ({
+    purpose: purpose || undefined,
+    items: cart.map((c) => ({ equipment_id: c.equipment.id, quantity: c.quantity })),
+  })
+
+  const previewDraft = async () => {
+    setError('')
+    try {
+      const blob = await borrowApi.previewPdf(cartPayload())
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (err) {
+      setError(err.response?.data?.detail ?? 'สร้างตัวอย่างไม่สำเร็จ')
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (cart.length === 0) return
     setError('')
     setLoading(true)
     try {
-      await borrowApi.create({
-        purpose: purpose || undefined,
-        items: cart.map((c) => ({ equipment_id: c.equipment.id, quantity: c.quantity })),
-      })
+      await borrowApi.create(cartPayload())
       clearCart()
       navigate('/my-borrows')
     } catch (err) {
@@ -59,7 +73,7 @@ export default function BorrowRequestPage() {
                 <p className="text-sm font-medium text-gray-800 truncate">{eq.name}</p>
                 <p className="text-xs text-gray-400">{eq.code}</p>
               </div>
-              {eq.item_type === 'consumable' ? (
+              {eq.item_type !== 'durable' ? (
                 <input
                   type="number"
                   min={1}
@@ -101,6 +115,13 @@ export default function BorrowRequestPage() {
           >
             + เพิ่มอุปกรณ์
           </Link>
+          <button
+            type="button"
+            onClick={previewDraft}
+            className="flex-1 rounded-lg border border-blue-300 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+          >
+            ดูตัวอย่างใบยืม
+          </button>
           <button
             type="submit"
             disabled={loading}

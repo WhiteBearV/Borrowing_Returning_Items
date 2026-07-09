@@ -143,6 +143,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             <select value={form.item_type} onChange={set('item_type')} disabled={isEdit}
               className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50">
               <option value="durable">ครุภัณฑ์</option>
+              <option value="material">วัสดุ</option>
               <option value="consumable">วัสดุสิ้นเปลือง</option>
             </select>
           </div>
@@ -270,6 +271,7 @@ export default function EquipmentManagePage() {
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="">ทุกประเภท</option>
           <option value="durable">ครุภัณฑ์</option>
+          <option value="material">วัสดุ</option>
           <option value="consumable">วัสดุสิ้นเปลือง</option>
         </select>
       </div>
@@ -297,7 +299,7 @@ export default function EquipmentManagePage() {
                   <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{eq.name}</td>
                   <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{eq.item_type === 'durable' ? 'ครุภัณฑ์' : 'สิ้นเปลือง'}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{{ durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'สิ้นเปลือง' }[eq.item_type] ?? eq.item_type}</td>
                   <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
                   <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[eq.status] ?? ''}`}>{STATUS_LABEL[eq.status] ?? eq.status}</td>
                   <td className="px-4 py-2.5">

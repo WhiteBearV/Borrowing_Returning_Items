@@ -1,0 +1,114 @@
+# รายงานความคืบหน้า — วันที่ 9 กรกฎาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้เน้นปิดประเด็นจากบันทึกการปรึกษารอบใหม่ (`Report/บันทึกการปรึกษา_2026-07-09.md`)
+ครบ **ประเด็น 4 (เลขครุภัณฑ์)** และเดินหน้า **ประเด็น 3+2 (เอกสารร่าง)** ไป 2 จาก 4 ตัว
+
+### Backend
+
+**[ประเด็น 4] แก้เลขครุภัณฑ์ให้ตรงทะเบียนคุมทรัพย์สินจริง**
+- เดิม seed มาจาก Snipe-IT ใช้เลข internal (`111001`) ไม่ตรงเลขทางการ — ยืนยันแล้วว่าจริง
+- เขียน `backend/scripts/import_register.py` อ่านไฟล์ทะเบียน Excel (2 ชีต) เป็น source of truth
+  gen `seed_equipment.sql` ใหม่ 704 ครุภัณฑ์เลขจริง (คณะ `63-/64-/65-/66-/67-...`,
+  พระราชทานใช้รหัสใหม่ `สนว.-...` ตามที่อาจารย์สั่ง) จัดหมวดตามคีย์เวิร์ดในชื่อ
+  UUID เสถียรด้วย uuid5 (re-seed ซ้ำได้) — ต้องใส่ `image_urls='[]'` เพราะคอลัมน์ NOT NULL
+- `reclassify_consumable.sql` + `remap_durable_codes.sql` + `reclassify_material.sql`:
+  ล้างข้อมูลยืมทดสอบเก่า (อ้างถึงเลขเก่า, FK NO ACTION ต้องลบตามลำดับ notifications→items→requests)
+  ลบ durable Snipe-IT ที่จับคู่ทะเบียนได้ แล้วโหลด 704 ตัวจากทะเบียน (ในทรานแซกชันเดียว)
+- ทุกสคริปต์ dry-run ด้วย BEGIN...ROLLBACK ผ่าน `psql -v ON_ERROR_STOP=1` ก่อนลงจริง
+
+**[ตามคำสั่งเจ้าของ] เพิ่ม item_type ที่ 3 = `material` (วัสดุใช้ซ้ำ)**
+- เดิมมีแค่ durable/consumable — ตีวัสดุทุกอันเป็นสิ้นเปลืองไม่ถูก
+- แยกเป็น 3: `durable` ครุภัณฑ์ / `material` วัสดุใช้ซ้ำ (บอร์ด/คิต/Pi/Arduino) / `consumable`
+  วัสดุสิ้นเปลือง (เหลือแค่ ตะกั่ว/สายไฟ/paste)
+- `material` ยืมแบบจำนวน (เหมือน consumable) แต่คืนแบบ durable (ok/damaged/lost) —
+  logic เดิม `borrow_service.py:345` (`CONSUMABLE_CONDITIONS if =="consumable" else DURABLE`)
+  รองรับเองไม่ต้องแก้ return flow
+- อัปเดต comment `models/equipment.py`, `utils/pdf.py` (label 3 แบบ), CLAUDE.md หัวข้อ 5
+
+**[ประเด็น 3] เอกสาร PDF — ร่างยืม preview + ร่างคืน**
+- refactor `utils/pdf.py` เป็น `_build_doc(req, kind)` ตัวเดียว รองรับ borrow/preview/return
+  (ต่างแค่หัวเรื่อง/สีเส้นคาด/ป้ายลายเซ็น) — ไม่เขียน PDF ซ้ำ 3 ชุด
+- `_condition_th` เพิ่มสถานะวัสดุสิ้นเปลือง (คืนครบ/ใช้หมด/ทิ้ง)
+- `borrow_service.generate_return_pdf` + `generate_preview_pdf` (preview ประกอบ object จากตะกร้า
+  ไม่บันทึก DB)
+- `routers/borrow.py`: `GET /{id}/return-pdf` + `POST /preview-pdf`
+
+### Frontend
+- `EquipmentManagePage.jsx`: dropdown สร้าง+กรอง เพิ่มตัวเลือก "วัสดุ", ตารางแสดง label 3 แบบ
+- `EquipmentListPage.jsx` / `EquipmentDetailPage.jsx`: TYPE_LABEL เพิ่ม material,
+  logic "ของหมด" ให้ material เหมือน consumable (ยืมแบบจำนวน)
+- `BorrowRequestPage.jsx`: ปุ่ม "ดูตัวอย่างใบยืม" (preview PDF ก่อนกดส่ง — advisor #3)
+- `MyBorrowsPage.jsx` / `AllBorrowsPage.jsx`: ปุ่ม "ใบรับคืน PDF" ในคำขอที่ completed
+- `api/borrowApi.js`: เพิ่ม `downloadReturnPdf`, `previewPdf`
+
+### อื่น ๆ (Data, Docs)
+- DB dev ตอนนี้ 1247 รายการ: 704 durable (เลขทะเบียน) + 540 material + 3 consumable
+- รวมหมวดอังกฤษ→ไทย: Computer→คอมพิวเตอร์, Electronic+Embedded→อิเล็กทรอนิกส์,
+  Network/Tools/TV ลบ — เหลือ 8 หมวดไทยล้วน
+- ไฟล์รีวิว: `Report/เทียบทะเบียน-vs-DB.md`, `Report/จัดกลุ่มวัสดุ.md`, `Report/ครุภัณฑ์ไม่มีเลข.md`
+- อัปเดต `Report/บันทึกการปรึกษา_2026-07-09.md` (ประเด็น 4 ✅, ประเด็น 3 อัปเดต 2/4)
+- verify: PDF 3 แบบ render ได้จริง · backend pytest 64/64 ผ่าน · frontend build ผ่าน
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| เลขครุภัณฑ์ไม่ตรงทะเบียน | seed มาจาก Snipe-IT ไม่ใช่ทะเบียนคณะ | import จากทะเบียน Excel — แก้แล้ว |
+| ตีวัสดุทุกอันเป็นสิ้นเปลือง | มีแค่ 2 ประเภท | เพิ่มประเภท material — แก้แล้ว |
+| `image_urls` NOT NULL แต่ default เป็น Python-side | raw INSERT ไม่ใส่ค่า | seed ใส่ `'[]'` เอง — แก้แล้ว |
+| ลบ equipment เก่าติด FK (borrow/notifications) | FK เป็น NO ACTION | ลบข้อมูลยืมทดสอบตามลำดับก่อน — แก้แล้ว |
+| 34 รายการ "ตกทะเบียน" ยังไม่ชัด | ครุภัณฑ์ทนทานแต่ไม่มีในทะเบียน | พักเป็น material/ไม่ระบุหมวดหมู่ — **รอถามอาจารย์** |
+
+---
+
+## แผนวันพรุ่งนี้ 📋 (งานที่เหลือ)
+
+**ประเด็น 3+2 ที่ยังเหลือ (เอกสารร่าง):**
+1. [ ] **ร่างเข้า (ใบรับเข้าคลัง)** — ต้องสร้าง data model รับเข้า (batch receive: เลขที่เอกสาร,
+       วันที่, ผู้รับเข้า, รายการ+จำนวน, แนบเลขใบสั่งซื้อ/ใบเสร็จ) + endpoint + PDF + หน้า admin
+       *(งานใหญ่สุด — แตะ backend/DB มากสุด)*
+2. [ ] **ร่างออก (ใบปลดระวาง)** — เพิ่ม field `retire_reason`/`retired_by` ใน retire_equipment
+       (`equipment_service.py:146` ปัจจุบันไม่เก็บเหตุผล) + migration + PDF + endpoint
+3. [ ] เพิ่ม test สำหรับ return-pdf / preview-pdf / material type (ยังไม่มี test เฉพาะ)
+
+**งานตัดสินใจ/รออาจารย์:**
+4. [ ] สรุป 34 รายการ hold ว่าเป็นครุภัณฑ์ (ออกเลขทะเบียน) หรือวัสดุถาวร
+5. [ ] ประเด็น 1 — ยืนยันว่าจะรองรับ MySQL จริงจังไหม + ทำแผน backup/restore DB
+6. [ ] ขอแบบฟอร์มเอกสารจริงของคณะ เพื่อปรับ layout PDF ทั้ง 4 ใบให้ตรง
+
+**งานเก็บตก:**
+7. [ ] commit งานวันนี้ (ยังไม่ commit — มี 12 ไฟล์แก้ + 5 สคริปต์ใหม่ + ไฟล์ docs/Report)
+8. [ ] advisor #4/#5/#6 เดิม (บังคับรูปตอนสร้าง / ยืมเศษวัสดุ / ราคา-ต้นทุน) ยังค้าง
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — โครงสร้าง+ฟีเจอร์หลักครบ, เลขครุภัณฑ์ตรงทะเบียนแล้ว, มี 3 ประเภทอุปกรณ์
+เหลือ data model รับเข้า (ร่างเข้า) + field ปลดระวาง (ร่างออก)
+**Frontend:** ~98% — หน้าหลักครบ + preview/ใบรับคืน PDF, เหลือ UI ร่างเข้า/ร่างออก
+**ระยะรวม:** ประเด็นปรึกษาปิดไป 2 ข้อเต็ม (#4, ครึ่ง #3) — เหลือ ร่างเข้า/ร่างออก (แตะ backend)
+และงานรออาจารย์ยืนยัน (MySQL, แบบฟอร์มคณะ, 34 hold)
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **34 รายการ hold** (สว่าน DEWALT, Cisco Router/Switch, Apple TV, webcam×2, จอ 27", AC1200 AP)
+  ตอนนี้เป็น material/ไม่ระบุหมวดหมู่ชั่วคราว — ต้องให้อาจารย์/เจ้าของตัดสินก่อน deploy จริง
+- **แบบฟอร์มเอกสารคณะ** — PDF ทั้ง 4 ใบทำ layout กลาง ๆ ไว้ก่อน ต้องปรับตามของจริงเมื่อได้แบบฟอร์ม
+- **ยังไม่ commit** — งานวันนี้อยู่ใน working tree ทั้งหมด ควร commit ก่อนทำต่อ
+- **Pending Items (CLAUDE.md)** ที่ยังค้าง: Bootstrap admin คนแรก (ต้อง INSERT SQL เอง),
+  ALLOWED_EMAIL_DOMAINS, LINE OA — รอยืนยันก่อน deploy จริง
+
+---
+
+บันทึกไฟล์: Report/2026-07-09.txt

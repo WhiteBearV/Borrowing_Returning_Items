@@ -124,6 +124,28 @@ async def download_pdf(
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
+@router.get("/{request_id}/return-pdf")
+async def download_return_pdf(
+    request_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """ใบรับคืนอุปกรณ์ (สรุปสภาพเมื่อคืน)"""
+    pdf_bytes = await borrow_service.generate_return_pdf(db, current_user, request_id)
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.post("/preview-pdf")
+async def preview_borrow_pdf(
+    body: BorrowRequestCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """ร่างใบยืมจากตะกร้า ก่อนกดส่งคำขอจริง (ไม่บันทึกลง DB)"""
+    pdf_bytes = await borrow_service.generate_preview_pdf(db, current_user, body)
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
+
 @router.delete("/{request_id}", status_code=204)
 async def delete_borrow_request(
     request_id: uuid.UUID,

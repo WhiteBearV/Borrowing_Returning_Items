@@ -15,6 +15,10 @@ export const borrowApi = {
   returnAll: (id) => api.post(`/borrow-requests/${id}/return-all`).then((r) => r.data),
   downloadPdf: (id) =>
     api.get(`/borrow-requests/${id}/pdf`, { responseType: 'blob' }).then((r) => r.data),
+  downloadReturnPdf: (id) =>
+    api.get(`/borrow-requests/${id}/return-pdf`, { responseType: 'blob' }).then((r) => r.data),
+  previewPdf: (data) =>
+    api.post('/borrow-requests/preview-pdf', data, { responseType: 'blob' }).then((r) => r.data),
   remind: (id) => api.post(`/borrow-requests/${id}/remind`).then((r) => r.data),
   deleteRequest: (id) => api.delete(`/borrow-requests/${id}`),
 }

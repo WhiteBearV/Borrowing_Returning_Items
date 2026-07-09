@@ -49,9 +49,36 @@ def _fmt_datetime(dt) -> str:
         return str(dt)
 
 
+# ชนิดเอกสาร: title, สีเส้นคาด, ป้ายลายเซ็น (ผู้ทำ / ผู้รับ)
+_DOC_META = {
+    "borrow":  ("ใบยืมอุปกรณ์ / Equipment Borrow Request", "#2563EB",
+                "ลายเซ็นผู้ยืม", "ลายเซ็นผู้อนุมัติ / ผู้รับคืน"),
+    "preview": ("ใบยืมอุปกรณ์ (ร่าง) / Equipment Borrow Draft", "#6B7280",
+                "ลายเซ็นผู้ยืม", "ลายเซ็นผู้อนุมัติ"),
+    "return":  ("ใบรับคืนอุปกรณ์ / Equipment Return Receipt", "#059669",
+                "ลายเซ็นผู้คืน", "ลายเซ็นผู้รับคืน (เจ้าหน้าที่)"),
+}
+
+
 def generate_borrow_pdf(req: object) -> bytes:
     """สร้าง PDF ใบยืมอุปกรณ์"""
+    return _build_doc(req, "borrow")
+
+
+def generate_preview_pdf(req: object) -> bytes:
+    """สร้าง PDF ร่างใบยืม (ก่อนกดส่งคำขอ) — ยังไม่มีเลขคำขอจริง"""
+    return _build_doc(req, "preview")
+
+
+def generate_return_pdf(req: object) -> bytes:
+    """สร้าง PDF ใบรับคืนอุปกรณ์ — สรุปสภาพเมื่อคืน + ผู้รับคืน"""
+    return _build_doc(req, "return")
+
+
+def _build_doc(req: object, kind: str) -> bytes:
+    """โครงเอกสาร PDF ร่วมของใบยืม/ร่างยืม/ใบรับคืน — ต่างกันที่หัวเรื่อง สี และป้ายลายเซ็น"""
     _register_fonts()
+    title_th, accent, sig_left, sig_right = _DOC_META.get(kind, _DOC_META["borrow"])
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -73,9 +100,9 @@ def generate_borrow_pdf(req: object) -> bytes:
     # ── Header ──────────────────────────────────────────────────────────────
     elems.append(Paragraph("สถาบันเทคโนโลยีดิจิทัลสวนจิตรลดา (CDTI)", sub_style))
     elems.append(Spacer(1, 4))
-    elems.append(Paragraph("ใบยืมอุปกรณ์ / Equipment Borrow Request", title_style))
+    elems.append(Paragraph(title_th, title_style))
     elems.append(Spacer(1, 6))
-    elems.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#2563EB")))
+    elems.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor(accent)))
     elems.append(Spacer(1, 10))
 
     # ── Request info ─────────────────────────────────────────────────────────
@@ -86,6 +113,9 @@ def generate_borrow_pdf(req: object) -> bytes:
         ["สถานะ", _status_th(getattr(req, "status", ""))],
         ["วัตถุประสงค์", getattr(req, "purpose", None) or "-"],
     ]
+    # ใบรับคืน: เพิ่มวันที่รับคืนจริง
+    if kind == "return":
+        info_data.insert(3, ["วันที่รับคืน", _fmt_datetime(getattr(req, "returned_at", None))])
 
     student_name = getattr(req, "student_name", None)
     student_number = getattr(req, "student_number", None)
@@ -124,7 +154,8 @@ def generate_borrow_pdf(req: object) -> bytes:
     rows = [header]
     for i, item in enumerate(items, 1):
         name = getattr(item, "equipment_name", None) or str(getattr(item, "equipment_id", "-"))
-        type_th = "ครุภัณฑ์" if getattr(item, "item_type_snapshot", "") == "durable" else "วัสดุสิ้นเปลือง"
+        type_th = {"durable": "ครุภัณฑ์", "material": "วัสดุ", "consumable": "วัสดุสิ้นเปลือง"}.get(
+            getattr(item, "item_type_snapshot", ""), "วัสดุสิ้นเปลือง")
         condition = _condition_th(getattr(item, "condition_on_return", None))
         rows.append([
             Paragraph(str(i), _style(f"c{i}", fontSize=10, alignment=1)),
@@ -137,7 +168,7 @@ def generate_borrow_pdf(req: object) -> bytes:
     col_w = [10 * mm, W - 10 * mm - 30 * mm - 18 * mm - 30 * mm, 30 * mm, 18 * mm, 30 * mm]
     items_table = Table(rows, colWidths=col_w, repeatRows=1)
     items_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2563EB")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(accent)),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F3F4F6")]),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
@@ -150,8 +181,8 @@ def generate_borrow_pdf(req: object) -> bytes:
 
     # ── Signature row ─────────────────────────────────────────────────────────
     sig_data = [[
-        _sig_cell("ลายเซ็นผู้ยืม", student_name or ""),
-        _sig_cell("ลายเซ็นผู้อนุมัติ / ผู้รับคืน", ""),
+        _sig_cell(sig_left, student_name or ""),
+        _sig_cell(sig_right, ""),
     ]]
     sig_table = Table(sig_data, colWidths=[W / 2, W / 2])
     sig_table.setStyle(TableStyle([
@@ -174,7 +205,10 @@ def _status_th(status: str) -> str:
 def _condition_th(condition: str | None) -> str:
     if condition is None:
         return "-"
-    return {"ok": "ปกติ", "damaged": "เสียหาย", "lost": "สูญหาย"}.get(condition, condition)
+    return {
+        "ok": "ปกติ", "damaged": "เสียหาย", "lost": "สูญหาย",
+        "returned_full": "คืนครบ", "used_up": "ใช้หมด", "discarded": "ทิ้ง (เสียหาย)",
+    }.get(condition, condition)
 
 
 def _sig_cell(label: str, name: str):
