@@ -5,7 +5,10 @@ from datetime import date, datetime
 import pytest
 
 import app.utils.pdf as pdf_mod
-from app.utils.pdf import generate_borrow_pdf, _condition_th, _status_th, _fmt_date
+from app.utils.pdf import (
+    generate_borrow_pdf, generate_stock_document_pdf,
+    _condition_th, _status_th, _fmt_date,
+)
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -94,6 +97,37 @@ def test_pdf_font_registered_once():
     pdf_mod._REGISTERED = False
     _fresh_pdf(_Req())  # ลงทะเบียนครั้งแรก
     _fresh_pdf(_Req())  # ใช้ cache — ต้องไม่ crash
+
+
+# ── stock document (ร่างเข้า/ร่างออก) tests ────────────────────────────────────
+
+_STOCK_ROWS = [
+    {"code": "63-213-001", "name": "Dell Optiplex", "item_type": "durable",
+     "quantity": 1, "reason": None, "actor": "แอดมิน ทดสอบ", "date": datetime(2026, 7, 5, 9, 0)},
+    {"code": "M-345", "name": "ตะกั่วบัดกรี", "item_type": "consumable",
+     "quantity": 12, "reason": "หมดอายุ", "actor": "แอดมิน ทดสอบ", "date": datetime(2026, 7, 6, 10, 0)},
+]
+
+
+@pytest.mark.parametrize("kind", ["receipt", "disposal"])
+def test_stock_document_generates_pdf(kind):
+    pdf_mod._REGISTERED = False
+    pdf = generate_stock_document_pdf(kind, "01/07/2026", "07/07/2026", "แอดมิน ทดสอบ", _STOCK_ROWS)
+    assert pdf[:4] == b"%PDF"
+    assert len(pdf) > 2000
+
+
+def test_stock_document_empty_rows():
+    """ช่วงวันที่ไม่มีรายการ ต้องยังออก PDF ได้ ไม่ crash"""
+    pdf = generate_stock_document_pdf("receipt", "01/07/2026", "07/07/2026", "แอดมิน", [])
+    assert pdf[:4] == b"%PDF"
+
+
+def test_stock_document_handles_missing_fields():
+    """row ที่ field ขาด (None/ไม่มี key) ต้องไม่ crash"""
+    pdf = generate_stock_document_pdf("disposal", "01/07/2026", "07/07/2026", "แอดมิน",
+                                      [{"code": None, "name": None}])
+    assert pdf[:4] == b"%PDF"
 
 
 # ── helper function tests ─────────────────────────────────────────────────────

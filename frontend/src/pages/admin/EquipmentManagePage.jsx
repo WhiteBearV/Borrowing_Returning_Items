@@ -207,6 +207,10 @@ export default function EquipmentManagePage() {
   const [confirm, setConfirm] = useState(null) // { title, message, onConfirm }
   const [loading, setLoading] = useState(true)
   const [showCats, setShowCats] = useState(false)
+  const [showDocs, setShowDocs] = useState(false)
+  // ช่วงวันที่ default = เดือนนี้ (ต้นเดือน → วันนี้)
+  const _today = new Date().toISOString().slice(0, 10)
+  const [docRange, setDocRange] = useState({ from: _today.slice(0, 8) + '01', to: _today })
 
   const reloadCategories = () => equipmentApi.listCategories().then(setCategories).catch(() => {})
 
@@ -223,13 +227,30 @@ export default function EquipmentManagePage() {
   useEffect(() => { reloadCategories() }, [])
   useEffect(() => { load() }, [search, filterCategory, filterType, page])
 
-  const retire = (id, name) => setConfirm({
-    title: 'ปลดระวางอุปกรณ์',
-    message: `ปลดระวาง "${name}" ?\nอุปกรณ์จะไม่สามารถยืมได้อีก`,
-    confirmLabel: 'ปลดระวาง',
-    danger: true,
-    onConfirm: async () => { setConfirm(null); await equipmentApi.retire(id); load() },
-  })
+  // ปลดระวาง: ถามเหตุผลด้วย prompt (ใช้ออกใบปลดระวาง/ร่างออก ภายหลัง) — ยกเลิกได้ถ้ากด Cancel
+  const retire = (id, name) => {
+    const reason = window.prompt(`ปลดระวาง "${name}"\nระบุเหตุผล (เช่น ชำรุด/สูญหาย/หมดสภาพ):`, '')
+    if (reason === null) return // กด Cancel
+    setConfirm({
+      title: 'ปลดระวางอุปกรณ์',
+      message: `ปลดระวาง "${name}" ?\nเหตุผล: ${reason.trim() || '(ไม่ระบุ)'}\nอุปกรณ์จะไม่สามารถยืมได้อีก`,
+      confirmLabel: 'ปลดระวาง',
+      danger: true,
+      onConfirm: async () => { setConfirm(null); await equipmentApi.retire(id, reason.trim()); load() },
+    })
+  }
+
+  // ดาวน์โหลด PDF ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) ตามช่วงวันที่
+  const downloadDoc = async (kind) => {
+    if (!docRange.from || !docRange.to) { alert('กรุณาเลือกช่วงวันที่'); return }
+    try {
+      const blob = await equipmentApi.stockDocument(kind, docRange.from, docRange.to)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch (e) {
+      alert(e.response?.data?.detail || 'ไม่สามารถสร้างเอกสารได้')
+    }
+  }
 
   const deletePermanent = (id, name) => setConfirm({
     title: 'ลบอุปกรณ์ถาวร',
@@ -247,6 +268,10 @@ export default function EquipmentManagePage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">จัดการอุปกรณ์</h1>
         <div className="flex gap-2">
+          <button onClick={() => setShowDocs((v) => !v)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            เอกสารคลัง
+          </button>
           <button onClick={() => setShowCats(true)}
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             จัดการหมวดหมู่
@@ -257,6 +282,35 @@ export default function EquipmentManagePage() {
           </button>
         </div>
       </div>
+
+      {showDocs && (
+        <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <h2 className="mb-1 text-sm font-bold text-gray-700">เอกสารคลัง (ร่างเข้า / ร่างออก)</h2>
+          <p className="mb-3 text-xs text-gray-500">ออกใบรับเข้าคลัง/ใบปลดระวางเป็น PDF ตามช่วงวันที่ที่นำเข้า/ปลดระวาง</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs text-gray-600">
+              จากวันที่
+              <input type="date" value={docRange.from}
+                onChange={(e) => setDocRange((r) => ({ ...r, from: e.target.value }))}
+                className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </label>
+            <label className="text-xs text-gray-600">
+              ถึงวันที่
+              <input type="date" value={docRange.to}
+                onChange={(e) => setDocRange((r) => ({ ...r, to: e.target.value }))}
+                className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </label>
+            <button onClick={() => downloadDoc('receipt')}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+              ใบรับเข้าคลัง (ร่างเข้า)
+            </button>
+            <button onClick={() => downloadDoc('disposal')}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+              ใบปลดระวาง (ร่างออก)
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-3 mb-4">
         <input type="text" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…" value={search}

@@ -195,6 +195,132 @@ def _build_doc(req: object, kind: str) -> bytes:
     return buf.getvalue()
 
 
+# ── เอกสารรับเข้า/ปลดระวาง (ร่างเข้า/ร่างออก) ───────────────────────────────
+# ต่างจากใบยืม: อ้างอิงช่วงวันที่ + รายการหลายชิ้นจาก audit log ไม่ผูกกับคำขอเดียว
+_STOCK_META = {
+    "receipt":  ("ใบรับเข้าคลัง (ร่างเข้า) / Stock Receipt", "#2563EB", "รายการที่นำเข้า"),
+    "disposal": ("ใบปลดระวาง (ร่างออก) / Stock Disposal", "#B91C1C", "รายการที่ปลดระวาง"),
+}
+
+
+def generate_stock_document_pdf(
+    kind: str,
+    date_from: str,
+    date_to: str,
+    generated_by: str,
+    rows: list[dict],
+) -> bytes:
+    """สร้าง PDF เอกสารรับเข้าคลัง (receipt) หรือปลดระวาง (disposal)
+
+    รวมรายการหลายชิ้นในช่วงวันที่เดียว ให้เห็นว่านำอะไรเข้า/ออกบ้าง ใครทำ เมื่อไร
+    (ตอบข้อเสนออาจารย์ #2/#3: เอกสารร่างเข้า/ร่างออก) — ดึงจาก audit log เป็นหลักฐาน
+    แต่ละ row: {code, name, item_type, quantity, actor, date, reason}
+    """
+    _register_fonts()
+    title_th, accent, items_label = _STOCK_META.get(kind, _STOCK_META["receipt"])
+    is_disposal = kind == "disposal"
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20 * mm, rightMargin=20 * mm,
+        topMargin=20 * mm, bottomMargin=20 * mm,
+    )
+    title_style = _style("Title", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)
+    sub_style = _style("Sub", fontSize=10, textColor=colors.gray, alignment=1)
+    label_style = _style("Label", fontName="Thai-Bold", fontSize=11)
+    normal_style = _style("Normal")
+
+    W = A4[0] - 40 * mm
+    elems = []
+
+    elems.append(Paragraph("สถาบันเทคโนโลยีดิจิทัลสวนจิตรลดา (CDTI)", sub_style))
+    elems.append(Spacer(1, 4))
+    elems.append(Paragraph(title_th, title_style))
+    elems.append(Spacer(1, 6))
+    elems.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor(accent)))
+    elems.append(Spacer(1, 10))
+
+    # ── ข้อมูลเอกสาร ──
+    info_data = [
+        ["ช่วงวันที่", f"{date_from} ถึง {date_to}"],
+        ["ออกเอกสารโดย", generated_by],
+        ["วันที่ออกเอกสาร", _fmt_datetime(_now())],
+        ["จำนวนรายการ", str(len(rows))],
+    ]
+    info_table = Table(
+        [[Paragraph(r[0], label_style), Paragraph(str(r[1]), normal_style)] for r in info_data],
+        colWidths=[45 * mm, W - 45 * mm],
+    )
+    info_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    elems.append(info_table)
+    elems.append(Spacer(1, 12))
+
+    elems.append(Paragraph(items_label, _style("Sec", fontName="Thai-Bold", fontSize=12)))
+    elems.append(Spacer(1, 6))
+
+    # ร่างออกโชว์คอลัมน์ "เหตุผล" แทน "วันที่" (สำคัญกว่าในบริบทปลดระวาง)
+    last_col = "เหตุผล" if is_disposal else "วันที่"
+
+    def _h(t, align=0):
+        return Paragraph(t, _style("H", fontName="Thai-Bold", fontSize=10, alignment=align))
+
+    header = [_h("#", 1), _h("รหัส"), _h("ชื่อรายการ"), _h("ประเภท", 1),
+              _h("จำนวน", 1), _h("ผู้ทำ"), _h(last_col)]
+    table_rows = [header]
+    for i, r in enumerate(rows, 1):
+        type_th = {"durable": "ครุภัณฑ์", "material": "วัสดุ", "consumable": "วัสดุสิ้นเปลือง"}.get(
+            r.get("item_type") or "", "-")
+        last_val = (r.get("reason") or "-") if is_disposal else _fmt_date(r.get("date"))
+        table_rows.append([
+            Paragraph(str(i), _style(f"a{i}", fontSize=9, alignment=1)),
+            Paragraph(str(r.get("code") or "-"), _style(f"b{i}", fontSize=9)),
+            Paragraph(str(r.get("name") or "-"), _style(f"c{i}", fontSize=9)),
+            Paragraph(type_th, _style(f"d{i}", fontSize=9, alignment=1)),
+            Paragraph(str(r.get("quantity") if r.get("quantity") is not None else "-"),
+                      _style(f"e{i}", fontSize=9, alignment=1)),
+            Paragraph(str(r.get("actor") or "-"), _style(f"f{i}", fontSize=9)),
+            Paragraph(str(last_val), _style(f"g{i}", fontSize=9)),
+        ])
+
+    col_w = [8 * mm, 30 * mm, W - 8 * mm - 30 * mm - 22 * mm - 15 * mm - 28 * mm - 28 * mm,
+             22 * mm, 15 * mm, 28 * mm, 28 * mm]
+    tbl = Table(table_rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(accent)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F3F4F6")]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elems.append(tbl)
+    elems.append(Spacer(1, 24))
+
+    sig_left = "ลายเซ็นผู้จัดทำ"
+    sig_right = "ลายเซ็นผู้อนุมัติ" if is_disposal else "ลายเซ็นผู้รับเข้า"
+    sig_table = Table([[_sig_cell(sig_left, generated_by), _sig_cell(sig_right, "")]],
+                      colWidths=[W / 2, W / 2])
+    sig_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    elems.append(sig_table)
+
+    doc.build(elems)
+    return buf.getvalue()
+
+
+def _now():
+    from datetime import datetime as _dt
+    return _dt.now()
+
+
 def _status_th(status: str) -> str:
     return {
         "pending": "รออนุมัติ", "approved": "อนุมัติแล้ว",

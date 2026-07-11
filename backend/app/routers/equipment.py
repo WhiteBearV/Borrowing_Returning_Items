@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
@@ -32,6 +33,19 @@ async def list_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipment:
     return await equipment_service.list_equipment(db, page, page_size, category_id, item_type, status, search)
+
+
+@router.get("/equipment/stock-document")
+async def stock_document(
+    kind: str = Query(..., pattern="^(receipt|disposal)$"),
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """ดาวน์โหลด PDF ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) ตามช่วงวันที่"""
+    pdf_bytes = await equipment_service.build_stock_document(db, admin, kind, date_from, date_to)
+    return Response(content=pdf_bytes, media_type="application/pdf")
 
 
 @router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)
@@ -77,10 +91,11 @@ async def update_equipment(
 @router.delete("/equipment/{equipment_id}", status_code=204)
 async def retire_equipment(
     equipment_id: uuid.UUID,
+    reason: str | None = Query(None),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    await equipment_service.retire_equipment(db, admin, equipment_id)
+    await equipment_service.retire_equipment(db, admin, equipment_id, reason)
     return Response(status_code=204)
 
 

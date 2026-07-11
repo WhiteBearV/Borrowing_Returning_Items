@@ -1,11 +1,13 @@
 import os
 import uuid
+from datetime import date, datetime, time
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment, equipment_category_links
@@ -122,8 +124,10 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     eq.quantity_available = body.quantity_total
     db.add(eq)
     await db.flush()  # ได้ eq.id ก่อนบันทึก audit
+    # เก็บ quantity/item_type ลง detail ด้วย เพื่อให้ใบรับเข้า (ร่างเข้า) ดึงจำนวนมาโชว์ได้
     await audit_service.log_action(db, admin, "create_equipment", "equipment", eq.id,
-                                   {"code": eq.code, "name": eq.name})
+                                   {"code": eq.code, "name": eq.name,
+                                    "quantity": eq.quantity_total, "item_type": eq.item_type})
     await db.commit()
     return await get_equipment(db, eq.id)
 
@@ -143,11 +147,16 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     return await get_equipment(db, equipment_id)
 
 
-async def retire_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID) -> None:
+async def retire_equipment(
+    db: AsyncSession, admin: User, equipment_id: uuid.UUID, reason: str | None = None
+) -> None:
+    """ปลดระวางอุปกรณ์ + บันทึกเหตุผลลง audit เพื่อออกใบปลดระวาง (ร่างออก) ภายหลัง"""
     eq = await get_equipment(db, equipment_id)
     eq.status = "retired"
     await audit_service.log_action(db, admin, "retire_equipment", "equipment", eq.id,
-                                   {"code": eq.code, "name": eq.name})
+                                   {"code": eq.code, "name": eq.name,
+                                    "quantity": eq.quantity_total, "item_type": eq.item_type,
+                                    "reason": (reason or "").strip() or None})
     await db.commit()
 
 
@@ -166,6 +175,53 @@ async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
                                    {"code": eq.code, "name": eq.name})
     await db.delete(eq)
     await db.commit()
+
+
+_STOCK_ACTIONS = {"receipt": "create_equipment", "disposal": "retire_equipment"}
+
+
+async def build_stock_document(
+    db: AsyncSession, admin: User, kind: str, date_from: date, date_to: date
+) -> bytes:
+    """สร้าง PDF ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) จาก audit log ในช่วงวันที่
+
+    ดึงจาก audit log เพื่อให้เห็นว่านำอะไรเข้า/ออกบ้าง ใครทำ เมื่อไร พร้อมเหตุผล (ปลดระวาง)
+    — เป็นหลักฐานที่ลบไม่ได้อยู่แล้ว จึงใช้เป็นแหล่งข้อมูลเอกสาร
+    """
+    from app.utils import pdf
+
+    action = _STOCK_ACTIONS.get(kind)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document kind.")
+    if date_from > date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be <= date_to.")
+
+    # ครอบทั้งวันของ date_to (ถึง 23:59:59.999999) เพื่อให้ inclusive
+    start = datetime.combine(date_from, time.min)
+    end = datetime.combine(date_to, time.max)
+    result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.action == action,
+               AuditLog.created_at >= start, AuditLog.created_at <= end)
+        .order_by(AuditLog.created_at)
+    )
+    logs = result.scalars().all()
+    rows = [
+        {
+            "code": (log.detail or {}).get("code"),
+            "name": (log.detail or {}).get("name"),
+            "item_type": (log.detail or {}).get("item_type"),
+            "quantity": (log.detail or {}).get("quantity"),
+            "reason": (log.detail or {}).get("reason"),
+            "actor": log.actor_name,
+            "date": log.created_at,
+        }
+        for log in logs
+    ]
+    return pdf.generate_stock_document_pdf(
+        kind, date_from.strftime("%d/%m/%Y"), date_to.strftime("%d/%m/%Y"),
+        admin.full_name, rows,
+    )
 
 
 async def generate_qr(db: AsyncSession, equipment_id: uuid.UUID) -> bytes:

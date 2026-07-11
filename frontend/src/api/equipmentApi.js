@@ -5,7 +5,10 @@ export const equipmentApi = {
   get: (id) => api.get(`/equipment/${id}`).then((r) => r.data),
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
-  retire: (id) => api.delete(`/equipment/${id}`),
+  retire: (id, reason) => api.delete(`/equipment/${id}`, { params: reason ? { reason } : {} }),
+  // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
+  stockDocument: (kind, date_from, date_to) =>
+    api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),
   deletePermanent: (id) => api.delete(`/equipment/${id}/permanent`),
   uploadImage: (file) => {
     const fd = new FormData()
