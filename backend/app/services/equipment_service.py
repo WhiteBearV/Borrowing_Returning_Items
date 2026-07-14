@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, time
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,7 @@ from app.schemas.equipment import (
     HolderInfo,
     PaginatedEquipment,
 )
-from app.core.config import settings
+from app.core.config import TZ, settings
 from app.services import audit_service
 from app.utils.qrcode_gen import generate_qr_png
 
@@ -61,13 +61,19 @@ async def list_equipment(
     if filter_status:
         query = query.where(Equipment.status == filter_status)
     if search:
-        query = query.where(Equipment.name.ilike(f"%{search}%"))
+        # ค้นได้ทั้งชื่อและรหัส (รหัสวัสดุ/เลขครุภัณฑ์) — พิมพ์บางส่วนก็เจอ
+        kw = f"%{search.strip()}%"
+        query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
 
     # เรียงของที่ยืมได้ (status=available และยังเหลือ) ไว้หน้า ที่เหลือกองท้าย แล้วเรียงตามชื่อ
-    borrowable = ((Equipment.status == "available") & (Equipment.quantity_available > 0))
+    borrowable = (
+        Equipment.is_borrowable
+        & (Equipment.status == "available")
+        & (Equipment.quantity_available > 0)
+    )
     query = query.order_by(borrowable.desc(), Equipment.name)
 
     query = query.options(selectinload(Equipment.categories))
@@ -180,6 +186,47 @@ async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
 _STOCK_ACTIONS = {"receipt": "create_equipment", "disposal": "retire_equipment"}
 
 
+REPAIR_STATUSES = ("damaged", "under_repair")
+
+
+async def build_repair_document(db: AsyncSession, admin: User) -> bytes:
+    """สร้าง PDF บันทึกขออนุมัติซ่อมแซมครุภัณฑ์ จากครุภัณฑ์ที่สถานะชำรุด/กำลังซ่อมทั้งหมด
+
+    ลักษณะที่ชำรุดดึงจาก damage_note ของครั้งที่รับคืนล่าสุดที่สรุปว่าเสียหาย — แอดมินไม่ต้องพิมพ์ซ้ำ
+    (ยังไม่มีตัวเลือกส่งซ่อมเฉพาะบางชิ้น — ออกทั้งหมดที่ชำรุดอยู่ ณ ตอนนี้)
+    """
+    from app.utils import pdf
+
+    result = await db.execute(
+        select(Equipment)
+        .where(Equipment.item_type == "durable", Equipment.status.in_(REPAIR_STATUSES))
+        .order_by(Equipment.code)
+    )
+    equipment = list(result.scalars().all())
+    if not equipment:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="ไม่มีครุภัณฑ์ที่สถานะชำรุด/กำลังซ่อม")
+
+    # damage_note ล่าสุดของแต่ละชิ้น (รับคืนล่าสุดที่สรุปว่าเสียหาย/สูญหาย)
+    notes = await db.execute(
+        select(BorrowItem.equipment_id, BorrowItem.damage_note, BorrowItem.returned_at)
+        .where(BorrowItem.equipment_id.in_([e.id for e in equipment]),
+               BorrowItem.damage_note.isnot(None))
+        .order_by(BorrowItem.returned_at.desc())
+    )
+    latest: dict = {}
+    for eq_id, note, _ in notes:
+        latest.setdefault(eq_id, note)
+
+    rows = [
+        {"name": eq.name, "code": eq.code,
+         "damage": latest.get(eq.id) or ("อยู่ระหว่างซ่อม" if eq.status == "under_repair" else "ชำรุด"),
+         "note": "ส่งซ่อมแล้ว" if eq.status == "under_repair" else ""}
+        for eq in equipment
+    ]
+    return pdf.generate_repair_pdf(rows, admin.full_name)
+
+
 async def build_stock_document(
     db: AsyncSession, admin: User, kind: str, date_from: date, date_to: date
 ) -> bytes:
@@ -197,8 +244,9 @@ async def build_stock_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be <= date_to.")
 
     # ครอบทั้งวันของ date_to (ถึง 23:59:59.999999) เพื่อให้ inclusive
-    start = datetime.combine(date_from, time.min)
-    end = datetime.combine(date_to, time.max)
+    # ตีความเป็นวันตามเวลาไทย แล้วเทียบกับ created_at ที่เก็บเป็น UTC — ไม่งั้นของที่ทำตอนเช้าจะหล่นไปวันก่อนหน้า
+    start = datetime.combine(date_from, time.min, tzinfo=TZ)
+    end = datetime.combine(date_to, time.max, tzinfo=TZ)
     result = await db.execute(
         select(AuditLog)
         .where(AuditLog.action == action,

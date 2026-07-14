@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func
+from sqlalchemy import (
+    JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +37,11 @@ class Equipment(Base):
     low_stock_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="available")
     # available / borrowed / under_repair / damaged / retired
+    # ของที่อยู่ในทะเบียนแต่ไม่ให้ยืมออกจากห้อง (โต๊ะ/ตู้/ทีวี/เครื่องประจำห้อง)
+    # แยกจาก status เพราะ status ถูกเขียนทับทุกครั้งที่ import ไฟล์ทะเบียนใหม่ ฟิลด์นี้ import ไม่แตะ
+    is_borrowable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

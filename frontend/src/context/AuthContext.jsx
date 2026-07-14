@@ -32,6 +32,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
+    localStorage.removeItem('borrowCart')  // กันตะกร้าค้างข้ามคนเมื่อสลับบัญชีบนเครื่องเดียวกัน
     setUser(null)
   }, [])
 

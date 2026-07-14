@@ -1,4 +1,5 @@
 import io
+from datetime import datetime, timezone
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -10,6 +11,8 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, HRFlowable
 )
+
+from app.core.config import TZ
 
 _FONT_DIR = Path(__file__).parent / "fonts"
 _REGISTERED = False
@@ -31,11 +34,20 @@ def _style(name: str, **kw) -> ParagraphStyle:
     return base
 
 
+def _local(dt):
+    """เวลาใน DB เก็บเป็น UTC — เอกสารต้องโชว์เวลาไทย (+7) ไม่งั้น 14:11 จะขึ้นเป็น 7:11"""
+    if not isinstance(dt, datetime):
+        return dt  # date ธรรมดา (เช่น due_date) ไม่มีเวลา ไม่ต้องแปลง
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ)
+
+
 def _fmt_date(dt) -> str:
     if dt is None:
         return "-"
     try:
-        return dt.strftime("%d/%m/%Y")
+        return _local(dt).strftime("%d/%m/%Y")
     except Exception:
         return str(dt)
 
@@ -44,7 +56,7 @@ def _fmt_datetime(dt) -> str:
     if dt is None:
         return "-"
     try:
-        return dt.strftime("%d/%m/%Y %H:%M")
+        return _local(dt).strftime("%d/%m/%Y %H:%M")
     except Exception:
         return str(dt)
 
@@ -60,19 +72,159 @@ _DOC_META = {
 }
 
 
+def _doc_title(title_th: str, code: str | None = None) -> str:
+    """ชื่อเอกสารที่ฝังใน PDF metadata — ไม่มีอันนี้ Chrome จะโชว์แท็บว่า "(anonymous)"
+
+    ตัดครึ่งภาษาอังกฤษออก เหลือชื่อไทยสั้น ๆ ต่อด้วยเลขคำขอ เช่น "ใบยืมอุปกรณ์ REQ-2026-65010-a1b2c3"
+    """
+    short = title_th.split(" / ")[0]
+    return f"{short} {code}" if code else short
+
+
 def generate_borrow_pdf(req: object) -> bytes:
-    """สร้าง PDF ใบยืมอุปกรณ์"""
-    return _build_doc(req, "borrow")
+    """สร้าง PDF ใบยืมอุปกรณ์ ตามแบบฟอร์มกระดาษของคณะ"""
+    return _build_borrow_form(req, draft=False)
 
 
 def generate_preview_pdf(req: object) -> bytes:
-    """สร้าง PDF ร่างใบยืม (ก่อนกดส่งคำขอ) — ยังไม่มีเลขคำขอจริง"""
-    return _build_doc(req, "preview")
+    """สร้าง PDF ร่างใบยืม (ก่อนกดส่งคำขอ / ยังไม่อนุมัติ) — ฟอร์มเดียวกัน ต่างแค่ประทับว่าเป็นร่าง"""
+    return _build_borrow_form(req, draft=True)
 
 
 def generate_return_pdf(req: object) -> bytes:
     """สร้าง PDF ใบรับคืนอุปกรณ์ — สรุปสภาพเมื่อคืน + ผู้รับคืน"""
     return _build_doc(req, "return")
+
+
+_THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+                "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
+# ย่อหน้ารับรอง — คัดจากแบบฟอร์มกระดาษของคณะคำต่อคำ ห้ามแก้ถ้อยคำเอง
+_PLEDGE = (
+    "ข้าพเจ้าขอรับรองว่า จะดูแลรักษาอุปกรณ์ที่ยืมเป็นอย่างดี โดยหากมีความเสียหายใด ๆ หรือมีการ"
+    "สูญหายเกิดขึ้น ข้าพเจ้าจะขอรับผิดชอบทั้งหมดทุกกรณีโดยไม่มีเงื่อนไข โดยจักทำการซ่อมแซมให้ใช้การได้"
+    "ดังเดิมหรือจัดหาทดแทนให้ครบตามจำนวนที่ยืมในกรณีมีการสูญหายเกิดขึ้น"
+)
+# จำนวนแถวขั้นต่ำในตาราง — ฟอร์มกระดาษเว้นบรรทัดว่างไว้ให้เขียนเพิ่มด้วยมือ
+_MIN_ITEM_ROWS = 12
+
+
+def _thai_date_parts(dt) -> tuple[str, str, str]:
+    """(วัน, เดือนไทย, พ.ศ.) — ฟอร์มราชการเขียนวันที่แยกช่อง ไม่ใช่ 01/07/2569"""
+    dt = _local(dt) if dt else None
+    if dt is None:
+        return "____", "____________", "______"
+    return str(dt.day), _THAI_MONTHS[dt.month - 1], str(dt.year + 543)
+
+
+def _position_th(req: object) -> str:
+    """ตำแหน่งผู้ยืมบนฟอร์ม — มีรหัสนักศึกษา = นักศึกษา ไม่มี = บุคลากร (ไม่ต้องเก็บฟิลด์เพิ่ม)"""
+    return "นักศึกษา" if getattr(req, "student_number", None) else "อาจารย์/เจ้าหน้าที่"
+
+
+def _build_borrow_form(req: object, draft: bool) -> bytes:
+    """ใบยืมสิ่งของและอุปกรณ์ — เลย์เอาต์ตามแบบฟอร์มกระดาษของคณะ (ดู docs/น.ส.อรพรรณ คล้ายนาค.pdf)
+
+    ฟอร์มจริงมีตารางลายเซ็น 4 ช่อง (ผู้รับของ/ผู้ส่งของ ตอนยืม, ผู้ส่งของคืน/ผู้รับคืน ตอนคืน)
+    จึงเว้นเส้นให้เซ็นด้วยมือหลังพิมพ์ ไม่ใช่กรอกจากระบบ
+    """
+    _register_fonts()
+    buf = io.BytesIO()
+    code = getattr(req, "request_code", None)
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20 * mm, rightMargin=20 * mm,
+        topMargin=18 * mm, bottomMargin=15 * mm,
+        title=_doc_title("ใบยืมสิ่งของและอุปกรณ์ (ร่าง)" if draft else "ใบยืมสิ่งของและอุปกรณ์", code),
+        author="ระบบยืม-คืนอุปกรณ์ คณะเทคโนโลยีดิจิทัล",
+    )
+
+    center = _style("C", fontName="Thai-Bold", fontSize=14, leading=20, alignment=1)
+    center_sub = _style("CS", fontName="Thai-Bold", fontSize=12, leading=18, alignment=1)
+    body = _style("B", fontSize=11, leading=18)
+    right = _style("R", fontSize=11, leading=18, alignment=2)
+    small_gray = _style("SG", fontSize=9, textColor=colors.gray, alignment=1)
+
+    W = A4[0] - 40 * mm
+    d, m, y = _thai_date_parts(getattr(req, "requested_at", None))
+
+    elems: list = [
+        Paragraph("ใบยืมสิ่งของและอุปกรณ์", center),
+        Paragraph("คณะเทคโนโลยีดิจิทัล สถาบันเทคโนโลยีจิตรลดา", center_sub),
+        Spacer(1, 6),
+    ]
+    if draft:
+        elems.append(Paragraph("— ร่าง / ยังไม่ได้รับอนุมัติ —", small_gray))
+    if code:
+        elems.append(Paragraph(f"เลขที่คำขอ {code}", small_gray))
+    elems.append(Spacer(1, 10))
+
+    elems.append(Paragraph(f"วันที่ {d} เดือน {m} พ.ศ. {y}", right))
+    elems.append(Spacer(1, 4))
+    name = getattr(req, "student_name", None) or "____________________"
+    number = getattr(req, "student_number", None)
+    who = f"{name} ({number})" if number else name
+    elems.append(Paragraph(
+        f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{_position_th(req)}</u>", body))
+    elems.append(Paragraph("ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))
+    purpose = getattr(req, "purpose", None)
+    elems.append(Paragraph(
+        "มีความประสงค์จะขอยืมวัสดุ อุปกรณ์ ดังรายการต่อไปนี้"
+        + (f" (เพื่อ {purpose})" if purpose else ""), body))
+    elems.append(Spacer(1, 10))
+
+    # ── ตารางรายการ: ลำดับ | รายการ | จำนวน | รหัสครุภัณฑ์ (ตามฟอร์มจริง) ──
+    def _h(t: str) -> Paragraph:
+        return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=11, alignment=1))
+
+    rows = [[_h("ลำดับ"), _h("รายการ"), _h("จำนวน"), _h("รหัสครุภัณฑ์")]]
+    items = list(getattr(req, "items", []))
+    for i, item in enumerate(items, 1):
+        rows.append([
+            Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
+            Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
+            Paragraph(str(getattr(item, "quantity", 1)), _style(f"q{i}", fontSize=10, alignment=1)),
+            Paragraph(getattr(item, "equipment_code", None) or "-", _style(f"c{i}", fontSize=9, alignment=1)),
+        ])
+    rows += [["", "", "", ""]] * max(0, _MIN_ITEM_ROWS - len(items))  # เว้นบรรทัดว่างเหมือนฟอร์มกระดาษ
+
+    table = Table(rows, colWidths=[16 * mm, W - 16 * mm - 20 * mm - 45 * mm, 20 * mm, 45 * mm],
+                  rowHeights=[8 * mm] * len(rows), repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (1, 1), (1, -1), 6),
+    ]))
+    elems.append(table)
+    elems.append(Spacer(1, 12))
+
+    elems.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_PLEDGE}", _style("P", fontSize=11, leading=18)))
+    elems.append(Spacer(1, 18))
+
+    # ── ลายเซ็น 4 ช่อง: ยืม (ซ้าย) / คืน (ขวา) — เว้นไว้เซ็นด้วยมือ ──
+    borrower = f"({name})" if getattr(req, "student_name", None) else "(............................................)"
+    blank = "(............................................)"
+    line = "............................................"
+    sig = _style("S", fontSize=11, leading=22)
+    sig_c = _style("SC", fontSize=10, leading=16, alignment=1)
+    date_line = "วันที่ .......... เดือน .................... พ.ศ. .........."
+
+    sig_rows = [
+        [Paragraph(f"ผู้รับของ {line}", sig), Paragraph(f"ผู้ส่งของคืน {line}", sig)],
+        [Paragraph(borrower, sig_c), Paragraph(blank, sig_c)],
+        [Paragraph(f"ผู้ส่งของ {line}", sig), Paragraph(f"ผู้รับคืน {line}", sig)],
+        [Paragraph(blank, sig_c), Paragraph(blank, sig_c)],
+        [Paragraph(date_line, sig), Paragraph(date_line, sig)],
+    ]
+    sig_table = Table(sig_rows, colWidths=[W / 2, W / 2])
+    sig_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elems.append(sig_table)
+
+    doc.build(elems)
+    return buf.getvalue()
 
 
 def _build_doc(req: object, kind: str) -> bytes:
@@ -85,6 +237,8 @@ def _build_doc(req: object, kind: str) -> bytes:
         buf, pagesize=A4,
         leftMargin=20 * mm, rightMargin=20 * mm,
         topMargin=20 * mm, bottomMargin=20 * mm,
+        title=_doc_title(title_th, getattr(req, "request_code", None)),
+        author="ระบบยืม-คืนอุปกรณ์",
     )
 
     title_style = _style("Title", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)
@@ -109,7 +263,8 @@ def _build_doc(req: object, kind: str) -> bytes:
     info_data = [
         ["รหัสคำขอ", getattr(req, "request_code", "-")],
         ["วันที่ยื่นคำขอ", _fmt_datetime(getattr(req, "requested_at", None))],
-        ["วันกำหนดคืน", _fmt_date(getattr(req, "due_date", None))],
+        ["วันกำหนดคืน (ประมาณการ)" if kind == "preview" else "วันกำหนดคืน",
+         _fmt_date(getattr(req, "due_date", None))],
         ["สถานะ", _status_th(getattr(req, "status", ""))],
         ["วัตถุประสงค์", getattr(req, "purpose", None) or "-"],
     ]
@@ -144,28 +299,36 @@ def _build_doc(req: object, kind: str) -> bytes:
     elems.append(Spacer(1, 6))
 
     items = getattr(req, "items", [])
-    header = [
-        Paragraph("#", _style("H", fontName="Thai-Bold", fontSize=10, alignment=1)),
-        Paragraph("ชื่ออุปกรณ์", _style("H", fontName="Thai-Bold", fontSize=10)),
-        Paragraph("ประเภท", _style("H", fontName="Thai-Bold", fontSize=10, alignment=1)),
-        Paragraph("จำนวน", _style("H", fontName="Thai-Bold", fontSize=10, alignment=1)),
-        Paragraph("สภาพเมื่อคืน", _style("H", fontName="Thai-Bold", fontSize=10, alignment=1)),
-    ]
+    # สภาพเมื่อคืนมีค่าจริงเฉพาะใบรับคืน — ใบยืม/ร่างยืมโชว์แล้วเป็นขีดเปล่า จึงตัดทิ้ง
+    show_condition = kind == "return"
+
+    def _h(t: str, align: int = 0) -> Paragraph:
+        return Paragraph(t, _style("H", fontName="Thai-Bold", fontSize=10, alignment=align))
+
+    header = [_h("#", 1), _h("รหัสอุปกรณ์"), _h("ชื่ออุปกรณ์"), _h("ประเภท", 1), _h("จำนวน", 1)]
+    if show_condition:
+        header.append(_h("สภาพเมื่อคืน", 1))
+
     rows = [header]
     for i, item in enumerate(items, 1):
         name = getattr(item, "equipment_name", None) or str(getattr(item, "equipment_id", "-"))
+        code = getattr(item, "equipment_code", None) or "-"
         type_th = {"durable": "ครุภัณฑ์", "material": "วัสดุ", "consumable": "วัสดุสิ้นเปลือง"}.get(
             getattr(item, "item_type_snapshot", ""), "วัสดุสิ้นเปลือง")
-        condition = _condition_th(getattr(item, "condition_on_return", None))
-        rows.append([
+        row = [
             Paragraph(str(i), _style(f"c{i}", fontSize=10, alignment=1)),
+            Paragraph(code, _style(f"cc{i}", fontSize=9)),
             Paragraph(name, _style(f"n{i}", fontSize=10)),
             Paragraph(type_th, _style(f"t{i}", fontSize=10, alignment=1)),
             Paragraph(str(getattr(item, "quantity", 1)), _style(f"q{i}", fontSize=10, alignment=1)),
-            Paragraph(condition, _style(f"cd{i}", fontSize=10, alignment=1)),
-        ])
+        ]
+        if show_condition:
+            condition = _condition_th(getattr(item, "condition_on_return", None))
+            row.append(Paragraph(condition, _style(f"cd{i}", fontSize=10, alignment=1)))
+        rows.append(row)
 
-    col_w = [10 * mm, W - 10 * mm - 30 * mm - 18 * mm - 30 * mm, 30 * mm, 18 * mm, 30 * mm]
+    fixed = 10 * mm + 38 * mm + 28 * mm + 18 * mm + (30 * mm if show_condition else 0)
+    col_w = [10 * mm, 38 * mm, W - fixed, 28 * mm, 18 * mm] + ([30 * mm] if show_condition else [])
     items_table = Table(rows, colWidths=col_w, repeatRows=1)
     items_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(accent)),
@@ -197,10 +360,207 @@ def _build_doc(req: object, kind: str) -> bytes:
 
 # ── เอกสารรับเข้า/ปลดระวาง (ร่างเข้า/ร่างออก) ───────────────────────────────
 # ต่างจากใบยืม: อ้างอิงช่วงวันที่ + รายการหลายชิ้นจาก audit log ไม่ผูกกับคำขอเดียว
+def generate_repair_pdf(rows: list[dict], requester: str, unit: str = "คณะเทคโนโลยีดิจิทัล") -> bytes:
+    """บันทึกข้อความ "ขออนุมัติซ่อมแซมครุภัณฑ์" ตามแบบฟอร์มของสถาบัน (พศ.004:1)
+
+    ระบบเติมให้เฉพาะส่วนที่มีข้อมูลจริง: ตารางครุภัณฑ์ที่ชำรุด (รายการ/รหัส/ลักษณะที่ชำรุด)
+    ช่องความเห็นผู้ตรวจสอบ ประวัติการซ่อม และช่องอนุมัติ เว้นว่างให้กรอก/เซ็นด้วยมือตามของจริง
+    แต่ละ row: {name, code, damage, note}
+    """
+    _register_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm, topMargin=15 * mm, bottomMargin=12 * mm,
+        title=_doc_title("บันทึกข้อความ ขออนุมัติซ่อมแซมครุภัณฑ์"),
+        author="ระบบยืม-คืนอุปกรณ์ คณะเทคโนโลยีดิจิทัล",
+    )
+    W = A4[0] - 36 * mm
+    title = _style("RT", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)
+    body = _style("RB", fontSize=10.5, leading=17)
+    small = _style("RS", fontSize=9.5, leading=15)
+    dots = "." * 60
+    d, m, y = _thai_date_parts(_now())
+
+    def _h(t: str) -> Paragraph:
+        return Paragraph(t, _style(f"rh{t}", fontName="Thai-Bold", fontSize=10, alignment=1))
+
+    elems: list = [
+        Paragraph("บันทึกข้อความ", title),
+        Spacer(1, 8),
+        Paragraph(f"<b>ส่วนงาน</b> {unit} {dots}", body),
+        Paragraph(f"<b>ที่</b> ....................................... <b>วันที่</b> {d} {m} {y}", body),
+        Paragraph("<b>เรื่อง</b> ขออนุมัติซ่อมแซมครุภัณฑ์", body),
+        Spacer(1, 6),
+        Paragraph("<b>เรียน</b> ผู้มีอำนาจอนุมัติวงเงิน", body),
+        Spacer(1, 4),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ด้วยหน่วยงาน {unit} "
+                  "มีความประสงค์จะขออนุมัติซ่อมแซมครุภัณฑ์ รายละเอียดดังนี้", body),
+        Spacer(1, 8),
+    ]
+
+    data = [[_h("ลำดับที่"), _h("รายการ"), _h("รหัสครุภัณฑ์"), _h("ลักษณะ/สภาพที่ชำรุด"), _h("หมายเหตุ")]]
+    for i, r in enumerate(rows, 1):
+        data.append([
+            Paragraph(str(i), _style(f"ri{i}", fontSize=9.5, alignment=1)),
+            Paragraph(r.get("name") or "-", _style(f"rn{i}", fontSize=9.5)),
+            Paragraph(r.get("code") or "-", _style(f"rc{i}", fontSize=8.5, alignment=1)),
+            Paragraph(r.get("damage") or "-", _style(f"rd{i}", fontSize=9.5)),
+            Paragraph(r.get("note") or "", _style(f"rm{i}", fontSize=9)),
+        ])
+    data += [["", "", "", "", ""]] * max(0, 3 - len(rows))  # ฟอร์มจริงมีบรรทัดว่างให้เขียนเพิ่ม
+
+    table = Table(data, colWidths=[15 * mm, W - 15 * mm - 35 * mm - 45 * mm - 25 * mm,
+                                   35 * mm, 45 * mm, 25 * mm])
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elems.append(table)
+    elems.append(Spacer(1, 10))
+
+    # ความเห็นผู้ตรวจสอบ + แหล่งเงิน + คณะกรรมการ — เว้นให้กรอกมือ (ระบบไม่รู้ราคา/งบ)
+    for line in [
+        "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;โดยผู้ตรวจสอบได้ตรวจสอบแล้วมีความเห็นว่า",
+        "[  ] ซ่อมได้เองไม่มีค่าใช้จ่าย &nbsp; [  ] ซ่อมได้เองมีค่าใช้จ่าย โดยเปลี่ยนวัสดุ/อุปกรณ์ที่ชำรุด "
+        "วงเงินประมาณ ............... บาท (แนบใบเสนอราคา)",
+        "[  ] ส่งซ่อมภายนอก วงเงินประมาณ ............... บาท (แนบใบเสนอราคา)",
+        "[  ] ไม่ควรซ่อม เหตุผล ....................................................................................",
+        "",
+        "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;การซ่อมแซมครุภัณฑ์ครั้งนี้ใช้เงินงบประมาณจากแหล่งเงิน "
+        ".............................. ประจำปีงบประมาณ พ.ศ. ..........",
+        "งาน/โครงการ .............................. รหัสงบ .............................. "
+        "และขอเสนอรายชื่อคณะกรรมการซื้อ/จ้าง สำหรับงานซ่อม ดังนี้",
+        "คณะกรรมการซื้อ/จ้าง &nbsp; 1. ........................ &nbsp; 2. ........................ "
+        "&nbsp; 3. ........................",
+        "คณะกรรมการตรวจรับพัสดุ หรือ ผู้ตรวจรับพัสดุ &nbsp; 1. ........................ "
+        "&nbsp; 2. ........................ &nbsp; 3. ........................",
+    ]:
+        elems.append(Paragraph(line, small) if line else Spacer(1, 4))
+    elems.append(Spacer(1, 14))
+
+    sig = Table([[
+        Paragraph(f"ลงชื่อ ........................................ ผู้ขอซ่อม<br/>"
+                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {requester} )<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
+        Paragraph("ลงชื่อ ........................................ ผู้ตรวจสอบ<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(........................................)<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
+    ]], colWidths=[W / 2, W / 2])
+    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    elems.append(sig)
+    elems.append(Spacer(1, 12))
+
+    # ช่องอนุมัติ 3 ระดับ ตามฟอร์มกระดาษ — เว้นว่างทั้งหมด
+    approve = Table([
+        [_h("ผู้อำนวยการ/คณบดี"), _h("รองอธิการบดี"), _h("อธิการบดี")],
+        [Paragraph("[  ] เห็นชอบ &nbsp; [  ] อนุมัติ<br/><br/>ลงชื่อ ....................<br/>"
+                   "(....................)<br/>วันที่ ....................", small),
+         Paragraph("[  ] เห็นชอบ &nbsp; [  ] อนุมัติ<br/><br/>ลงชื่อ ....................<br/>"
+                   "(....................)<br/>วันที่ ....................", small),
+         Paragraph("[  ] อนุมัติ &nbsp; [  ] อื่น ๆ ..........<br/><br/>ลงชื่อ ....................<br/>"
+                   "(....................)<br/>วันที่ ....................", small)],
+    ], colWidths=[W / 3] * 3)
+    approve.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elems.append(approve)
+
+    doc.build(elems)
+    return buf.getvalue()
+
+
 _STOCK_META = {
     "receipt":  ("ใบรับเข้าคลัง (ร่างเข้า) / Stock Receipt", "#2563EB", "รายการที่นำเข้า"),
     "disposal": ("ใบปลดระวาง (ร่างออก) / Stock Disposal", "#B91C1C", "รายการที่ปลดระวาง"),
 }
+
+
+def _build_receipt_form(date_from: str, date_to: str, generated_by: str, rows: list[dict]) -> bytes:
+    """ใบรับเข้าคลัง — เลย์เอาต์ตาม "รายการเบิกครุภัณฑ์" ของสถาบัน (ดู docs/ตัวอย่างใบรับครุภัณฑ์ ดิจิทัล.pdf)
+
+    ระบบเติมรายการ + รหัสครุภัณฑ์รายชิ้นจาก audit log ส่วนราคา/เลขที่ใบเบิก/เลขใบตรวจรับ
+    เว้นว่างให้กรอกมือ เพราะระบบคลังไม่ได้เก็บข้อมูลฝั่งจัดซื้อ (ราคา สัญญา ใบตรวจรับ)
+    """
+    _register_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm, topMargin=15 * mm, bottomMargin=15 * mm,
+        title=_doc_title("รายการเบิกครุภัณฑ์ (ใบรับเข้าคลัง)", f"{date_from} - {date_to}"),
+        author="ระบบยืม-คืนอุปกรณ์ คณะเทคโนโลยีดิจิทัล",
+    )
+    W = A4[0] - 36 * mm
+    center = _style("KC", fontName="Thai-Bold", fontSize=13, leading=19, alignment=1)
+    center_sub = _style("KS", fontSize=12, leading=18, alignment=1)
+    body = _style("KB", fontSize=10.5, leading=17)
+    right = _style("KR", fontSize=10, leading=16, alignment=2)
+    small = _style("KM", fontSize=9.5, leading=15)
+    d, m, y = _thai_date_parts(_now())
+
+    elems: list = [
+        Paragraph("สถาบันเทคโนโลยีจิตรลดา", center_sub),
+        Paragraph("รายการเบิกครุภัณฑ์", center),
+        Spacer(1, 8),
+        Paragraph("เลขที่ใบเบิก ...........................", right),
+        Paragraph("อ้างอิงใบตรวจรับ ...........................", right),
+        Paragraph(f"วันที่ {d} {m} {y}", right),
+        Spacer(1, 6),
+        Paragraph(f"ชื่อ-สกุล <u>{generated_by}</u> &nbsp;&nbsp; ตำแหน่ง ......................... "
+                  "&nbsp;&nbsp; หน่วยงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body),
+        Paragraph(f"รายการที่นำเข้าคลังระหว่างวันที่ {date_from} ถึง {date_to} "
+                  f"รวม {len(rows)} รายการ", small),
+        Spacer(1, 8),
+    ]
+
+    def _h(t: str) -> Paragraph:
+        return Paragraph(t, _style(f"kh{t}", fontName="Thai-Bold", fontSize=9.5, alignment=1))
+
+    # คอลัมน์ตามใบจริง — ราคาเว้นว่าง (ระบบคลังไม่รู้ราคา ต้องกรอกจากใบจัดซื้อ)
+    data = [[_h("ลำดับ"), _h("รายการ"), _h("จำนวน"), _h("ราคาต่อหน่วย"), _h("จำนวนเงิน"), _h("รหัสครุภัณฑ์")]]
+    for i, r in enumerate(rows, 1):
+        unit_th = {"durable": "เครื่อง/ชิ้น", "material": "ชิ้น", "consumable": "หน่วย"}.get(
+            r.get("item_type") or "", "")
+        qty = r.get("quantity")
+        data.append([
+            Paragraph(str(i), _style(f"ka{i}", fontSize=9, alignment=1)),
+            Paragraph(str(r.get("name") or "-"), _style(f"kb{i}", fontSize=9)),
+            Paragraph(f"{qty} {unit_th}" if qty is not None else "-",
+                      _style(f"kc{i}", fontSize=9, alignment=1)),
+            "", "",
+            Paragraph(str(r.get("code") or "-"), _style(f"kd{i}", fontSize=8.5, alignment=1)),
+        ])
+    data += [["", "", "", "", "", ""]] * max(0, 5 - len(rows))
+
+    table = Table(data, colWidths=[13 * mm, W - 13 * mm - 22 * mm - 28 * mm - 24 * mm - 42 * mm,
+                                   22 * mm, 28 * mm, 24 * mm, 42 * mm], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elems.append(table)
+    elems.append(Spacer(1, 20))
+
+    sig = Table([[
+        Paragraph("ลงชื่อ ........................................ ผู้เบิก<br/>"
+                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {generated_by} )<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
+        Paragraph("ลงชื่อ ........................................ ผู้จ่ายครุภัณฑ์<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(........................................)<br/>"
+                  "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
+    ]], colWidths=[W / 2, W / 2])
+    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    elems.append(sig)
+
+    doc.build(elems)
+    return buf.getvalue()
 
 
 def generate_stock_document_pdf(
@@ -216,6 +576,9 @@ def generate_stock_document_pdf(
     (ตอบข้อเสนออาจารย์ #2/#3: เอกสารร่างเข้า/ร่างออก) — ดึงจาก audit log เป็นหลักฐาน
     แต่ละ row: {code, name, item_type, quantity, actor, date, reason}
     """
+    if kind == "receipt":
+        return _build_receipt_form(date_from, date_to, generated_by, rows)
+
     _register_fonts()
     title_th, accent, items_label = _STOCK_META.get(kind, _STOCK_META["receipt"])
     is_disposal = kind == "disposal"
@@ -225,6 +588,8 @@ def generate_stock_document_pdf(
         buf, pagesize=A4,
         leftMargin=20 * mm, rightMargin=20 * mm,
         topMargin=20 * mm, bottomMargin=20 * mm,
+        title=_doc_title(title_th, f"{date_from} - {date_to}"),
+        author="ระบบยืม-คืนอุปกรณ์",
     )
     title_style = _style("Title", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)
     sub_style = _style("Sub", fontSize=10, textColor=colors.gray, alignment=1)
@@ -316,9 +681,9 @@ def generate_stock_document_pdf(
     return buf.getvalue()
 
 
-def _now():
-    from datetime import datetime as _dt
-    return _dt.now()
+def _now() -> datetime:
+    """เวลาปัจจุบันตามเวลาไทย — เซิร์ฟเวอร์รันเป็น UTC จะได้ไม่ออกใบเป็นเวลา UTC"""
+    return datetime.now(TZ)
 
 
 def _status_th(status: str) -> str:

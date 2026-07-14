@@ -1,8 +1,19 @@
+import os
+from zoneinfo import ZoneInfo
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# เวลาใน DB เก็บเป็น UTC เสมอ — โซนนี้ใช้ตอนแสดงผล/ตัดช่วงวันในเอกสาร (ใช้ในคณะเดียว hardcode พอ)
+TZ = ZoneInfo("Asia/Bangkok")
+
+# ชี้ backend/.env แบบ absolute — สคริปต์ใน scripts/ รันจาก cwd ไหนก็เจอ .env เหมือนกัน
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(BACKEND_DIR, ".env"), env_file_encoding="utf-8"
+    )
 
     # Database
     DATABASE_URL: str

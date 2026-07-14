@@ -161,3 +161,44 @@ def test_condition_th(condition, expected):
 ])
 def test_fmt_date(dt, expected):
     assert _fmt_date(dt) == expected
+
+
+def test_fmt_datetime_shows_thai_time():
+    """เวลาใน DB เป็น UTC — ในเอกสารต้องโชว์ +7 (14:11 ไม่ใช่ 07:11)"""
+    from datetime import datetime, timezone
+
+    from app.utils.pdf import _fmt_datetime, _now
+
+    utc = datetime(2026, 7, 14, 7, 11, tzinfo=timezone.utc)
+    assert _fmt_datetime(utc) == "14/07/2026 14:11"
+    # ข้ามวันด้วย: 20:30 UTC = ตี 3.30 ของวันถัดไปตามเวลาไทย
+    assert _fmt_datetime(datetime(2026, 7, 14, 20, 30, tzinfo=timezone.utc)) == "15/07/2026 03:30"
+    assert _now().utcoffset().total_seconds() == 7 * 3600
+
+
+def test_pdf_has_document_title():
+    """PDF ต้องมี /Title — ไม่งั้นแท็บ Chrome ขึ้นว่า (anonymous)"""
+    from app.utils.pdf import _doc_title
+
+    assert b"/Title" in generate_borrow_pdf(_Req())
+    assert _doc_title("ใบยืมอุปกรณ์ / Equipment Borrow Request", "REQ-2026-65010-a1b2c3") == \
+        "ใบยืมอุปกรณ์ REQ-2026-65010-a1b2c3"
+    assert _doc_title("ใบยืมอุปกรณ์ (ร่าง) / Equipment Borrow Draft") == "ใบยืมอุปกรณ์ (ร่าง)"
+
+
+def test_repair_pdf():
+    """ใบขออนุมัติซ่อม — ต้องมีรหัสครุภัณฑ์และลักษณะที่ชำรุดในเอกสาร"""
+    from app.utils.pdf import generate_repair_pdf
+
+    out = generate_repair_pdf(
+        [{"name": "ดิจิตอลมัลติมิเตอร์", "code": "65-214-059-006-0019",
+          "damage": "สายวัดขาด", "note": ""}],
+        "แอดมิน ทดสอบ",
+    )
+    assert out.startswith(b"%PDF") and b"/Title" in out
+
+
+def test_repair_pdf_no_rows():
+    from app.utils.pdf import generate_repair_pdf
+
+    assert generate_repair_pdf([], "แอดมิน ทดสอบ").startswith(b"%PDF")  # ตารางว่างก็ยังออกฟอร์มได้

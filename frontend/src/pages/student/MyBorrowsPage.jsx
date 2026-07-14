@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
+import { openPdf } from '../../utils/openPdf.js'
 import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_STYLE = {
@@ -42,17 +43,8 @@ export default function MyBorrowsPage() {
     load()
   }
 
-  const saveBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-  const downloadPdf = async (id, code) => saveBlob(await borrowApi.downloadPdf(id), `${code}.pdf`)
-  const downloadReturnPdf = async (id, code) =>
-    saveBlob(await borrowApi.downloadReturnPdf(id), `${code}-ใบรับคืน.pdf`)
+  const viewPdf = async (id) => openPdf(await borrowApi.downloadPdf(id))
+  const viewReturnPdf = async (id) => openPdf(await borrowApi.downloadReturnPdf(id))
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -137,20 +129,19 @@ export default function MyBorrowsPage() {
                         ยกเลิกคำขอ
                       </button>
                     )}
-                    {(req.status === 'approved' || req.status === 'completed') && (
-                      <button
-                        onClick={() => downloadPdf(req.id, req.request_code)}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        ใบยืม PDF
-                      </button>
-                    )}
+                    {/* ดูใบคำขอได้ทุกสถานะ — ที่ยังไม่อนุมัติออกเป็น "ใบร่าง" (ฉบับเดียวกับที่แอดมินตรวจ) */}
+                    <button
+                      onClick={() => viewPdf(req.id)}
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
+                    </button>
                     {req.status === 'completed' && (
                       <button
-                        onClick={() => downloadReturnPdf(req.id, req.request_code)}
+                        onClick={() => viewReturnPdf(req.id)}
                         className="text-sm text-emerald-600 hover:underline"
                       >
-                        ใบรับคืน PDF
+                        ดูใบรับคืน
                       </button>
                     )}
                   </div>

@@ -18,6 +18,7 @@ class BorrowItemResponse(BaseModel):
     id: uuid.UUID
     equipment_id: uuid.UUID
     equipment_name: str | None = None
+    equipment_code: str | None = None
     item_type_snapshot: str
     quantity: int
     returned: bool

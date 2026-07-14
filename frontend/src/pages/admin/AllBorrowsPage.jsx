@@ -3,6 +3,7 @@ import { borrowApi } from '../../api/borrowApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import { openPdf } from '../../utils/openPdf.js'
 
 const STATUS_STYLE = {
   pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-blue-100 text-blue-700',
@@ -231,30 +232,18 @@ export default function AllBorrowsPage() {
                         รับคืนครุภัณฑ์ทั้งหมด
                       </button>
                     )}
-                    {(req.status === 'approved' || req.status === 'completed') && (
-                      <button
-                        onClick={async () => {
-                          const blob = await borrowApi.downloadPdf(req.id)
-                          const url = URL.createObjectURL(blob)
-                          Object.assign(document.createElement('a'), { href: url, download: `${req.request_code}.pdf` }).click()
-                          URL.revokeObjectURL(url)
-                        }}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        ใบยืม PDF
-                      </button>
-                    )}
+                    <button
+                      onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
+                    </button>
                     {req.status === 'completed' && (
                       <button
-                        onClick={async () => {
-                          const blob = await borrowApi.downloadReturnPdf(req.id)
-                          const url = URL.createObjectURL(blob)
-                          Object.assign(document.createElement('a'), { href: url, download: `${req.request_code}-ใบรับคืน.pdf` }).click()
-                          URL.revokeObjectURL(url)
-                        }}
+                        onClick={async () => openPdf(await borrowApi.downloadReturnPdf(req.id))}
                         className="text-sm text-emerald-600 hover:underline"
                       >
-                        ใบรับคืน PDF
+                        ดูใบรับคืน
                       </button>
                     )}
                     {['completed', 'rejected', 'cancelled'].includes(req.status) && (

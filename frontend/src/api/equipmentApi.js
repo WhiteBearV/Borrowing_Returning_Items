@@ -9,7 +9,19 @@ export const equipmentApi = {
   // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
   stockDocument: (kind, date_from, date_to) =>
     api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),
+  // บันทึกขออนุมัติซ่อมแซมครุภัณฑ์ — ของที่สถานะชำรุด/กำลังซ่อมทั้งหมด
+  repairDocument: () =>
+    api.get('/equipment/repair-document', { responseType: 'blob' }).then((r) => r.data),
   deletePermanent: (id) => api.delete(`/equipment/${id}/permanent`),
+  // นำเข้าจากไฟล์ทะเบียน (Excel): อ่านไฟล์ → ดูร่าง → ยืนยัน
+  importPreview: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/equipment/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
+  // body = ร่างที่แอดมินตรวจ/แก้แล้ว: { filename, rows: [{ code, action, name, location, status, category, reason }] }
+  importCommit: (importId, body) =>
+    api.post(`/equipment/import/${importId}/commit`, body).then((r) => r.data),
   uploadImage: (file) => {
     const fd = new FormData()
     fd.append('file', file)

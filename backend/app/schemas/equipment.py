@@ -31,6 +31,7 @@ class EquipmentResponse(BaseModel):
     quantity_available: int
     low_stock_threshold: int | None
     status: str
+    is_borrowable: bool
     created_at: datetime
     updated_at: datetime
 
@@ -59,6 +60,7 @@ class EquipmentCreate(BaseModel):
     unit: str | None = None
     quantity_total: int = 1
     low_stock_threshold: int | None = None
+    is_borrowable: bool = True
 
 
 class EquipmentUpdate(BaseModel):
@@ -71,6 +73,32 @@ class EquipmentUpdate(BaseModel):
     quantity_total: int | None = None
     low_stock_threshold: int | None = None
     status: str | None = None
+    is_borrowable: bool | None = None
+
+
+class ImportRowIn(BaseModel):
+    """หนึ่งบรรทัดในร่างนำเข้าที่แอดมินตรวจ/แก้แล้ว — ส่งกลับมาเฉพาะบรรทัดที่เลือกบันทึกจริง
+
+    แก้ได้ทุกช่องเหมือนฟอร์มเพิ่มอุปกรณ์ทีละชิ้น (หมวดหมู่/รูป/คำอธิบาย/ประเภท/จำนวน)
+    เพราะไฟล์ทะเบียนมีแค่ชื่อ-เลข-สถานะ ที่เหลือแอดมินต้องเติมเองในร่าง
+    """
+    code: str
+    action: str  # new / update / retire
+    name: str
+    location: str | None = None
+    status: str
+    item_type: str = "durable"  # durable / material / consumable
+    quantity: int = 1
+    unit: str | None = None
+    categories: list[str] = []  # ชื่อหมวดหมู่ (สร้างให้ถ้ายังไม่มี) — ว่าง = ใช้ที่ระบบเดาจากชื่อ
+    description: str | None = None
+    image_urls: list[str] = []
+    reason: str | None = None  # เหตุผลปลดระวาง (เฉพาะ action=retire)
+
+
+class ImportCommitRequest(BaseModel):
+    filename: str | None = None
+    rows: list[ImportRowIn]
 
 
 class PaginatedEquipment(BaseModel):

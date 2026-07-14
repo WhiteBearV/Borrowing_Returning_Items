@@ -14,9 +14,10 @@ from app.schemas.equipment import (
     EquipmentDetailResponse,
     EquipmentResponse,
     EquipmentUpdate,
+    ImportCommitRequest,
     PaginatedEquipment,
 )
-from app.services import equipment_service
+from app.services import equipment_service, import_service
 
 router = APIRouter(tags=["equipment"])
 
@@ -35,6 +36,16 @@ async def list_equipment(
     return await equipment_service.list_equipment(db, page, page_size, category_id, item_type, status, search)
 
 
+@router.get("/equipment/repair-document")
+async def repair_document(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """ดาวน์โหลด PDF บันทึกขออนุมัติซ่อมแซมครุภัณฑ์ (ครุภัณฑ์ที่ชำรุด/กำลังซ่อมทั้งหมด)"""
+    pdf_bytes = await equipment_service.build_repair_document(db, admin)
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
+
 @router.get("/equipment/stock-document")
 async def stock_document(
     kind: str = Query(..., pattern="^(receipt|disposal)$"),
@@ -46,6 +57,27 @@ async def stock_document(
     """ดาวน์โหลด PDF ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) ตามช่วงวันที่"""
     pdf_bytes = await equipment_service.build_stock_document(db, admin, kind, date_from, date_to)
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.post("/equipment/import/preview")
+async def import_preview(
+    file: UploadFile,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """อัปโหลดไฟล์ทะเบียน (Excel) → คืนร่างว่าจะเพิ่ม/แก้/ปลดระวางอะไรบ้าง (ยังไม่บันทึก)"""
+    return await import_service.preview_import(db, file)
+
+
+@router.post("/equipment/import/{import_id}/commit")
+async def import_commit(
+    import_id: str,
+    body: ImportCommitRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """บันทึกร่างที่แอดมินตรวจ/แก้แล้วเข้าระบบจริง (เฉพาะบรรทัดที่ส่งมา)"""
+    return await import_service.commit_import(db, admin, import_id, body)
 
 
 @router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)

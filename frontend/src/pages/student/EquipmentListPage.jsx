@@ -42,13 +42,15 @@ export default function EquipmentListPage() {
       .finally(() => setLoading(false))
   }, [search, categoryId, page])
 
-  const isAvailable = (eq) => eq.status === 'available' && eq.quantity_available > 0
+  const isAvailable = (eq) => eq.is_borrowable && eq.status === 'available' && eq.quantity_available > 0
 
-  // เหตุผลที่ยืมไม่ได้ — ดู status ก่อน (unavailable/damaged/…), ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
+  // เหตุผลที่ยืมไม่ได้ — ของประจำห้องมาก่อน แล้วดู status (unavailable/damaged/…), สุดท้ายค่อยบอกว่ายืมหมด/ของหมด
   const unavailableReason = (eq) =>
-    eq.status !== 'available'
-      ? (STATUS_LABEL[eq.status] ?? eq.status)
-      : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
+    !eq.is_borrowable
+      ? 'ของประจำห้อง'
+      : eq.status !== 'available'
+        ? (STATUS_LABEL[eq.status] ?? eq.status)
+        : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -71,7 +73,7 @@ export default function EquipmentListPage() {
       <div className="flex gap-3 mb-6">
         <input
           type="text"
-          placeholder="ค้นหาชื่ออุปกรณ์…"
+          placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

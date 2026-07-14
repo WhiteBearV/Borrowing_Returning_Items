@@ -25,11 +25,13 @@ export default function EquipmentDetailPage() {
 
   const images = eq.image_urls?.length ? eq.image_urls : (eq.image_url ? [eq.image_url] : [])
   const inCart = cart.some((c) => c.equipment.id === eq.id)
-  const available = eq.status === 'available' && eq.quantity_available > 0
-  // เหตุผลที่ยืมไม่ได้ — ดู status ก่อน (unavailable/damaged/…) ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
-  const reason = eq.status !== 'available'
-    ? (STATUS_LABEL[eq.status] ?? eq.status)
-    : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
+  const available = eq.is_borrowable && eq.status === 'available' && eq.quantity_available > 0
+  // เหตุผลที่ยืมไม่ได้ — ของประจำห้องมาก่อน แล้วดู status ถ้า available แต่ของหมดค่อยบอกว่ายืมหมด/ของหมด
+  const reason = !eq.is_borrowable
+    ? 'ของประจำห้อง (ไม่ให้ยืมออก)'
+    : eq.status !== 'available'
+      ? (STATUS_LABEL[eq.status] ?? eq.status)
+      : (eq.item_type !== 'durable' ? 'หมด' : 'ถูกยืมอยู่')
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">

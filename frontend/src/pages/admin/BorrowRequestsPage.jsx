@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
+import { openPdf } from '../../utils/openPdf.js'
 
 export default function BorrowRequestsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -21,6 +22,9 @@ export default function BorrowRequestsPage() {
     await borrowApi.approve(id)
     load()
   }
+
+  // เปิดใบร่างฉบับเดียวกับที่นักศึกษาส่งมา (backend ออกใบร่างให้เองเมื่อคำขอยัง pending)
+  const viewDraft = async (id) => openPdf(await borrowApi.downloadPdf(id))
 
   const reject = async () => {
     if (!rejectReason.trim()) return
@@ -60,13 +64,24 @@ export default function BorrowRequestsPage() {
                   <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
                     {req.items.map((item) => (
                       <div key={item.id} className="flex justify-between px-3 py-2 text-sm text-gray-700">
-                        <span>{item.equipment_name ?? item.equipment_id}</span>
+                        <span>
+                          {item.equipment_code && (
+                            <span className="mr-2 font-mono text-xs text-gray-400">{item.equipment_code}</span>
+                          )}
+                          {item.equipment_name ?? item.equipment_id}
+                        </span>
                         <span className="text-gray-400">×{item.quantity}</span>
                       </div>
                     ))}
                   </div>
 
                   <div className="flex gap-3 pt-1">
+                    <button
+                      onClick={() => viewDraft(req.id)}
+                      className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      ดูใบร่าง PDF
+                    </button>
                     <button
                       onClick={() => approve(req.id)}
                       className="rounded-lg bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700"

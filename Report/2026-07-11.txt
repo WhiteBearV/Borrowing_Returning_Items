@@ -1,0 +1,94 @@
+# รายงานความคืบหน้า — วันที่ 11 กรกฎาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+งานหลัก: ทำเอกสาร **ร่างเข้า/ร่างออก** (ใบรับเข้าคลัง/ใบปลดระวาง) ตามที่อาจารย์เสนอในบันทึกปรึกษา
+9 ก.ค. (ประเด็น #2 และ #3) — เป็น 2 เอกสารสุดท้ายที่ยังขาด (ร่างยืม/ร่างคืน ทำเสร็จไปแล้ว)
+commit: 22eba45
+
+**แนวทางออกแบบ:** ไม่สร้างตารางใหม่ ใช้ `audit_logs` ที่บันทึก create/retire equipment
+พร้อมผู้ทำ+เวลา (snapshot, ลบไม่ได้) อยู่แล้วเป็นแหล่งข้อมูลเอกสาร เติมเฉพาะข้อมูลที่ขาดจริง
+
+### Backend
+- `services/equipment_service.py`
+  - `retire_equipment()` — เพิ่มพารามิเตอร์ `reason` เก็บเหตุผลปลดระวางลง audit detail
+    (เดิมไม่เก็บ — ตรงจุดที่อาจารย์ flag ในประเด็น #2 ว่าปลดระวางควรมีเหตุผล/ผู้รับผิดชอบ)
+  - `create_equipment()` / `retire_equipment()` — เก็บ quantity + item_type ลง audit detail
+    เพิ่ม เพื่อให้เอกสารดึงจำนวน/ประเภทมาแสดงได้
+  - `build_stock_document()` — ฟังก์ชันใหม่ query audit_logs ตาม action (create/retire) + ช่วงวันที่
+    แล้วประกอบเป็น rows ส่งให้ pdf (inclusive ทั้งวันของ date_to, ตรวจ date_from <= date_to)
+- `utils/pdf.py`
+  - `generate_stock_document_pdf(kind, date_from, date_to, generated_by, rows)` — ฟังก์ชันใหม่
+    ออก PDF 2 ชนิด: receipt (ใบรับเข้าคลัง สีน้ำเงิน) / disposal (ใบปลดระวาง สีแดง)
+    ตาราง: #/รหัส/ชื่อ/ประเภท/จำนวน/ผู้ทำ + คอลัมน์สุดท้ายเป็น "เหตุผล" (disposal) หรือ "วันที่" (receipt)
+    + ช่วงวันที่ + ผู้ออกเอกสาร + ช่องลายเซ็นผู้จัดทำ/ผู้อนุมัติ
+- `routers/equipment.py`
+  - `GET /equipment/stock-document?kind=receipt|disposal&date_from=&date_to=` (admin-only,
+    ผ่าน require_admin) วางก่อน route `/{equipment_id}` กัน path ชนกัน
+  - `DELETE /equipment/{id}` — เพิ่ม query param `reason` ส่งต่อให้ retire_equipment
+
+### Frontend
+- `api/equipmentApi.js`
+  - `retire(id, reason)` — ส่ง reason เป็น query param
+  - `stockDocument(kind, from, to)` — โหลด PDF (responseType blob)
+- `pages/admin/EquipmentManagePage.jsx`
+  - ปุ่ม "เอกสารคลัง" เปิด panel เลือกช่วงวันที่ (default = เดือนนี้) + ปุ่มดาวน์โหลด
+    ใบรับเข้าคลัง (ร่างเข้า) / ใบปลดระวาง (ร่างออก) เปิด PDF ในแท็บใหม่
+  - ปลดระวาง — ถามเหตุผลด้วย window.prompt ก่อนยืนยัน (ยกเลิกได้)
+
+### อื่น ๆ (Tests, Docs)
+- `tests/test_pdf.py` — เพิ่ม 4 tests (receipt/disposal สร้าง PDF, ช่วงว่างไม่ crash,
+  row ที่ field ขาดไม่ crash) → รวมทั้งโปรเจค 68 tests ผ่านหมด
+- push งานที่ค้าง (commit 882d7b3 เลขครุภัณฑ์ตรงทะเบียน) ขึ้น origin ด้วย
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| retire ยิงจาก curl แล้วได้ 400 ตอนทดสอบ | ใส่ภาษาไทยใน URL query โดยไม่ URL-encode | encode ให้ถูก — โค้ดจริง (axios) จัดการเอง ไม่ใช่บั๊ก |
+| `python -m app.main` ไม่รัน server | main.py ไม่มี block `if __name__=="__main__"` แม้ CLAUDE.md เขียนไว้ | ใช้ `uvicorn app.main:app` แทน / เดี๋ยวเพิ่ม entrypoint ให้ตรงเอกสาร |
+| เอกสารยังไม่มีเลขที่เอกสารถาวร + แนบใบสั่งซื้อ/ใบเสร็จ | ตอนนี้ดึงจาก audit log ตามช่วงวันที่ ไม่มี document header | รอยืนยันอาจารย์ ถ้าต้องการต้องเพิ่มตาราง stock_document |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Bootstrap admin คนแรก — ยังต้อง INSERT SQL เอง ทำเป็น CLI script หรือ env-gated route
+2. [ ] เพิ่ม `if __name__ == "__main__"` (uvicorn.run) ใน backend/app/main.py ให้ตรง CLAUDE.md
+3. [ ] จัดทำแผน backup/restore DB (ตอบประเด็น #1 อาจารย์ห่วง Postgres เสีย) — pg_dump + volume
+4. [ ] Full-stack test end-to-end ผ่าน Docker Compose
+5. [ ] (ถ้าอาจารย์ยืนยัน) ทำ stock_document ให้มีเลขที่เอกสาร + แนบไฟล์ใบสั่งซื้อ
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — เหลือ bootstrap admin, entrypoint main.py, (optional) sync equipment.status
+**Frontend:** ~99% — ครบทุกหน้าหลัก เก็บงาน UX รายละเอียด
+**ระยะรวม:** โค้ดฟีเจอร์ครบตามขอบเขตเฟสนี้ เอกสาร PDF ครบทั้ง 4 (ร่างยืม/คืน/เข้า/ออก)
+เหลือส่วน deploy/ops (backup, bootstrap admin, docker e2e) + งานที่รอคำยืนยันอาจารย์
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **รอคำยืนยันอาจารย์ (บันทึกปรึกษา 9 ก.ค.):**
+  (ก) จะรองรับ MySQL จริงจังหรือแค่ "ย้ายได้ถ้าจำเป็น"
+  (ข) แบบฟอร์มเอกสารของคณะ (เพื่อทำ layout PDF ให้ตรงของจริง)
+  (ค) รายการพระราชทาน 34 ชิ้นที่ "ไม่พบเลขครุภัณฑ์" จัดการอย่างไร (พักเป็น material อยู่)
+- **Pending Items ตาม CLAUDE.md ข้อ 10:**
+  - ไฟล์ Excel ทะเบียนคลัง — ได้รับแล้วและ import เข้า DB dev แล้ว (704 durable)
+  - ALLOWED_EMAIL_DOMAINS — ยังต้องยืนยัน domain จริงก่อน deploy
+  - LINE OA — ยังเป็น stretch goal มี TODO ค้างใน notification_service.py
+- เอกสารร่างเข้า/ร่างออกดึงจาก audit log = snapshot ณ เวลานั้น ซึ่งเหมาะกับการเป็นหลักฐาน
+  (บันทึกสิ่งที่เกิดจริง แม้อุปกรณ์ถูกแก้/ลบภายหลัง)
+
+---
+
+บันทึกไฟล์ที่: Report/2026-07-11.txt

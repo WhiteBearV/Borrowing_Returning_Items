@@ -118,16 +118,22 @@ async def create_request(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Equipment {item_req.equipment_id} not found.",
             )
+        # ของประจำห้อง (โต๊ะ/ตู้/ทีวี) — อยู่ในทะเบียน สถานะปกติ แต่ไม่ให้ยืมออก
+        if not eq.is_borrowable:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Equipment '{eq.name}' is not lendable.",
+            )
+        # status != available (unavailable/damaged/under_repair/retired) = ห้ามยืม ทุกชนิด ไม่ใช่แค่ครุภัณฑ์
+        if eq.status != "available":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
+            )
         if eq.quantity_available < item_req.quantity:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Equipment '{eq.name}' has insufficient stock (available: {eq.quantity_available}).",
-            )
-        # durable ที่ status != available ยืมไม่ได้
-        if eq.item_type == "durable" and eq.status != "available":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
             )
         equipment_map[eq.id] = eq
 
@@ -240,6 +246,17 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
     now = datetime.now(timezone.utc)
     for item in req.items:
         eq = item.equipment
+        # เช็คซ้ำตอนอนุมัติ — สถานะอาจเปลี่ยนเป็นห้ามยืมหลังนักศึกษายื่นคำขอ
+        if not eq.is_borrowable:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Equipment '{eq.name}' is not lendable.",
+            )
+        if eq.status != "available":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
+            )
         if eq.quantity_available < item.quantity:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -409,9 +426,17 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
 async def generate_pdf(
     db: AsyncSession, current_user: User, request_id: uuid.UUID
 ) -> bytes:
-    """สร้าง PDF ใบยืม ตรวจสอบว่าเป็นเจ้าของหรือ admin"""
-    from app.utils.pdf import generate_borrow_pdf
+    """สร้าง PDF ใบยืม ตรวจสอบว่าเป็นเจ้าของหรือ admin
+
+    คำขอที่ยังไม่อนุมัติ (pending) ออกเป็น 'ใบร่าง' ฉบับเดียวกับที่นักศึกษาเห็นตอนส่งคำขอ
+    แอดมินจึงตรวจเอกสารตัวเดียวกันก่อนกดอนุมัติ ต่างกันแค่มีเลขคำขอจริงแล้ว
+    """
+    from app.utils.pdf import generate_borrow_pdf, generate_preview_pdf as _gen_preview
     req = await get_request(db, current_user, request_id)
+    if req.status == "pending":
+        max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
+        req.due_date = (req.requested_at + timedelta(days=max_loan_days)).date()
+        return _gen_preview(req)
     return generate_borrow_pdf(req)
 
 
@@ -443,6 +468,7 @@ async def generate_preview_pdf(
             id=uuid.uuid4(),
             equipment_id=it.equipment_id,
             equipment_name=(eq_map[it.equipment_id].name if it.equipment_id in eq_map else None),
+            equipment_code=(eq_map[it.equipment_id].code if it.equipment_id in eq_map else None),
             item_type_snapshot=(eq_map[it.equipment_id].item_type if it.equipment_id in eq_map else "durable"),
             quantity=it.quantity,
             returned=False, returned_at=None, condition_on_return=None,
@@ -450,18 +476,22 @@ async def generate_preview_pdf(
         )
         for it in body.items
     ]
+    now = datetime.now(timezone.utc)
+    # กำหนดคืนจริงนับจากวันอนุมัติ — ร่างยังไม่รู้ จึงประมาณจากวันนี้ให้ผู้ยืมเห็นกรอบเวลา
+    max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
     req = BorrowRequestResponse(
         id=uuid.uuid4(),
-        request_code="(ร่าง — ยังไม่ส่งคำขอ)",
+        request_code=f"{_build_request_code(current_user, uuid.uuid4())} (ตัวอย่าง — เลขจริงออกเมื่อส่งคำขอ)",
         student_id=current_user.id,
         student_name=current_user.full_name,
         student_email=current_user.email,
         student_number=current_user.student_id,
         purpose=body.purpose,
         status="pending",
-        requested_at=datetime.now(timezone.utc),
+        requested_at=now,
         approved_by=None, approved_at=None, rejection_reason=None,
-        due_date=None, is_overdue=False, returned_at=None,
+        due_date=(now + timedelta(days=max_loan_days)).date(),
+        is_overdue=False, returned_at=None,
         items=items,
     )
     return _gen(req)

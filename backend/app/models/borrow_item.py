@@ -38,3 +38,7 @@ class BorrowItem(Base):
     @property
     def equipment_name(self) -> str | None:
         return self.equipment.name if self.equipment else None
+
+    @property
+    def equipment_code(self) -> str | None:
+        return self.equipment.code if self.equipment else None

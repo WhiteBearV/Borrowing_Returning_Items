@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { useCart } from '../../context/CartContext.jsx'
+import { openPdf } from '../../utils/openPdf.js'
 
 export default function BorrowRequestPage() {
   const navigate = useNavigate()
-  const { cart, removeItem, updateQuantity, clearCart } = useCart()
-  const [purpose, setPurpose] = useState('')
+  const { cart, removeItem, updateQuantity, clearCart, purpose, setPurpose } = useCart()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -18,10 +18,7 @@ export default function BorrowRequestPage() {
   const previewDraft = async () => {
     setError('')
     try {
-      const blob = await borrowApi.previewPdf(cartPayload())
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      setTimeout(() => URL.revokeObjectURL(url), 60000)
+      openPdf(await borrowApi.previewPdf(cartPayload()))
     } catch (err) {
       setError(err.response?.data?.detail ?? 'สร้างตัวอย่างไม่สำเร็จ')
     }
