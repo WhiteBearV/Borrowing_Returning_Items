@@ -32,11 +32,11 @@ async def _cleanup_request(req_id: str, eq_id: uuid.UUID) -> None:
 
 # ── #7 request code ───────────────────────────────────────────────────────────
 
-async def test_request_code_contains_student_id_and_is_uuid_derived(
+async def test_request_code_contains_student_id_and_is_running_number(
     client: AsyncClient, student_token: str, test_student: User, test_equipment: Equipment
 ):
-    """เลขคำขอต้อง (1) มี student_id เพื่อระบุตัวผู้ยืม (2) suffix มาจาก uuid ของคำขอ
-    ทำให้กันชนกันได้เองโดยไม่พึ่ง count+1 (ต้นเหตุ race เดิม)"""
+    """เลขคำขอต้อง (1) มี student_id เพื่อระบุตัวผู้ยืม (2) ลงท้ายด้วยเลขรันต่อผู้ใช้
+    (นับต่อเนื่อง atomic ผ่าน UPDATE...RETURNING) — อ่านง่ายและยังกัน race ได้"""
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบเลขคำขอ",
         "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
@@ -47,9 +47,10 @@ async def test_request_code_contains_student_id_and_is_uuid_derived(
     try:
         code = body["request_code"]
         assert test_student.student_id in code, f"code {code} ต้องมี student_id"
-        # suffix = 6 ตัวท้าย ต้องตรงกับ hex ของ id คำขอ → พิสูจน์ว่าไม่ได้มาจาก counter ที่ชนกันได้
-        assert code.endswith(uuid.UUID(req_id).hex[:6])
-        assert code.startswith("REQ-")
+        assert code.startswith(f"REQ-2026-{test_student.student_id}-"), code
+        # suffix = เลขรันไม่ต่ำกว่า 4 หลัก (padding) → พิสูจน์ว่าเป็น running number ไม่ใช่ hex สุ่ม
+        suffix = code.rsplit("-", 1)[1]
+        assert suffix.isdigit() and len(suffix) >= 4, f"suffix {suffix} ต้องเป็นเลขรัน"
     finally:
         await _cleanup_request(req_id, test_equipment.id)
 
@@ -75,6 +76,49 @@ async def test_two_requests_get_distinct_codes(
 
 
 # ── #8 audit log ──────────────────────────────────────────────────────────────
+
+async def test_approved_request_exposes_approver_name(
+    client: AsyncClient, admin_token: str, student_token: str,
+    test_admin: User, test_equipment: Equipment
+):
+    """หลังอนุมัติ คำขอต้องคืน approver_name (ชื่อผู้อนุมัติ) เพื่อโชว์ในใบยืม —
+    ต้อง eager-load relationship approver ไม่งั้น lazy-load ใต้ async จะพัง"""
+    req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": "ทดสอบชื่อผู้อนุมัติ",
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+    })).json()["id"]
+    try:
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve",
+                                   headers=auth(admin_token))).status_code == 200
+        body = (await client.get(f"/borrow-requests/{req_id}", headers=auth(admin_token))).json()
+        assert body["approver_name"] == test_admin.full_name, body
+    finally:
+        await _cleanup_request(req_id, test_equipment.id)
+
+
+async def test_returned_request_exposes_receiver_name(
+    client: AsyncClient, admin_token: str, student_token: str,
+    test_admin: User, test_equipment: Equipment
+):
+    """หลังรับคืน คำขอต้องคืน receiver_name (ชื่อผู้รับคืน) เพื่อโชว์ในใบคืน —
+    ต้องรู้ว่า admin คนไหนเป็นคนรับของกลับมา ไม่ใช่แค่คนอนุมัติ"""
+    req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": "ทดสอบชื่อผู้รับคืน",
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+    })).json()["id"]
+    try:
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve",
+                                   headers=auth(admin_token))).status_code == 200
+        body = (await client.get(f"/borrow-requests/{req_id}", headers=auth(admin_token))).json()
+        assert body["receiver_name"] is None, "ยังไม่รับคืน ต้องยังไม่มีผู้รับคืน"
+
+        assert (await client.post(f"/borrow-requests/{req_id}/return-all",
+                                  headers=auth(admin_token))).status_code == 200
+        body = (await client.get(f"/borrow-requests/{req_id}", headers=auth(admin_token))).json()
+        assert body["receiver_name"] == test_admin.full_name, body
+    finally:
+        await _cleanup_request(req_id, test_equipment.id)
+
 
 async def test_approve_writes_audit_log(
     client: AsyncClient, admin_token: str, student_token: str,

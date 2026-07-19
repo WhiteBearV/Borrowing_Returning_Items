@@ -20,6 +20,10 @@ const ADMIN_NAV = [
   { to: '/admin/users',           label: 'จัดการผู้ใช้' },
   { to: '/admin/audit',           label: 'Audit Log' },
   { to: '/admin/settings',        label: 'การตั้งค่า' },
+  { to: '/equipment',             label: 'ยืมอุปกรณ์' },
+  { to: '/borrow',                label: 'ตะกร้า', cart: true },
+  { to: '/my-borrows',            label: 'คำขอของฉัน' },
+  { to: '/profile',               label: 'โปรไฟล์' },
 ]
 
 const linkClass = ({ isActive }) =>

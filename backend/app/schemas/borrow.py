@@ -19,6 +19,8 @@ class BorrowItemResponse(BaseModel):
     equipment_id: uuid.UUID
     equipment_name: str | None = None
     equipment_code: str | None = None
+    equipment_unit: str | None = None
+    equipment_value: float | None = None
     item_type_snapshot: str
     quantity: int
     returned: bool
@@ -43,11 +45,13 @@ class BorrowRequestResponse(BaseModel):
     status: str
     requested_at: datetime
     approved_by: uuid.UUID | None
+    approver_name: str | None = None
     approved_at: datetime | None
     rejection_reason: str | None
     due_date: date | None
     is_overdue: bool
     returned_at: datetime | None
+    receiver_name: str | None = None
     items: list[BorrowItemResponse] = []
 
     model_config = {"from_attributes": True}

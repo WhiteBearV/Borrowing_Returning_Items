@@ -61,17 +61,6 @@ def _fmt_datetime(dt) -> str:
         return str(dt)
 
 
-# ชนิดเอกสาร: title, สีเส้นคาด, ป้ายลายเซ็น (ผู้ทำ / ผู้รับ)
-_DOC_META = {
-    "borrow":  ("ใบยืมอุปกรณ์ / Equipment Borrow Request", "#2563EB",
-                "ลายเซ็นผู้ยืม", "ลายเซ็นผู้อนุมัติ / ผู้รับคืน"),
-    "preview": ("ใบยืมอุปกรณ์ (ร่าง) / Equipment Borrow Draft", "#6B7280",
-                "ลายเซ็นผู้ยืม", "ลายเซ็นผู้อนุมัติ"),
-    "return":  ("ใบรับคืนอุปกรณ์ / Equipment Return Receipt", "#059669",
-                "ลายเซ็นผู้คืน", "ลายเซ็นผู้รับคืน (เจ้าหน้าที่)"),
-}
-
-
 def _doc_title(title_th: str, code: str | None = None) -> str:
     """ชื่อเอกสารที่ฝังใน PDF metadata — ไม่มีอันนี้ Chrome จะโชว์แท็บว่า "(anonymous)"
 
@@ -83,17 +72,17 @@ def _doc_title(title_th: str, code: str | None = None) -> str:
 
 def generate_borrow_pdf(req: object) -> bytes:
     """สร้าง PDF ใบยืมอุปกรณ์ ตามแบบฟอร์มกระดาษของคณะ"""
-    return _build_borrow_form(req, draft=False)
+    return _build_form(req, "borrow")
 
 
 def generate_preview_pdf(req: object) -> bytes:
     """สร้าง PDF ร่างใบยืม (ก่อนกดส่งคำขอ / ยังไม่อนุมัติ) — ฟอร์มเดียวกัน ต่างแค่ประทับว่าเป็นร่าง"""
-    return _build_borrow_form(req, draft=True)
+    return _build_form(req, "draft")
 
 
 def generate_return_pdf(req: object) -> bytes:
-    """สร้าง PDF ใบรับคืนอุปกรณ์ — สรุปสภาพเมื่อคืน + ผู้รับคืน"""
-    return _build_doc(req, "return")
+    """สร้าง PDF ใบคืนอุปกรณ์ — เลย์เอาต์ล้อใบยืม ใช้เลขคำขอเดียวกัน ต่างที่สภาพเมื่อคืน"""
+    return _build_form(req, "return")
 
 
 _THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -105,8 +94,22 @@ _PLEDGE = (
     "สูญหายเกิดขึ้น ข้าพเจ้าจะขอรับผิดชอบทั้งหมดทุกกรณีโดยไม่มีเงื่อนไข โดยจักทำการซ่อมแซมให้ใช้การได้"
     "ดังเดิมหรือจัดหาทดแทนให้ครบตามจำนวนที่ยืมในกรณีมีการสูญหายเกิดขึ้น"
 )
+# ย่อหน้าปิดท้ายใบคืน — คู่กับ _PLEDGE ของใบยืม
+_RETURN_NOTE = (
+    "ข้าพเจ้าได้ส่งคืนวัสดุ อุปกรณ์ ตามรายการข้างต้นครบถ้วนแล้ว และเจ้าหน้าที่ได้ตรวจรับ"
+    "พร้อมบันทึกสภาพของอุปกรณ์แต่ละรายการไว้เป็นหลักฐานตามที่ปรากฏในตาราง"
+)
 # จำนวนแถวขั้นต่ำในตาราง — ฟอร์มกระดาษเว้นบรรทัดว่างไว้ให้เขียนเพิ่มด้วยมือ
 _MIN_ITEM_ROWS = 12
+
+# ป้ายประเภท/หน่วยเริ่มต้นในใบยืม (item_type = durable / material / consumable)
+_ITEM_TYPE_TH = {"durable": "ครุภัณฑ์", "material": "วัสดุใช้ซ้ำ", "consumable": "วัสดุสิ้นเปลือง"}
+_DEFAULT_UNIT = {"durable": "ชิ้น", "material": "ชิ้น", "consumable": "หน่วย"}
+
+
+def _fmt_money(v) -> str:
+    """มูลค่าต่อชิ้นในใบยืม — ไม่มีราคา = '-' (อุปกรณ์หลายชิ้นยังไม่กรอกมูลค่า)"""
+    return f"{float(v):,.2f}" if v is not None else "-"
 
 
 def _thai_date_parts(dt) -> tuple[str, str, str]:
@@ -122,20 +125,24 @@ def _position_th(req: object) -> str:
     return "นักศึกษา" if getattr(req, "student_number", None) else "อาจารย์/เจ้าหน้าที่"
 
 
-def _build_borrow_form(req: object, draft: bool) -> bytes:
-    """ใบยืมสิ่งของและอุปกรณ์ — เลย์เอาต์ตามแบบฟอร์มกระดาษของคณะ (ดู docs/น.ส.อรพรรณ คล้ายนาค.pdf)
+def _build_form(req: object, kind: str) -> bytes:
+    """ใบยืม / ร่างใบยืม / ใบคืนสิ่งของและอุปกรณ์ — เลย์เอาต์เดียวกันทั้งหมด (ดู docs/น.ส.อรพรรณ คล้ายนาค.pdf)
 
-    ฟอร์มจริงมีตารางลายเซ็น 4 ช่อง (ผู้รับของ/ผู้ส่งของ ตอนยืม, ผู้ส่งของคืน/ผู้รับคืน ตอนคืน)
-    จึงเว้นเส้นให้เซ็นด้วยมือหลังพิมพ์ ไม่ใช่กรอกจากระบบ
+    ใบคืนล้อใบยืมทุกส่วนและใช้เลขคำขอเดียวกัน ต่างแค่หัวเรื่อง วันที่อ้างอิง
+    คอลัมน์สุดท้าย (มูลค่า/ชิ้น → สภาพเมื่อคืน) ย่อหน้ารับรอง และป้ายลายเซ็น
+    ฟอร์มกระดาษเว้นเส้นให้เซ็นด้วยมือหลังพิมพ์ ไม่ใช่กรอกจากระบบ
     """
     _register_fonts()
+    is_return = kind == "return"
+    draft = kind == "draft"
     buf = io.BytesIO()
     code = getattr(req, "request_code", None)
+    title_th = "ใบคืนสิ่งของและอุปกรณ์" if is_return else "ใบยืมสิ่งของและอุปกรณ์"
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=20 * mm, rightMargin=20 * mm,
         topMargin=18 * mm, bottomMargin=15 * mm,
-        title=_doc_title("ใบยืมสิ่งของและอุปกรณ์ (ร่าง)" if draft else "ใบยืมสิ่งของและอุปกรณ์", code),
+        title=_doc_title(f"{title_th} (ร่าง)" if draft else title_th, code),
         author="ระบบยืม-คืนอุปกรณ์ คณะเทคโนโลยีดิจิทัล",
     )
 
@@ -146,10 +153,13 @@ def _build_borrow_form(req: object, draft: bool) -> bytes:
     small_gray = _style("SG", fontSize=9, textColor=colors.gray, alignment=1)
 
     W = A4[0] - 40 * mm
-    d, m, y = _thai_date_parts(getattr(req, "requested_at", None))
+    # ใบคืนอ้างวันที่รับคืนจริง (ยังไม่สรุปครบก็ใช้วันที่ยื่นคำขอไปก่อน)
+    doc_dt = getattr(req, "returned_at", None) if is_return else None
+    doc_dt = doc_dt or getattr(req, "requested_at", None)
+    d, m, y = _thai_date_parts(doc_dt)
 
     elems: list = [
-        Paragraph("ใบยืมสิ่งของและอุปกรณ์", center),
+        Paragraph(title_th, center),
         Paragraph("คณะเทคโนโลยีดิจิทัล สถาบันเทคโนโลยีจิตรลดา", center_sub),
         Spacer(1, 6),
     ]
@@ -159,7 +169,9 @@ def _build_borrow_form(req: object, draft: bool) -> bytes:
         elems.append(Paragraph(f"เลขที่คำขอ {code}", small_gray))
     elems.append(Spacer(1, 10))
 
-    elems.append(Paragraph(f"วันที่ {d} เดือน {m} พ.ศ. {y}", right))
+    req_dt = _local(doc_dt)
+    time_str = req_dt.strftime("%H:%M") if getattr(req_dt, "hour", None) is not None else "____"
+    elems.append(Paragraph(f"วันที่ {d} เดือน {m} พ.ศ. {y} &nbsp;&nbsp; เวลา {time_str} น.", right))
     elems.append(Spacer(1, 4))
     name = getattr(req, "student_name", None) or "____________________"
     number = getattr(req, "student_number", None)
@@ -167,190 +179,88 @@ def _build_borrow_form(req: object, draft: bool) -> bytes:
     elems.append(Paragraph(
         f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{_position_th(req)}</u>", body))
     elems.append(Paragraph("ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))
+    contact = getattr(req, "student_email", None)
+    if contact:
+        elems.append(Paragraph(f"ช่องทางติดต่อ <u>{contact}</u>", body))
     purpose = getattr(req, "purpose", None)
-    elems.append(Paragraph(
-        "มีความประสงค์จะขอยืมวัสดุ อุปกรณ์ ดังรายการต่อไปนี้"
-        + (f" (เพื่อ {purpose})" if purpose else ""), body))
+    if is_return:
+        elems.append(Paragraph(
+            f"ขอส่งคืนวัสดุ อุปกรณ์ ตามใบยืมเลขที่ <u>{code or '-'}</u> ดังรายการต่อไปนี้", body))
+        elems.append(Paragraph(
+            f"วันที่ยืม <u>{_fmt_datetime(getattr(req, 'requested_at', None))}</u>"
+            f" &nbsp;&nbsp; กำหนดคืน <u>{_fmt_date(getattr(req, 'due_date', None))}</u>", body))
+    else:
+        elems.append(Paragraph(
+            "มีความประสงค์จะขอยืมวัสดุ อุปกรณ์ ดังรายการต่อไปนี้"
+            + (f" (เพื่อ {purpose})" if purpose else ""), body))
+        elems.append(Paragraph(
+            f"กำหนดคืน (โดยประมาณ) <u>{_fmt_date(getattr(req, 'due_date', None))}</u>", body))
     elems.append(Spacer(1, 10))
 
-    # ── ตารางรายการ: ลำดับ | รายการ | จำนวน | รหัสครุภัณฑ์ (ตามฟอร์มจริง) ──
+    # ── ตารางรายการ: ลำดับ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | มูลค่า/ชิ้น (ใบคืน = สภาพเมื่อคืน) ──
     def _h(t: str) -> Paragraph:
-        return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=11, alignment=1))
+        return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=10, alignment=1))
 
-    rows = [[_h("ลำดับ"), _h("รายการ"), _h("จำนวน"), _h("รหัสครุภัณฑ์")]]
+    last_col = _h("สภาพเมื่อคืน") if is_return else _h("มูลค่า/ชิ้น")
+    rows = [[_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"), last_col]]
     items = list(getattr(req, "items", []))
     for i, item in enumerate(items, 1):
+        itype = getattr(item, "item_type_snapshot", None)
+        unit = getattr(item, "equipment_unit", None) or _DEFAULT_UNIT.get(itype, "ชิ้น")
+        qty = getattr(item, "quantity", 1)
+        last = (_condition_th(getattr(item, "condition_on_return", None)) if is_return
+                else _fmt_money(getattr(item, "equipment_value", None)))
         rows.append([
             Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
-            Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
-            Paragraph(str(getattr(item, "quantity", 1)), _style(f"q{i}", fontSize=10, alignment=1)),
             Paragraph(getattr(item, "equipment_code", None) or "-", _style(f"c{i}", fontSize=9, alignment=1)),
+            Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
+            Paragraph(_ITEM_TYPE_TH.get(itype, "-"), _style(f"t{i}", fontSize=9, alignment=1)),
+            Paragraph(f"{qty} {unit}", _style(f"q{i}", fontSize=10, alignment=1)),
+            Paragraph(last, _style(f"v{i}", fontSize=9, alignment=1 if is_return else 2)),
         ])
-    rows += [["", "", "", ""]] * max(0, _MIN_ITEM_ROWS - len(items))  # เว้นบรรทัดว่างเหมือนฟอร์มกระดาษ
+    # แถวว่างเหมือนฟอร์มกระดาษ — ใช้ nbsp แทนสตริงว่างเพื่อดันความสูงแถวให้เท่ากับแถวมีข้อมูล
+    blank = Paragraph("&nbsp;", _style("blank", fontSize=11, leading=17))
+    rows += [[blank] * 6] * max(0, _MIN_ITEM_ROWS - len(items))
 
-    table = Table(rows, colWidths=[16 * mm, W - 16 * mm - 20 * mm - 45 * mm, 20 * mm, 45 * mm],
-                  rowHeights=[8 * mm] * len(rows), repeatRows=1)
+    # "วัสดุสิ้นเปลือง" ยาวสุดในคอลัมน์ประเภท ต้อง 26mm ไม่งั้นตัดบรรทัด
+    col = [10 * mm, 30 * mm, W - 10 * mm - 30 * mm - 26 * mm - 22 * mm - 26 * mm, 26 * mm, 22 * mm, 26 * mm]
+    # rowHeights=None (auto) — ชื่ออุปกรณ์ยาว ๆ ต้องขยายแถวเอง ไม่งั้นข้อความล้นทับเส้นตาราง
+    table = Table(rows, colWidths=col, repeatRows=1)
     table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (1, 1), (1, -1), 6),
+        ("LEFTPADDING", (2, 1), (2, -1), 6),
     ]))
     elems.append(table)
     elems.append(Spacer(1, 12))
 
-    elems.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_PLEDGE}", _style("P", fontSize=11, leading=18)))
+    elems.append(Paragraph(
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_RETURN_NOTE if is_return else _PLEDGE}",
+        _style("P", fontSize=11, leading=18)))
     elems.append(Spacer(1, 18))
 
-    # ── ลายเซ็น 4 ช่อง: ยืม (ซ้าย) / คืน (ขวา) — เว้นไว้เซ็นด้วยมือ ──
-    borrower = f"({name})" if getattr(req, "student_name", None) else "(............................................)"
+    # ── ลายเซ็น: ใบยืม = ผู้ยืม/ผู้อนุมัติ, ใบคืน = ผู้คืน/ผู้รับคืน (แยกใบกันตามข้อ 1.10) ──
     blank = "(............................................)"
+    borrower = f"({name})" if getattr(req, "student_name", None) else blank
+    approver = getattr(req, "approver_name", None)
+    receiver = getattr(req, "receiver_name", None)
+    signer = receiver if is_return else approver
+    right_name = f"({signer})" if signer else blank
     line = "............................................"
     sig = _style("S", fontSize=11, leading=22)
     sig_c = _style("SC", fontSize=10, leading=16, alignment=1)
     date_line = "วันที่ .......... เดือน .................... พ.ศ. .........."
+    left_label, right_label = ("ผู้คืน", "ผู้รับคืน") if is_return else ("ผู้ยืม", "ผู้อนุมัติ")
 
     sig_rows = [
-        [Paragraph(f"ผู้รับของ {line}", sig), Paragraph(f"ผู้ส่งของคืน {line}", sig)],
-        [Paragraph(borrower, sig_c), Paragraph(blank, sig_c)],
-        [Paragraph(f"ผู้ส่งของ {line}", sig), Paragraph(f"ผู้รับคืน {line}", sig)],
-        [Paragraph(blank, sig_c), Paragraph(blank, sig_c)],
+        [Paragraph(f"{left_label} {line}", sig), Paragraph(f"{right_label} {line}", sig)],
+        [Paragraph(borrower, sig_c), Paragraph(right_name, sig_c)],
         [Paragraph(date_line, sig), Paragraph(date_line, sig)],
     ]
     sig_table = Table(sig_rows, colWidths=[W / 2, W / 2])
     sig_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    elems.append(sig_table)
-
-    doc.build(elems)
-    return buf.getvalue()
-
-
-def _build_doc(req: object, kind: str) -> bytes:
-    """โครงเอกสาร PDF ร่วมของใบยืม/ร่างยืม/ใบรับคืน — ต่างกันที่หัวเรื่อง สี และป้ายลายเซ็น"""
-    _register_fonts()
-    title_th, accent, sig_left, sig_right = _DOC_META.get(kind, _DOC_META["borrow"])
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=20 * mm, rightMargin=20 * mm,
-        topMargin=20 * mm, bottomMargin=20 * mm,
-        title=_doc_title(title_th, getattr(req, "request_code", None)),
-        author="ระบบยืม-คืนอุปกรณ์",
-    )
-
-    title_style = _style("Title", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)
-    sub_style = _style("Sub", fontSize=10, textColor=colors.gray, alignment=1)
-    label_style = _style("Label", fontName="Thai-Bold", fontSize=11)
-    normal_style = _style("Normal")
-    small_style = _style("Small", fontSize=9, textColor=colors.gray)
-
-    W = A4[0] - 40 * mm  # usable width
-
-    elems = []
-
-    # ── Header ──────────────────────────────────────────────────────────────
-    elems.append(Paragraph("สถาบันเทคโนโลยีดิจิทัลสวนจิตรลดา (CDTI)", sub_style))
-    elems.append(Spacer(1, 4))
-    elems.append(Paragraph(title_th, title_style))
-    elems.append(Spacer(1, 6))
-    elems.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor(accent)))
-    elems.append(Spacer(1, 10))
-
-    # ── Request info ─────────────────────────────────────────────────────────
-    info_data = [
-        ["รหัสคำขอ", getattr(req, "request_code", "-")],
-        ["วันที่ยื่นคำขอ", _fmt_datetime(getattr(req, "requested_at", None))],
-        ["วันกำหนดคืน (ประมาณการ)" if kind == "preview" else "วันกำหนดคืน",
-         _fmt_date(getattr(req, "due_date", None))],
-        ["สถานะ", _status_th(getattr(req, "status", ""))],
-        ["วัตถุประสงค์", getattr(req, "purpose", None) or "-"],
-    ]
-    # ใบรับคืน: เพิ่มวันที่รับคืนจริง
-    if kind == "return":
-        info_data.insert(3, ["วันที่รับคืน", _fmt_datetime(getattr(req, "returned_at", None))])
-
-    student_name = getattr(req, "student_name", None)
-    student_number = getattr(req, "student_number", None)
-    student_email = getattr(req, "student_email", None)
-    if student_name:
-        info_data.insert(0, ["ชื่อผู้ยืม", student_name])
-    if student_number:
-        info_data.insert(1, ["รหัสนักศึกษา", student_number])
-    if student_email:
-        info_data.insert(2, ["อีเมล", student_email])
-
-    info_table = Table(
-        [[Paragraph(r[0], label_style), Paragraph(str(r[1]), normal_style)] for r in info_data],
-        colWidths=[45 * mm, W - 45 * mm],
-    )
-    info_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    elems.append(info_table)
-    elems.append(Spacer(1, 12))
-
-    # ── Items table ───────────────────────────────────────────────────────────
-    elems.append(Paragraph("รายการอุปกรณ์", _style("Sec", fontName="Thai-Bold", fontSize=12)))
-    elems.append(Spacer(1, 6))
-
-    items = getattr(req, "items", [])
-    # สภาพเมื่อคืนมีค่าจริงเฉพาะใบรับคืน — ใบยืม/ร่างยืมโชว์แล้วเป็นขีดเปล่า จึงตัดทิ้ง
-    show_condition = kind == "return"
-
-    def _h(t: str, align: int = 0) -> Paragraph:
-        return Paragraph(t, _style("H", fontName="Thai-Bold", fontSize=10, alignment=align))
-
-    header = [_h("#", 1), _h("รหัสอุปกรณ์"), _h("ชื่ออุปกรณ์"), _h("ประเภท", 1), _h("จำนวน", 1)]
-    if show_condition:
-        header.append(_h("สภาพเมื่อคืน", 1))
-
-    rows = [header]
-    for i, item in enumerate(items, 1):
-        name = getattr(item, "equipment_name", None) or str(getattr(item, "equipment_id", "-"))
-        code = getattr(item, "equipment_code", None) or "-"
-        type_th = {"durable": "ครุภัณฑ์", "material": "วัสดุ", "consumable": "วัสดุสิ้นเปลือง"}.get(
-            getattr(item, "item_type_snapshot", ""), "วัสดุสิ้นเปลือง")
-        row = [
-            Paragraph(str(i), _style(f"c{i}", fontSize=10, alignment=1)),
-            Paragraph(code, _style(f"cc{i}", fontSize=9)),
-            Paragraph(name, _style(f"n{i}", fontSize=10)),
-            Paragraph(type_th, _style(f"t{i}", fontSize=10, alignment=1)),
-            Paragraph(str(getattr(item, "quantity", 1)), _style(f"q{i}", fontSize=10, alignment=1)),
-        ]
-        if show_condition:
-            condition = _condition_th(getattr(item, "condition_on_return", None))
-            row.append(Paragraph(condition, _style(f"cd{i}", fontSize=10, alignment=1)))
-        rows.append(row)
-
-    fixed = 10 * mm + 38 * mm + 28 * mm + 18 * mm + (30 * mm if show_condition else 0)
-    col_w = [10 * mm, 38 * mm, W - fixed, 28 * mm, 18 * mm] + ([30 * mm] if show_condition else [])
-    items_table = Table(rows, colWidths=col_w, repeatRows=1)
-    items_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(accent)),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F3F4F6")]),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    elems.append(items_table)
-    elems.append(Spacer(1, 24))
-
-    # ── Signature row ─────────────────────────────────────────────────────────
-    sig_data = [[
-        _sig_cell(sig_left, student_name or ""),
-        _sig_cell(sig_right, ""),
-    ]]
-    sig_table = Table(sig_data, colWidths=[W / 2, W / 2])
-    sig_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     elems.append(sig_table)
 

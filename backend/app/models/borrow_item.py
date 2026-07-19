@@ -42,3 +42,11 @@ class BorrowItem(Base):
     @property
     def equipment_code(self) -> str | None:
         return self.equipment.code if self.equipment else None
+
+    @property
+    def equipment_unit(self) -> str | None:
+        return self.equipment.unit if self.equipment else None
+
+    @property
+    def equipment_value(self) -> float | None:
+        return float(self.equipment.unit_value) if self.equipment and self.equipment.unit_value is not None else None

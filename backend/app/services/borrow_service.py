@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -34,14 +34,24 @@ async def _get_setting_int(db: AsyncSession, key: str) -> int:
     return int(result.scalar_one().value)
 
 
-def _build_request_code(user: User, rid: uuid.UUID) -> str:
-    """สร้างรหัสคำขอที่ไม่ซ้ำและระบุตัวผู้ยืมได้ เช่น REQ-2026-6512345678-a1b2c3
+def _ident(user: User) -> str:
+    return user.student_id or user.username or "USER"
 
-    ใช้ hex 6 ตัวจาก uuid ของคำขอ (unique อยู่แล้วโดยธรรมชาติ) เป็น suffix
-    จึงไม่มีปัญหาชนกันตอนหลายคนกดส่งพร้อมกัน ต่างจากแบบเดิมที่ count+1 (race ได้)
+
+async def _next_request_code(db: AsyncSession, user: User) -> str:
+    """ออกเลขคำขอแบบนับต่อเนื่องต่อผู้ใช้ เช่น REQ-2026-6512345678-0001
+
+    ใช้ UPDATE users SET borrow_seq = borrow_seq + 1 RETURNING (row lock) เพื่อ
+    ให้เลขนับขึ้นแบบ atomic — สองคำขอของคนเดียวกันที่กดพร้อมกันจะได้คนละเลข ไม่ชนกัน
+    ต่างจาก count+1 ที่ race ได้ (ห้ามใช้ตาม CLAUDE.md)
     """
-    ident = user.student_id or user.username or "USER"
-    return f"REQ-{date.today().year}-{ident}-{rid.hex[:6]}"
+    result = await db.execute(
+        update(User).where(User.id == user.id)
+        .values(borrow_seq=User.borrow_seq + 1)
+        .returning(User.borrow_seq)
+    )
+    seq = result.scalar_one()
+    return f"REQ-{date.today().year}-{_ident(user)}-{seq:04d}"
 
 
 async def _notify(
@@ -67,6 +77,8 @@ async def _load_request(db: AsyncSession, request_id: uuid.UUID) -> BorrowReques
         .options(
             selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
             selectinload(BorrowRequest.student),
+            selectinload(BorrowRequest.approver),  # ใบยืมโชว์ชื่อผู้อนุมัติ — ต้อง eager-load กัน lazy-load async
+            selectinload(BorrowRequest.receiver),  # ใบคืนโชว์ชื่อผู้รับคืน
         )
         .where(BorrowRequest.id == request_id)
     )
@@ -137,10 +149,9 @@ async def create_request(
             )
         equipment_map[eq.id] = eq
 
-    rid = uuid.uuid4()
     req = BorrowRequest(
-        id=rid,
-        request_code=_build_request_code(current_user, rid),
+        id=uuid.uuid4(),
+        request_code=await _next_request_code(db, current_user),
         student_id=current_user.id,
         purpose=body.purpose,
         status="pending",
@@ -373,6 +384,7 @@ async def return_item(
     item.condition_on_return = body.condition_on_return
     item.damage_note = body.damage_note
     item.damage_photo_urls = body.damage_photo_urls
+    req.returned_by = admin.id  # ผู้รับคืนล่าสุด — ใบคืนต้องระบุว่าใครรับของมา
 
     if body.condition_on_return in STOCK_RETURN_CONDITIONS:
         item.equipment.quantity_available += item.quantity
@@ -409,6 +421,7 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
             item.returned_at = now
             item.condition_on_return = "ok"
             item.equipment.quantity_available += item.quantity
+            req.returned_by = admin.id
 
     # complete เฉพาะเมื่อไม่มี item ค้างสรุป (รวมวัสดุที่ยังไม่ถูกสรุปผล)
     if all(i.returned for i in req.items):
@@ -469,6 +482,12 @@ async def generate_preview_pdf(
             equipment_id=it.equipment_id,
             equipment_name=(eq_map[it.equipment_id].name if it.equipment_id in eq_map else None),
             equipment_code=(eq_map[it.equipment_id].code if it.equipment_id in eq_map else None),
+            equipment_unit=(eq_map[it.equipment_id].unit if it.equipment_id in eq_map else None),
+            equipment_value=(
+                float(eq_map[it.equipment_id].unit_value)
+                if it.equipment_id in eq_map and eq_map[it.equipment_id].unit_value is not None
+                else None
+            ),
             item_type_snapshot=(eq_map[it.equipment_id].item_type if it.equipment_id in eq_map else "durable"),
             quantity=it.quantity,
             returned=False, returned_at=None, condition_on_return=None,
@@ -481,7 +500,7 @@ async def generate_preview_pdf(
     max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
     req = BorrowRequestResponse(
         id=uuid.uuid4(),
-        request_code=f"{_build_request_code(current_user, uuid.uuid4())} (ตัวอย่าง — เลขจริงออกเมื่อส่งคำขอ)",
+        request_code=f"REQ-{now.year}-{_ident(current_user)}-XXXX (ตัวอย่าง — เลขจริงออกเมื่อส่งคำขอ)",
         student_id=current_user.id,
         student_name=current_user.full_name,
         student_email=current_user.email,

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, func,
+    JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Table, Text, func,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,6 +32,7 @@ class Equipment(Base):
     image_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เฉพาะ consumable
+    unit_value: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # มูลค่า/ราคาต่อหน่วย (บาท) — โชว์ในใบยืม
     quantity_total: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     quantity_available: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     low_stock_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)

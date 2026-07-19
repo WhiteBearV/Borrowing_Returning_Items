@@ -27,6 +27,7 @@ class EquipmentResponse(BaseModel):
     image_urls: list[str] = []
     location: str | None
     unit: str | None
+    unit_value: float | None
     quantity_total: int
     quantity_available: int
     low_stock_threshold: int | None
@@ -58,6 +59,7 @@ class EquipmentCreate(BaseModel):
     image_urls: list[str] = []
     location: str | None = None
     unit: str | None = None
+    unit_value: float | None = None
     quantity_total: int = 1
     low_stock_threshold: int | None = None
     is_borrowable: bool = True
@@ -70,6 +72,7 @@ class EquipmentUpdate(BaseModel):
     image_urls: list[str] | None = None
     location: str | None = None
     unit: str | None = None
+    unit_value: float | None = None
     quantity_total: int | None = None
     low_stock_threshold: int | None = None
     status: str | None = None

@@ -1,0 +1,123 @@
+# รายงานความคืบหน้า — วันที่ 16 กรกฎาคม 2569 (2026-07-16)
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+**บริบท:** วันนี้ทำตามบันทึกการปรึกษา 16 ก.ค. (`Report/บันทึกการปรึกษา_2026-07-16.md`)
+ซึ่งมีรายการต้องทำ 7 ข้อ — วันนี้ปิดได้ 5 ข้อ (1, 2, 3, 4, 6) เหลือข้อ 5 (ใบคืน) และ 7 (admin ยืมเอง)
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**1) ใบยืม PDF รื้อใหม่ให้ตรงข้อ 1.1–1.10 ของบันทึกปรึกษา — `backend/app/utils/pdf.py`**
+- `_build_borrow_form()` เปลี่ยนหัวตารางจาก 4 คอลัมน์ (ลำดับ | รายการ | จำนวน | รหัสครุภัณฑ์)
+  เป็น 6 คอลัมน์: **ลำดับ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | มูลค่า/ชิ้น**
+  (ข้อ 1.2 — เอารหัสขึ้นก่อนชื่อ / ข้อ 1.3 — เพิ่มมูลค่า / ข้อ 1.4 — เพิ่มประเภท)
+- เพิ่ม dict `_ITEM_TYPE_TH` แปลง item_type เป็นไทย: durable → ครุภัณฑ์, material → วัสดุใช้ซ้ำ,
+  consumable → วัสดุสิ้นเปลือง (ตาม 3 ประเภทใน CLAUDE.md หัวข้อ 5)
+- เพิ่ม dict `_DEFAULT_UNIT` + แสดงจำนวนคู่หน่วยเป็น `"2 ตัว"` / `"1 ม้วน"` แทนเลขลอย ๆ
+  โดยดึงจาก `equipment.unit` ถ้าไม่มีก็ fallback ตามประเภท (ข้อ 1.1)
+- เพิ่มฟังก์ชัน `_fmt_money()` — จัดรูปเงินแบบ `1,234.56` ถ้าไม่มีราคาใส่ `"-"`
+  (อุปกรณ์เก่าหลายรายการยังไม่ได้กรอกมูลค่า ต้องไม่พัง)
+- รหัสอุปกรณ์ว่างแสดง `"-"` อยู่แล้วผ่าน `or "-"` (ข้อ 1.5 — ยืนยันว่าครอบคลุม ไม่ error)
+- บรรทัดวันที่เพิ่มเวลา: `วันที่ __ เดือน __ พ.ศ. __ เวลา HH:MM น.` อ่านจาก `req.requested_at` (ข้อ 1.6)
+- เพิ่มบรรทัด **กำหนดคืน (โดยประมาณ)** จาก `req.due_date` (ข้อ 1.7)
+- เพิ่มบรรทัด **ช่องทางติดต่อ** จาก `req.student_email` (ข้อ 1.8)
+- ช่องลายเซ็นตัดจาก 4 ช่องเหลือ 2 ช่อง: **ผู้ยืม / ผู้อนุมัติ** — เอา "ผู้ส่งของคืน" กับ
+  "ผู้รับคืน" ออกจากใบยืม (ข้อ 1.10 — แยกใบยืม/ใบคืนให้ขาดจากกัน)
+  ถ้าอนุมัติแล้วจะพิมพ์ชื่อผู้อนุมัติลงในวงเล็บให้เลย (ข้อ 1.9)
+- ยังคง `_MIN_ITEM_ROWS = 12` เว้นบรรทัดว่างเหมือนฟอร์มกระดาษเดิม + ปรับ colWidths ใหม่ให้ 6 คอลัมน์พอดี A4
+
+**2) เลขคำขอเปลี่ยนเป็นเลขรันต่อผู้ใช้ (ข้อ 4 / ส่วนที่ 2 ของบันทึก) — `backend/app/services/borrow_service.py`**
+- ลบ `_build_request_code()` (แบบ hex จาก uuid → `REQ-2026-6610301006-b511af` อ่านยาก)
+- เพิ่ม `_next_request_code(db, user)` ออกเลขรูปแบบ `REQ-2026-6610301006-0001`
+  ใช้ `UPDATE users SET borrow_seq = borrow_seq + 1 ... RETURNING borrow_seq` (row lock)
+  → เลขนับขึ้นแบบ atomic กด 2 คำขอพร้อมกันได้คนละเลข **ไม่ใช้ count+1** ตามข้อห้ามใน CLAUDE.md
+- แยก `_ident(user)` ออกมาใช้ร่วมกัน (student_id → username → "USER")
+- `generate_preview_pdf()` โชว์เลขตัวอย่างเป็น `REQ-2026-<รหัส>-XXXX (ตัวอย่าง — เลขจริงออกเมื่อส่งคำขอ)`
+  แทนการเผาเลขรันจริงทิ้งตอนกด preview
+
+**3) ฟิลด์มูลค่าอุปกรณ์ + คอลัมน์เลขรัน (ข้อ 6)**
+- `backend/alembic/versions/0010_unit_value_and_borrow_seq.py` (migration ใหม่, revises 0009)
+  - `equipment.unit_value` — `Numeric(12,2)` nullable (มูลค่า/ราคาต่อหน่วย บาท)
+  - `users.borrow_seq` — `Integer NOT NULL DEFAULT 0` (ตัวนับคำขอต่อผู้ใช้)
+- `models/equipment.py` — เพิ่ม `unit_value`
+- `models/user.py` — เพิ่ม `borrow_seq`
+- `models/borrow_item.py` — เพิ่ม property `equipment_unit`, `equipment_value` (ส่งหน่วย/ราคาเข้า PDF)
+- `models/borrow_request.py` — เพิ่ม property `approver_name`
+- `services/borrow_service.py` `_load_request()` — เพิ่ม `selectinload(BorrowRequest.approver)`
+  **จำเป็น** ไม่งั้น lazy-load ใต้ async จะพังตอนใบยืมเรียกชื่อผู้อนุมัติ
+- `schemas/equipment.py` — เพิ่ม `unit_value` ใน EquipmentResponse / EquipmentCreate / EquipmentUpdate
+- `schemas/borrow.py` — เพิ่ม `equipment_unit`, `equipment_value` ใน BorrowItemResponse
+  และ `approver_name` ใน BorrowRequestResponse
+
+### Frontend
+
+- `frontend/src/pages/admin/EquipmentManagePage.jsx`
+  - เพิ่มช่อง **"มูลค่า/ชิ้น (บาท)"** ในฟอร์มเพิ่ม/แก้ไขอุปกรณ์ (`<input type="number" step="0.01">`)
+  - เพิ่ม `unit_value` ใน `EMPTY_FORM`
+  - ตอน submit แปลงค่าว่างเป็น `undefined` (ไม่ส่ง `""` ไปให้ Pydantic ตีเป็น error)
+    → รองรับข้อสรุปในบันทึกว่า "ราคาดึงจากทะเบียนได้ และกรอกเองเพิ่มได้"
+
+### Test
+
+- `backend/tests/test_advisor_fixes.py`
+  - แก้ `test_request_code_contains_student_id_and_is_uuid_derived`
+    → `test_request_code_contains_student_id_and_is_running_number`
+    ตรวจว่า suffix เป็นตัวเลข ≥ 4 หลัก และขึ้นต้น `REQ-2026-<student_id>-`
+  - เพิ่ม `test_approved_request_exposes_approver_name` — ยืนยันว่าหลังอนุมัติ API คืน
+    `approver_name` ได้จริง (กัน regression เรื่อง eager-load approver)
+- **ผลรัน:** `pytest tests/test_advisor_fixes.py -q` → **7 passed** ✅
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ใบยืมโชว์ชื่อผู้อนุมัติแล้วเสี่ยง lazy-load error | relationship `approver` ไม่ได้ eager-load ใน `_load_request()` แต่ PDF เรียกใช้ตอน serialize ซึ่งอยู่นอก session context | เพิ่ม `selectinload(BorrowRequest.approver)` แล้ว + เขียนเทสต์ล็อกไว้ |
+| อุปกรณ์เดิมในคลังยังไม่มี `unit_value` | คอลัมน์เพิ่งเพิ่มวันนี้ (migration 0010) ของเก่าเป็น NULL หมด | ใบยืมแสดง `"-"` ไปก่อน — ต้อง import ราคาจากทะเบียนคุมทรัพย์สินผ่าน `import_register.py` (งานพรุ่งนี้) |
+| ใบคืนยังใช้ layout เดิม ไม่ล้อกับใบยืมใหม่ | วันนี้แก้เฉพาะ `_build_borrow_form()` ยังไม่แตะฟอร์มคืน | ข้อ 5 ของบันทึก — ทำพรุ่งนี้ ให้ใช้เลขคำขอเดียวกัน ต่อท้ายว่าเป็นใบคืน |
+| งานทั้งหมดวันนี้ยัง uncommitted | ยังไม่ได้ commit รอทำครบชุดเอกสาร | commit หลังทำใบคืน (ข้อ 5) เสร็จ ให้เป็นชุดเดียวกัน |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] **ข้อ 5 — ใบคืน (ร่างคืน)** ใน `backend/app/utils/pdf.py`: ทำ layout ล้อใบยืม (6 คอลัมน์เดียวกัน)
+       ใช้เลขคำขอเดียวกับใบยืม (ต่อท้ายระบุว่าเป็นใบคืน) + ช่องลงชื่อ ผู้ส่งของคืน / ผู้รับคืน
+       + เพิ่มคอลัมน์ผลการคืน (ok / damaged / lost / returned_full / used_up / discarded)
+2. [ ] **ข้อ 7 — admin ยืมเองได้**: ตรวจ flow ฝั่ง frontend ว่า admin เข้าหน้า BorrowRequestPage /
+       ตะกร้ายืมได้จริงหรือไม่ (สิทธิ์ backend เปิดอยู่แล้วตาม CLAUDE.md ข้อ 6)
+       + ยืนยันว่า `approve_request()` ไม่บล็อกการอนุมัติตัวเอง และยังเขียน audit log ครบ
+3. [ ] **ข้อ 6 (ส่วนที่เหลือ)** — เติม `unit_value` ให้ `backend/scripts/import_register.py`
+       map คอลัมน์ราคาจากทะเบียนคุมทรัพย์สิน แล้ว re-seed ราคาให้ของเดิม
+4. [ ] แสดง `unit_value` ในตารางรายการอุปกรณ์หน้า admin (ตอนนี้กรอกได้แต่ไม่โชว์ในตาราง)
+5. [ ] commit งานทั้งชุด (ใบยืม + ใบคืน + เลขคำขอ + มูลค่า) เป็น commit เดียว
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — เหลือใบคืน (pdf.py) + import ราคาจากทะเบียน
+**Frontend:** ~97% — เหลือโชว์มูลค่าในตาราง + ตรวจ flow ยืมของ admin
+**ระยะรวม:** โค้ดฟีเจอร์หลักครบแล้ว ตอนนี้อยู่เฟส "ปรับให้ตรงฟอร์มจริง + เก็บ feedback อาจารย์"
+ปิดบันทึกปรึกษา 16 ก.ค. ไป 5/7 ข้อ คาดว่าครบทั้ง 7 ข้อภายในพรุ่งนี้
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **migration 0010 ต้องรัน `alembic upgrade head` ก่อนใช้งาน** — ถ้าใครดึงโค้ดไปแล้วไม่รัน
+  จะพังทันทีตอนสร้างคำขอ (หา column `users.borrow_seq` ไม่เจอ)
+- **เลขคำขอเก่าที่ออกไปแล้วยังเป็น format hex** (`REQ-2026-xxx-b511af`) ไม่ได้ย้อนแก้
+  คำขอใหม่จะเป็น `-0001` เป็นต้นไป — เลขจึงมี 2 รูปแบบปนกันในระบบ ถือว่ารับได้ (ข้อมูลทดสอบ)
+- **`unit_value` เป็น Numeric(12,2) nullable โดยตั้งใจ** — ไม่บังคับกรอก เพราะของหลายรายการ
+  ไม่มีราคาในทะเบียน ถ้าบังคับจะเพิ่มอุปกรณ์ใหม่ไม่ได้
+- **Pending Items จาก CLAUDE.md ข้อ 10 ที่ยังค้าง:**
+  - ไฟล์ Excel ทะเบียนคลัง — ได้มาแล้วบางส่วน (`Report/ทดสอบนำเข้า-ทะเบียนรอบใหม่.xlsx`)
+    แต่ยังไม่ได้ map คอลัมน์ "ราคา/มูลค่า" เข้า `equipment.unit_value`
+  - `ALLOWED_EMAIL_DOMAINS` — ยังไม่ได้ยืนยันกับอาจารย์ ต้องเคลียร์ก่อน deploy จริง
+  - LINE OA — ยังไม่แตะ (stretch goal)

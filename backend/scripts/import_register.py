@@ -72,6 +72,17 @@ def clean(v: object) -> str:
     return " ".join(str(v).split()) if v is not None else ""
 
 
+def money(v: object) -> str:
+    """ราคาจากทะเบียน → ค่า SQL — ช่องว่าง/ขีด/ข้อความที่ไม่ใช่ตัวเลข = NULL (ไปกรอกเองทีหลังได้)
+
+    ทะเบียนพระราชทานเก็บทศนิยมยาว (7383.177570093458) — ปัดเป็น 2 ตำแหน่งตามคอลัมน์ Numeric(12,2)
+    """
+    try:
+        return f"{round(float(str(v).replace(',', '')), 2)}"
+    except (TypeError, ValueError):
+        return "NULL"
+
+
 def status_from(normal, broken, worn, lost) -> tuple[str, int]:
     """แปลงคอลัมน์ ปกติ/ชำรุด/เสื่อมสภาพ/สูญหาย → (status, qty_available)"""
     if broken:
@@ -84,7 +95,7 @@ def status_from(normal, broken, worn, lost) -> tuple[str, int]:
 def main() -> None:
     wb = openpyxl.load_workbook(XLSX, read_only=True, data_only=True)
 
-    # (code, name, item_type, status, qty_avail, location, category)
+    # (code, name, item_type, status, qty_avail, location, category, unit_value, unit)
     records: list[tuple] = []
     no_code: list[dict] = []
 
@@ -100,7 +111,8 @@ def main() -> None:
         if not code:
             no_code.append({"sheet": "คณะ", "seq": clean(r[0]), "name": name, "loc": loc})
             continue
-        records.append((code, name, "durable", status, qa, loc, categorize(name)))
+        # คอลัมน์ 3 = "ราคา" (ชีตนี้ไม่มีหน่วยนับ ครุภัณฑ์นับเป็นชิ้นอยู่แล้ว)
+        records.append((code, name, "durable", status, qa, loc, categorize(name), money(r[3]), None))
 
     # --- ชีต 2: พระราชทาน (ใช้ "รหัสครุภัณฑ์ใหม่" = คอลัมน์ 8) ---
     ws = wb["ครุภัณฑ์ที่ได้รับพระราชทาน"]
@@ -120,7 +132,9 @@ def main() -> None:
         if not code:
             no_code.append({"sheet": "พระราชทาน", "seq": clean(r[0]), "name": name, "loc": loc})
             continue
-        records.append((code, name, "durable", status, qa, loc, categorize(name)))
+        # คอลัมน์ 5 = "ราคา/หน่วย", 4 = "หน่วยนับ" (ตัว/ชุด/เครื่อง) — ใบยืมเอาไปแสดงคู่กับจำนวน
+        records.append((code, name, "durable", status, qa, loc, categorize(name),
+                        money(r[5]), clean(r[4]) or None))
 
     # หมวดทั้งหมดที่ใช้จริง
     cats = sorted({rec[6] for rec in records})
@@ -141,13 +155,18 @@ def main() -> None:
         )
     lines.append("")
     lines.append(f"-- Equipment ({len(records)} records)")
-    for code, name, itype, status, qa, loc, cat in records:
+    for code, name, itype, status, qa, loc, cat, value, unit in records:
         eid = det_uuid("eq", code)
+        # ON CONFLICT: เติมราคา/หน่วยให้แถวที่มีอยู่แล้ว แต่ COALESCE ของเดิมไว้ก่อน
+        # → ค่าที่แอดมินกรอกเองในหน้าจัดการอุปกรณ์จะไม่ถูก re-seed ทับ (ทะเบียนเป็นแค่ค่าตั้งต้น)
         lines.append(
             "INSERT INTO equipment (id, code, name, item_type, status, "
-            "quantity_total, quantity_available, description, location, image_urls) VALUES ("
+            "quantity_total, quantity_available, description, location, image_urls, unit_value, unit) VALUES ("
             f"{q(eid)}, {q(code)}, {q(name)}, {q(itype)}, {q(status)}, "
-            f"1, {qa}, NULL, {q(loc)}, '[]') ON CONFLICT (code) DO NOTHING;"
+            f"1, {qa}, NULL, {q(loc)}, '[]', {value}, {q(unit)}) "
+            "ON CONFLICT (code) DO UPDATE SET "
+            "unit_value = COALESCE(equipment.unit_value, EXCLUDED.unit_value), "
+            "unit = COALESCE(equipment.unit, EXCLUDED.unit);"
         )
         lines.append(
             "INSERT INTO equipment_category_links (equipment_id, category_id) "

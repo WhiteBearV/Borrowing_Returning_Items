@@ -5,7 +5,7 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 
-const EMPTY_FORM = { code: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', quantity_total: 1, image_urls: [], is_borrowable: true }
+const EMPTY_FORM = { code: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
 
 const IMG_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const imageSrc = (url) => (url?.startsWith('/') ? `${IMG_BASE}${url}` : url)
@@ -68,6 +68,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         description: form.description || undefined,
         location: form.location || undefined,
         unit: form.unit || undefined,
+        unit_value: form.unit_value === '' || form.unit_value == null ? undefined : Number(form.unit_value),
         image_urls: form.image_urls,
       }
       if (isEdit) {
@@ -186,6 +187,12 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่า/ชิ้น (บาท)</label>
+              <input type="number" min={0} step="0.01" value={form.unit_value ?? ''} onChange={set('unit_value')}
+                placeholder="เช่น 200 (เว้นว่างได้)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
           </div>
 
           <div>

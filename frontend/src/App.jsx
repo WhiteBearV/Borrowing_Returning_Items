@@ -38,6 +38,10 @@ export default function App() {
           {/* Student routes */}
           <Route element={<ProtectedRoute role="student" />}>
             <Route path="/dashboard" element={<StudentDashboard />} />
+          </Route>
+
+          {/* หน้ายืม/โปรไฟล์ ใช้ร่วมกัน — admin ยืมเองได้ (อาจารย์เบิกของให้ นศ. ทำ Lab) */}
+          <Route element={<ProtectedRoute />}>
             <Route path="/equipment" element={<EquipmentListPage />} />
             <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
             <Route path="/borrow" element={<BorrowRequestPage />} />
