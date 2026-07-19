@@ -98,6 +98,7 @@ async def test_equipment_multiple_categories(client: AsyncClient, admin_token: s
     r = await client.post("/equipment", json={
         "code": f"MULTI-{suffix}", "name": "อุปกรณ์หลายหมวด",
         "category_ids": [c1["id"], c2["id"]], "item_type": "durable", "quantity_total": 1,
+        "image_urls": ["/uploads/test.jpg"],
     }, headers=h)
     assert r.status_code == 201, r.text
     returned = {c["id"] for c in r.json()["categories"]}

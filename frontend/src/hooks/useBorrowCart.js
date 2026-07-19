@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isBundleItemAvailable, mergeCartItem } from './cartRules.js'
 
 const KEY = 'borrowCart'
 const PURPOSE_KEY = 'borrowPurpose'
@@ -25,11 +26,24 @@ export function useBorrowCart() {
   }, [purpose])
 
   const addItem = useCallback((equipment, quantity = 1) => {
-    setCart((prev) => {
-      const exists = prev.find((i) => i.equipment.id === equipment.id)
-      if (exists) return prev
-      return [...prev, { equipment, quantity }]
-    })
+    setCart((prev) => mergeCartItem(prev, equipment, quantity))
+  }, [])
+
+  /** เพิ่มทั้งชุดลงตะกร้า — คืนรายการที่เพิ่มไม่ได้ (ของหมด/ของประจำห้อง) ให้หน้าเว็บแจ้งผู้ใช้ */
+  const addBundle = useCallback((bundle) => {
+    const skipped = []
+    // อัปเดตครั้งเดียวจบ — เรียก addItem ทีละชิ้นจะอ่าน state เก่าถ้าของในชุดซ้ำกัน
+    setCart((prev) => bundle.items.reduce((acc, it) => {
+      if (!isBundleItemAvailable(it)) {
+        skipped.push(it.equipment_name ?? it.equipment_id)
+        return acc
+      }
+      return mergeCartItem(acc, {
+        id: it.equipment_id, name: it.equipment_name, code: it.equipment_code,
+        item_type: it.item_type, unit: it.unit, quantity_available: it.quantity_available,
+      }, it.quantity)
+    }, prev))
+    return skipped
   }, [])
 
   const removeItem = useCallback((equipmentId) => {
@@ -47,5 +61,5 @@ export function useBorrowCart() {
     setPurpose('')
   }, [])
 
-  return { cart, addItem, removeItem, updateQuantity, clearCart, purpose, setPurpose }
+  return { cart, addItem, addBundle, removeItem, updateQuantity, clearCart, purpose, setPurpose }
 }

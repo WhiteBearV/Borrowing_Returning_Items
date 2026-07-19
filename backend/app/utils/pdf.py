@@ -222,6 +222,15 @@ def _build_form(req: object, kind: str) -> bytes:
     blank = Paragraph("&nbsp;", _style("blank", fontSize=11, leading=17))
     rows += [[blank] * 6] * max(0, _MIN_ITEM_ROWS - len(items))
 
+    # แถวรวมมูลค่า (เฉพาะใบยืม) — ผู้ยืมต้องเห็นวงเงินรวมที่ต้องรับผิดชอบ
+    total = sum((getattr(i, "equipment_value", None) or 0) * getattr(i, "quantity", 1) for i in items)
+    if not is_return and total:
+        rows.append([
+            blank, blank, blank, blank,
+            Paragraph("รวมมูลค่า", _style("tl", fontName="Thai-Bold", fontSize=10, alignment=2)),
+            Paragraph(_fmt_money(total), _style("tv", fontName="Thai-Bold", fontSize=9, alignment=2)),
+        ])
+
     # "วัสดุสิ้นเปลือง" ยาวสุดในคอลัมน์ประเภท ต้อง 26mm ไม่งั้นตัดบรรทัด
     col = [10 * mm, 30 * mm, W - 10 * mm - 30 * mm - 26 * mm - 22 * mm - 26 * mm, 26 * mm, 22 * mm, 26 * mm]
     # rowHeights=None (auto) — ชื่ออุปกรณ์ยาว ๆ ต้องขยายแถวเอง ไม่งั้นข้อความล้นทับเส้นตาราง

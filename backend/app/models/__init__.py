@@ -4,6 +4,7 @@ from app.models import (  # noqa: F401
     auth_token,
     borrow_item,
     borrow_request,
+    bundle,
     equipment,
     equipment_category,
     notification,

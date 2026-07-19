@@ -113,6 +113,52 @@ docker compose -f docker-compose.prod.yml up --build
 
 ---
 
+## สำรองและกู้คืนข้อมูล (Backup / Restore)
+
+ระบบผูกกับชนิดข้อมูลเฉพาะของ PostgreSQL (JSONB, UUID) การกัน "ฐานข้อมูลเสีย"
+จึงใช้วิธีสำรองข้อมูลสม่ำเสมอ ไม่ใช่การย้ายไปฐานข้อมูลยี่ห้ออื่น
+
+**สำคัญ: ต้องสำรอง 2 อย่างคู่กันเสมอ**
+รูปภาพ (รูปอุปกรณ์ / รูปความเสียหาย / รูปโปรไฟล์) เก็บเป็น**ไฟล์บนดิสก์**ใน `backend/uploads/`
+ฐานข้อมูลเก็บแค่ path ถ้ากู้เฉพาะ DB path ในตารางจะชี้ไปไฟล์ที่ไม่มีอยู่
+
+### สำรอง
+
+```bash
+bash backend/scripts/backup_db.sh
+# ปรับได้ด้วย env: BACKUP_DIR (ค่าเริ่มต้น /var/backups/equipment-borrow), RETAIN_DAYS (7)
+```
+
+ตั้งอัตโนมัติทุกวันตี 2 ด้วย cron:
+
+```bash
+0 2 * * * bash /path/to/backend/scripts/backup_db.sh >> /var/log/eqb-backup.log 2>&1
+```
+
+สคริปต์จะได้ไฟล์ 2 ชุดต่อรอบ: `db-<วันเวลา>.dump` (pg_dump แบบ custom format) และ
+`uploads-<วันเวลา>.tar.gz` พร้อมลบไฟล์เก่าเกิน `RETAIN_DAYS` วันให้อัตโนมัติ
+
+### กู้คืน
+
+```bash
+# 1) สร้างฐานข้อมูลเปล่า (ต้องใช้สิทธิ์ที่สร้าง database ได้ เช่น postgres)
+createdb -h localhost -U postgres equipment_borrow
+
+# 2) กู้ข้อมูล
+pg_restore -h localhost -U postgres -d equipment_borrow db-20260719-020000.dump
+
+# 3) กู้รูปกลับเข้าที่เดิม
+tar xzf uploads-20260719-020000.tar.gz -C backend/
+
+# 4) ปรับ schema ให้ตรงโค้ดปัจจุบัน (เผื่อ backup เก่ากว่า migration ล่าสุด)
+cd backend && alembic upgrade head
+```
+
+ตรวจไฟล์ backup ว่าใช้ได้จริงโดยไม่ต้องกู้ทับของจริง: `pg_restore -l db-....dump`
+จะลิสต์ตารางทั้งหมดในไฟล์ออกมา — ควรทดลองกู้ลงฐานข้อมูลทดสอบอย่างน้อยเทอมละครั้ง
+
+---
+
 ## API Endpoints หลัก
 
 | Module | Base Path |
@@ -120,6 +166,7 @@ docker compose -f docker-compose.prod.yml up --build
 | Auth | `/auth` |
 | Users | `/users` |
 | Equipment | `/equipment` |
+| Bundles (ชุดอุปกรณ์) | `/bundles` |
 | Borrow Requests | `/borrow-requests` |
 | Notifications | `/notifications` |
 | Settings | `/settings` |

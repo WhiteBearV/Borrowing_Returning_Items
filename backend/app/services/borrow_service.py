@@ -276,6 +276,8 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
         # หักสต็อกทั้ง durable และ consumable — ของออกจากคลังแล้ว
         # consumable ไม่ auto-คืนอีกต่อไป: admin ต้องสรุปผลภายหลัง (คืนครบ/ใช้หมด/เสียหาย)
         eq.quantity_available -= item.quantity
+        # ล็อกราคาต่อหน่วย ณ วันอนุมัติ ใช้คิดต้นทุนวัสดุที่ถูกใช้ไป
+        item.unit_value_snapshot = eq.unit_value
 
     req.status = "approved"
     req.approved_by = admin.id

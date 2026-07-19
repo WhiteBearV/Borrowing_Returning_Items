@@ -59,6 +59,8 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const submit = async (e) => {
     e.preventDefault()
     if (form.category_ids.length === 0) { setError('เลือกหมวดหมู่อย่างน้อย 1 หมวด'); return }
+    // บังคับรูปเฉพาะตอนเพิ่มใหม่ ของเดิมที่นำเข้าจากทะเบียนยังไม่มีรูป ต้องแก้ไขได้อยู่
+    if (!isEdit && form.image_urls.length === 0) { setError('แนบรูปอุปกรณ์อย่างน้อย 1 รูป'); return }
     setError('')
     setLoading(true)
     try {
@@ -386,7 +388,8 @@ export default function EquipmentManagePage() {
                   <td className="px-4 py-2">
                     {eq.image_url
                       ? <img src={imageSrc(eq.image_url)} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
-                      : <div className="w-10 h-10 rounded bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-300">🖼</div>}
+                      : <div title="ยังไม่มีรูป — ควรเพิ่มรูปให้ครบ"
+                             className="w-10 h-10 rounded bg-amber-50 border border-amber-300 flex items-center justify-center text-amber-400">🖼</div>}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{eq.name}</td>

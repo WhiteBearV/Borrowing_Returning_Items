@@ -30,6 +30,30 @@ async def _cleanup_request(req_id: str, eq_id: uuid.UUID) -> None:
         await db.commit()
 
 
+# ── validate จำนวนที่ขอยืม ────────────────────────────────────────────────────
+
+async def test_reject_non_positive_quantity(
+    client: AsyncClient, student_token: str, test_equipment: Equipment
+):
+    """จำนวนติดลบ/ศูนย์ต้องถูกปฏิเสธตั้งแต่ schema และสต็อกต้องไม่ขยับ
+
+    ถ้าปล่อยผ่าน: เช็คสต็อก `available < -5` เป็นเท็จเสมอ แล้วตอนอนุมัติ
+    `quantity_available -= -5` จะกลายเป็นเพิ่มสต็อกให้ตัวเอง
+    """
+    async with AsyncSessionLocal() as db:
+        before = (await db.get(Equipment, test_equipment.id)).quantity_available
+
+    for bad in (-5, 0):
+        r = await client.post("/borrow-requests", headers=auth(student_token), json={
+            "purpose": f"จำนวนไม่ถูกต้อง {bad}",
+            "items": [{"equipment_id": str(test_equipment.id), "quantity": bad}],
+        })
+        assert r.status_code == 422, f"quantity={bad} ต้องถูกปฏิเสธ แต่ได้ {r.status_code}"
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Equipment, test_equipment.id)).quantity_available == before
+
+
 # ── #7 request code ───────────────────────────────────────────────────────────
 
 async def test_request_code_contains_student_id_and_is_running_number(
@@ -173,6 +197,28 @@ async def test_audit_log_visible_via_api_and_admin_only(
         await _cleanup_request(req_id, test_equipment.id)
 
 
+async def test_equipment_requires_image_on_create_only(
+    client: AsyncClient, admin_token: str, test_equipment: Equipment
+):
+    """อุปกรณ์ใหม่ต้องมีรูปอย่างน้อย 1 (advisor #4) แต่ของเดิมที่ไม่มีรูปต้องยังแก้ไขได้
+
+    ของจากทะเบียน 704 แถวถูก seed มาโดย image_urls = [] ถ้าบังคับตอนแก้ไขด้วยจะแก้ข้อมูลไม่ได้เลย
+    """
+    h = auth(admin_token)
+    suffix = uuid.uuid4().hex[:6]
+    body = {"code": f"NOIMG-{suffix}", "name": "อุปกรณ์ไม่มีรูป",
+            "category_ids": [], "item_type": "durable", "quantity_total": 1}
+
+    assert (await client.post("/equipment", json=body, headers=h)).status_code == 422
+    assert (await client.post("/equipment", json={**body, "image_urls": []}, headers=h)).status_code == 422
+
+    # ของเดิม (fixture สร้างมาโดยไม่มีรูป) ต้องแก้ไขได้ตามปกติ
+    async with AsyncSessionLocal() as db:
+        assert not (await db.get(Equipment, test_equipment.id)).image_urls
+    r = await client.patch(f"/equipment/{test_equipment.id}", json={"location": "ห้อง 15310"}, headers=h)
+    assert r.status_code == 200, r.text
+
+
 async def test_create_and_retire_equipment_write_audit(
     client: AsyncClient, admin_token: str, test_admin: User
 ):
@@ -182,6 +228,7 @@ async def test_create_and_retire_equipment_write_audit(
     r = await client.post("/equipment", json={
         "code": f"AUD-{suffix}", "name": "อุปกรณ์ทดสอบ audit",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
+        "image_urls": ["/uploads/test.jpg"],
     }, headers=h)
     assert r.status_code == 201, r.text
     eq_id = r.json()["id"]

@@ -71,14 +71,18 @@ export default function BorrowRequestPage() {
                 <p className="text-xs text-gray-400">{eq.code}</p>
               </div>
               {eq.item_type !== 'durable' ? (
-                <input
-                  type="number"
-                  min={1}
-                  max={eq.quantity_available}
-                  value={quantity}
-                  onChange={(e) => updateQuantity(eq.id, Number(e.target.value))}
-                  className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-center"
-                />
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    max={eq.quantity_available}
+                    value={quantity}
+                    onChange={(e) => updateQuantity(eq.id, Number(e.target.value))}
+                    className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-center"
+                  />
+                  {/* หน่วยฐาน เช่น "ซม." — วัสดุที่ตัดแบ่งได้ตั้งหน่วยเล็กสุดไว้ ต้องเห็นตอนกรอกจำนวน */}
+                  <span className="text-sm text-gray-500 w-10">{eq.unit ?? 'ชิ้น'}</span>
+                </div>
               ) : (
                 <span className="text-sm text-gray-500">1 ชิ้น</span>
               )}

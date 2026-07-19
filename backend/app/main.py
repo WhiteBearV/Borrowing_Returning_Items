@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.routers import auth, audit, borrow, dashboard, equipment, notification, settings as settings_router, users
+from app.routers import auth, audit, borrow, bundle, dashboard, equipment, notification, settings as settings_router, users
 from app.utils.scheduler import start_scheduler
 
 
@@ -43,6 +43,7 @@ app.include_router(settings_router.router)
 app.include_router(notification.router)
 app.include_router(audit.router)
 app.include_router(dashboard.router)
+app.include_router(bundle.router)
 
 
 @app.get("/health")

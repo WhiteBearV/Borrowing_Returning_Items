@@ -1,12 +1,13 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BorrowItemRequest(BaseModel):
     equipment_id: uuid.UUID
-    quantity: int = 1
+    # gt=0 สำคัญ: จำนวนติดลบทำให้ approve ไป "ลบด้วยค่าลบ" = สต็อกเพิ่มเอง และผ่านด่านเช็คสต็อกด้วย
+    quantity: int = Field(1, gt=0)
 
 
 class BorrowRequestCreate(BaseModel):

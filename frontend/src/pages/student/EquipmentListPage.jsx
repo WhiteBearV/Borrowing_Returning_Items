@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
+import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 
@@ -9,9 +10,11 @@ const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัส�
 
 export default function EquipmentListPage() {
   const navigate = useNavigate()
-  const { cart, addItem } = useCart()
+  const { cart, addItem, addBundle } = useCart()
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
+  const [bundles, setBundles] = useState([])
+  const [bundleMsg, setBundleMsg] = useState('')
   const [loading, setLoading] = useState(true)
 
   // เก็บ filter ไว้ใน URL เพื่อให้กดย้อนกลับจากหน้ารายละเอียดแล้วหมวด/หน้าเดิมยังอยู่
@@ -32,7 +35,15 @@ export default function EquipmentListPage() {
 
   useEffect(() => {
     equipmentApi.listCategories().then(setCategories).catch(() => {})
+    bundleApi.list().then(setBundles).catch(() => {})
   }, [])
+
+  const handleAddBundle = (b) => {
+    const skipped = addBundle(b)
+    setBundleMsg(skipped.length
+      ? `เพิ่ม "${b.name}" ลงตะกร้าแล้ว — ยกเว้น ${skipped.join(', ')} (ยืมไม่ได้ตอนนี้)`
+      : `เพิ่ม "${b.name}" ลงตะกร้าแล้ว`)
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -68,6 +79,26 @@ export default function EquipmentListPage() {
           )}
         </button>
       </div>
+
+      {/* ชุดอุปกรณ์ — ทางลัดหยิบของหลายชิ้นทีเดียว แล้วไปปรับ/ถอดออกในตะกร้าได้ */}
+      {bundles.length > 0 && (
+        <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+          <p className="text-sm font-semibold text-gray-700 mb-2">ชุดอุปกรณ์</p>
+          <div className="flex flex-wrap gap-2">
+            {bundles.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => handleAddBundle(b)}
+                title={b.items.map((i) => `${i.equipment_name} ×${i.quantity}`).join('\n')}
+                className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100"
+              >
+                + {b.name} <span className="text-xs text-gray-400">({b.items.length} รายการ)</span>
+              </button>
+            ))}
+          </div>
+          {bundleMsg && <p className="mt-2 text-xs text-gray-600">{bundleMsg}</p>}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-6">

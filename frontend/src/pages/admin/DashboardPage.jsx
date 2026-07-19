@@ -5,7 +5,7 @@ import { api } from '../../api/axiosInstance.js'
 export default function DashboardPage() {
   const [summary, setSummary] = useState({
     pending_requests: 0, overdue_requests: 0, low_stock_items: 0,
-    active_borrows: 0, active_borrowers: 0,
+    active_borrows: 0, active_borrowers: 0, consumed_value_this_month: 0,
   })
 
   useEffect(() => {
@@ -39,13 +39,20 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-2 gap-4 mb-3">
         {stats.slice(3).map((s) => (
           <Link key={s.label} to={s.href} className={`rounded-xl p-5 text-center ${s.color} hover:opacity-80 transition-opacity`}>
             <p className="text-4xl font-bold">{s.value}</p>
             <p className="text-sm mt-1">{s.label}</p>
           </Link>
         ))}
+      </div>
+      {/* ต้นทุนวัสดุที่ใช้ไป — เป็นเงิน ไม่ใช่จำนวนนับ จึงแยกการ์ดออกมา */}
+      <div className="rounded-xl p-5 text-center bg-emerald-50 text-emerald-700 mb-8">
+        <p className="text-4xl font-bold">
+          {summary.consumed_value_this_month.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
+        <p className="text-sm mt-1">มูลค่าวัสดุที่ใช้ไปเดือนนี้ (บาท)</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

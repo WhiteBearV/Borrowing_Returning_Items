@@ -17,6 +17,7 @@ const ADMIN_NAV = [
   { to: '/admin/borrow-requests', label: 'อนุมัติคำขอ' },
   { to: '/admin/borrows',         label: 'ประวัติการยืม' },
   { to: '/admin/equipment',       label: 'จัดการอุปกรณ์' },
+  { to: '/admin/bundles',         label: 'ชุดอุปกรณ์' },
   { to: '/admin/users',           label: 'จัดการผู้ใช้' },
   { to: '/admin/audit',           label: 'Audit Log' },
   { to: '/admin/settings',        label: 'การตั้งค่า' },

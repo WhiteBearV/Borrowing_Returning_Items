@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CategoryResponse(BaseModel):
@@ -56,7 +56,9 @@ class EquipmentCreate(BaseModel):
     category_ids: list[uuid.UUID]
     item_type: str  # durable / consumable
     description: str | None = None
-    image_urls: list[str] = []
+    # บังคับรูปอย่างน้อย 1 เฉพาะตอนสร้างใหม่ — ของเดิมจากทะเบียน 704 แถวยังไม่มีรูป
+    # ถ้าไปบังคับใน EquipmentUpdate ด้วยจะแก้ข้อมูลของเดิมไม่ได้เลย
+    image_urls: list[str] = Field(..., min_length=1)
     location: str | None = None
     unit: str | None = None
     unit_value: float | None = None

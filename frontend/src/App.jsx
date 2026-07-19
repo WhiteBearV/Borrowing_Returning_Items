@@ -18,6 +18,7 @@ import ProfilePage from './pages/student/ProfilePage.jsx'
 // Admin pages
 import AdminDashboard from './pages/admin/DashboardPage.jsx'
 import EquipmentManagePage from './pages/admin/EquipmentManagePage.jsx'
+import BundleManagePage from './pages/admin/BundleManagePage.jsx'
 import BorrowRequestsPage from './pages/admin/BorrowRequestsPage.jsx'
 import AllBorrowsPage from './pages/admin/AllBorrowsPage.jsx'
 import UsersPage from './pages/admin/UsersPage.jsx'
@@ -53,6 +54,7 @@ export default function App() {
           <Route element={<ProtectedRoute role="admin" />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/equipment" element={<EquipmentManagePage />} />
+            <Route path="/admin/bundles" element={<BundleManagePage />} />
             <Route path="/admin/borrow-requests" element={<BorrowRequestsPage />} />
             <Route path="/admin/borrows" element={<AllBorrowsPage />} />
             <Route path="/admin/users" element={<UsersPage />} />

@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,8 @@ class BorrowItem(Base):
     )
     item_type_snapshot: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / consumable
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # ราคาต่อหน่วย ณ วันอนุมัติ — snapshot ไว้เพราะแอดมินแก้ราคาในคลังได้ ต้นทุนย้อนหลังต้องไม่เปลี่ยนตาม
+    unit_value_snapshot: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     returned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     condition_on_return: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ok / damaged / lost
@@ -49,4 +51,7 @@ class BorrowItem(Base):
 
     @property
     def equipment_value(self) -> float | None:
+        """ราคาต่อหน่วยที่ใช้ในเอกสาร — ใช้ราคา ณ วันอนุมัติก่อน ถ้ายังไม่มี (คำขอเก่า/ยังไม่อนุมัติ) ค่อยดูราคาปัจจุบัน"""
+        if self.unit_value_snapshot is not None:
+            return float(self.unit_value_snapshot)
         return float(self.equipment.unit_value) if self.equipment and self.equipment.unit_value is not None else None
