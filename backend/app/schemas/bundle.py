@@ -12,6 +12,7 @@ class BundleCreate(BaseModel):
     name: str
     description: str | None = None
     is_active: bool = True
+    trigger_equipment_id: uuid.UUID | None = None
     items: list[BundleItemRequest] = Field(..., min_length=1)
 
 
@@ -19,6 +20,7 @@ class BundleUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     is_active: bool | None = None
+    trigger_equipment_id: uuid.UUID | None = None
     # ส่ง items มาเมื่อไหร่ = แทนที่รายการทั้งชุด (แก้ทีละชิ้นไม่คุ้มกับความซับซ้อน)
     items: list[BundleItemRequest] | None = None
 
@@ -41,6 +43,8 @@ class BundleResponse(BaseModel):
     name: str
     description: str | None
     is_active: bool
+    trigger_equipment_id: uuid.UUID | None = None
+    trigger_equipment_name: str | None = None
     items: list[BundleItemResponse] = []
 
     model_config = {"from_attributes": True}

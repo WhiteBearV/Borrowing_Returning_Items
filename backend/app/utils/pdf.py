@@ -197,30 +197,48 @@ def _build_form(req: object, kind: str) -> bytes:
             f"กำหนดคืน (โดยประมาณ) <u>{_fmt_date(getattr(req, 'due_date', None))}</u>", body))
     elems.append(Spacer(1, 10))
 
-    # ── ตารางรายการ: ลำดับ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | มูลค่า/ชิ้น (ใบคืน = สภาพเมื่อคืน) ──
+    # ── ตารางรายการ ──
+    # ใบยืม: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | มูลค่า/ชิ้น
+    # ใบคืน: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | สภาพเมื่อคืน | วันเวลาที่คืน
     def _h(t: str) -> Paragraph:
         return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=10, alignment=1))
 
-    last_col = _h("สภาพเมื่อคืน") if is_return else _h("มูลค่า/ชิ้น")
-    rows = [[_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"), last_col]]
     items = list(getattr(req, "items", []))
+    if is_return:
+        # ใบคืนสะสมเฉพาะชิ้นที่คืนแล้ว เรียงตามเวลาที่คืน — คืนเพิ่มภายหลังจะโผล่เป็นแถวใหม่พร้อมเวลาของตัวเอง
+        items = sorted(
+            [it for it in items if getattr(it, "returned", False)],
+            key=lambda it: getattr(it, "returned_at", None) or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"),
+                  _h("สภาพเมื่อคืน"), _h("วันเวลาที่คืน")]
+    else:
+        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"), _h("มูลค่า/ชิ้น")]
+    ncol = len(header)
+    rows = [header]
     for i, item in enumerate(items, 1):
         itype = getattr(item, "item_type_snapshot", None)
         unit = getattr(item, "equipment_unit", None) or _DEFAULT_UNIT.get(itype, "ชิ้น")
         qty = getattr(item, "quantity", 1)
-        last = (_condition_th(getattr(item, "condition_on_return", None)) if is_return
-                else _fmt_money(getattr(item, "equipment_value", None)))
-        rows.append([
+        cells = [
             Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
             Paragraph(getattr(item, "equipment_code", None) or "-", _style(f"c{i}", fontSize=9, alignment=1)),
             Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
             Paragraph(_ITEM_TYPE_TH.get(itype, "-"), _style(f"t{i}", fontSize=9, alignment=1)),
             Paragraph(f"{qty} {unit}", _style(f"q{i}", fontSize=10, alignment=1)),
-            Paragraph(last, _style(f"v{i}", fontSize=9, alignment=1 if is_return else 2)),
-        ])
+        ]
+        if is_return:
+            cells.append(Paragraph(_condition_th(getattr(item, "condition_on_return", None)),
+                                   _style(f"v{i}", fontSize=9, alignment=1)))
+            cells.append(Paragraph(_fmt_datetime(getattr(item, "returned_at", None)),
+                                   _style(f"rt{i}", fontSize=8, alignment=1)))
+        else:
+            cells.append(Paragraph(_fmt_money(getattr(item, "equipment_value", None)),
+                                   _style(f"v{i}", fontSize=9, alignment=2)))
+        rows.append(cells)
     # แถวว่างเหมือนฟอร์มกระดาษ — ใช้ nbsp แทนสตริงว่างเพื่อดันความสูงแถวให้เท่ากับแถวมีข้อมูล
     blank = Paragraph("&nbsp;", _style("blank", fontSize=11, leading=17))
-    rows += [[blank] * 6] * max(0, _MIN_ITEM_ROWS - len(items))
+    rows += [[blank] * ncol] * max(0, _MIN_ITEM_ROWS - len(items))
 
     # แถวรวมมูลค่า (เฉพาะใบยืม) — ผู้ยืมต้องเห็นวงเงินรวมที่ต้องรับผิดชอบ
     total = sum((getattr(i, "equipment_value", None) or 0) * getattr(i, "quantity", 1) for i in items)
@@ -232,7 +250,11 @@ def _build_form(req: object, kind: str) -> bytes:
         ])
 
     # "วัสดุสิ้นเปลือง" ยาวสุดในคอลัมน์ประเภท ต้อง 26mm ไม่งั้นตัดบรรทัด
-    col = [10 * mm, 30 * mm, W - 10 * mm - 30 * mm - 26 * mm - 22 * mm - 26 * mm, 26 * mm, 22 * mm, 26 * mm]
+    if is_return:
+        col = [10 * mm, 26 * mm, W - 10 * mm - 26 * mm - 22 * mm - 20 * mm - 22 * mm - 28 * mm,
+               22 * mm, 20 * mm, 22 * mm, 28 * mm]
+    else:
+        col = [10 * mm, 30 * mm, W - 10 * mm - 30 * mm - 26 * mm - 22 * mm - 26 * mm, 26 * mm, 22 * mm, 26 * mm]
     # rowHeights=None (auto) — ชื่ออุปกรณ์ยาว ๆ ต้องขยายแถวเอง ไม่งั้นข้อความล้นทับเส้นตาราง
     table = Table(rows, colWidths=col, repeatRows=1)
     table.setStyle(TableStyle([

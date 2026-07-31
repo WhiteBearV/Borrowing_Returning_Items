@@ -21,12 +21,22 @@ class Bundle(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # อุปกรณ์ตัวกระตุ้น — กดเพิ่มตัวนี้ลงตะกร้าแล้วให้ขยายเป็นทั้งชุดอัตโนมัติ (เช่น คอมพิวเตอร์ตั้งโต๊ะ → พ่วงเมาส์/คีย์บอร์ด/จอ)
+    trigger_equipment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("equipment.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     items = relationship("BundleItem", back_populates="bundle", cascade="all, delete-orphan")
+    trigger_equipment = relationship("Equipment", foreign_keys=[trigger_equipment_id])
+
+    @property
+    def trigger_equipment_name(self) -> str | None:
+        """ชื่อรุ่นของอุปกรณ์ตัวกระตุ้น — ใช้จับคู่ทุกยูนิตที่ชื่อเดียวกัน (เช่น คอมตั้งโต๊ะ 40 เครื่องรุ่นเดียวกัน ใช้ชุดเดียว)"""
+        return self.trigger_equipment.name if self.trigger_equipment else None
 
 
 class BundleItem(Base):

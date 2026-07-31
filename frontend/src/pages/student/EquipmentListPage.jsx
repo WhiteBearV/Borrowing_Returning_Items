@@ -45,6 +45,20 @@ export default function EquipmentListPage() {
       : `เพิ่ม "${b.name}" ลงตะกร้าแล้ว`)
   }
 
+  // อุปกรณ์ที่เป็นตัวกระตุ้นของชุด → กดเพิ่มแล้วขยายเป็นทั้งชุดแทนการเพิ่มชิ้นเดียว
+  // จับคู่ตามชื่อรุ่นด้วย เพื่อครอบทุกยูนิตที่ชื่อเดียวกัน (คอมตั้งโต๊ะ 40 เครื่องใช้ชุดเดียว)
+  const bundleFor = (eq) => bundles.find(
+    (b) => b.trigger_equipment_id === eq.id || (b.trigger_equipment_name && b.trigger_equipment_name === eq.name),
+  )
+  const handleAdd = (eq) => {
+    const bundle = bundleFor(eq)
+    if (bundle) {
+      addItem(eq)                     // ยูนิตที่กดจริง (เช่น คอม 0006) — ชุดเก็บแค่อุปกรณ์ต่อพ่วง
+      return handleAddBundle(bundle)  // + เมาส์/คีย์บอร์ด/สายไฟ ในชุด
+    }
+    addItem(eq)
+  }
+
   useEffect(() => {
     setLoading(true)
     equipmentApi
@@ -153,7 +167,7 @@ export default function EquipmentListPage() {
                 )}
                 <button
                   disabled={!available || inCart}
-                  onClick={() => addItem(eq)}
+                  onClick={() => handleAdd(eq)}
                   className="mt-auto w-full rounded-lg py-1.5 text-sm font-medium transition-colors
                     disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed
                     enabled:bg-blue-50 enabled:text-blue-600 enabled:hover:bg-blue-100"

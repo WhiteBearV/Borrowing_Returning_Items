@@ -238,7 +238,7 @@ export default function AllBorrowsPage() {
                     >
                       {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
                     </button>
-                    {req.status === 'completed' && (
+                    {req.items?.some((i) => i.returned) && (
                       <button
                         onClick={async () => openPdf(await borrowApi.downloadReturnPdf(req.id))}
                         className="text-sm text-emerald-600 hover:underline"

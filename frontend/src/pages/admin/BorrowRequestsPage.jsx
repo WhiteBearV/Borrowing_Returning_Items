@@ -10,6 +10,7 @@ export default function BorrowRequestsPage() {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [loading, setLoading] = useState(true)
+  const [actionError, setActionError] = useState('')
 
   const load = () => {
     setLoading(true)
@@ -19,8 +20,14 @@ export default function BorrowRequestsPage() {
   useEffect(() => { load() }, [page])
 
   const approve = async (id) => {
-    await borrowApi.approve(id)
-    load()
+    setActionError('')
+    try {
+      await borrowApi.approve(id)
+      load()
+    } catch (err) {
+      // เช่น ของบางชิ้นสต็อกหมดระหว่างรออนุมัติ — ต้องบอกแอดมิน ไม่ใช่เงียบ
+      setActionError(err?.response?.data?.detail ?? 'อนุมัติไม่สำเร็จ')
+    }
   }
 
   // เปิดใบร่างฉบับเดียวกับที่นักศึกษาส่งมา (backend ออกใบร่างให้เองเมื่อคำขอยัง pending)
@@ -28,15 +35,27 @@ export default function BorrowRequestsPage() {
 
   const reject = async () => {
     if (!rejectReason.trim()) return
-    await borrowApi.reject(rejectId, rejectReason)
-    setRejectId(null)
-    setRejectReason('')
-    load()
+    setActionError('')
+    try {
+      await borrowApi.reject(rejectId, rejectReason)
+      setRejectId(null)
+      setRejectReason('')
+      load()
+    } catch (err) {
+      setActionError(err?.response?.data?.detail ?? 'ปฏิเสธไม่สำเร็จ')
+    }
   }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">คำขอรออนุมัติ</h1>
+
+      {actionError && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-600 flex justify-between gap-3">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError('')} className="text-red-400 hover:text-red-600 leading-none">×</button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>

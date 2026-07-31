@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { useCart } from '../../context/CartContext.jsx'
 import ConfirmModal from '../common/ConfirmModal.jsx'
+import NotificationBell from './NotificationBell.jsx'
 
 const STUDENT_NAV = [
   { to: '/dashboard',  label: 'หน้าหลัก' },
@@ -23,7 +24,7 @@ const ADMIN_NAV = [
   { to: '/admin/settings',        label: 'การตั้งค่า' },
   { to: '/equipment',             label: 'ยืมอุปกรณ์' },
   { to: '/borrow',                label: 'ตะกร้า', cart: true },
-  { to: '/my-borrows',            label: 'คำขอของฉัน' },
+  // admin ดูคำขอตัวเองได้ในหน้า "ประวัติการยืม" อยู่แล้ว จึงไม่ต้องมี "คำขอของฉัน" แยก
   { to: '/profile',               label: 'โปรไฟล์' },
 ]
 
@@ -49,11 +50,14 @@ export default function Sidebar() {
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-gray-200 bg-white h-screen sticky top-0">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-gray-100">
-        <p className="font-bold text-gray-800 text-sm leading-tight">ระบบยืม-คืนอุปกรณ์</p>
-        {user?.role === 'admin' && (
-          <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded mt-1 inline-block">Admin</span>
-        )}
+      <div className="px-4 py-5 border-b border-gray-100 flex items-start justify-between gap-2">
+        <div>
+          <p className="font-bold text-gray-800 text-sm leading-tight">ระบบยืม-คืนอุปกรณ์</p>
+          {user?.role === 'admin' && (
+            <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded mt-1 inline-block">Admin</span>
+          )}
+        </div>
+        <NotificationBell />
       </div>
 
       {/* Nav links */}

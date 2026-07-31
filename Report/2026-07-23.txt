@@ -1,0 +1,105 @@
+# รายงานความคืบหน้า — วันที่ 23 กรกฎาคม 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+- **ยกเว้นลิมิตการยืมให้ admin** — `app/services/borrow_service.py::create_request`
+  เพิ่มตัวแปร `is_admin = current_user.role == "admin"` แล้วข้ามการเช็ค
+  `max_active_requests_per_student` และ `max_items_per_request` เมื่อเป็น admin
+  (นักศึกษายังติดลิมิตเดิมทุกประการ) — แก้อาการอาจารย์/แอดมินยืมของเกิน 5 รายการไม่ได้
+
+- **ใบคืนแบบสะสม + คอลัมน์วัน-เวลาที่คืน** — `app/utils/pdf.py::_build_form` (สาขา return)
+  กรองรายการให้เหลือเฉพาะ `item.returned == True` เรียงตาม `returned_at`
+  และเพิ่มคอลัมน์ "วันเวลาที่คืน" ในตาราง (ใบคืน = 7 คอลัมน์, ใบยืม = 6 คอลัมน์เท่าเดิม)
+  ผลลัพธ์: คืนทีละชิ้น = ใบเดิมโตทีละแถว แต่ละแถวปั๊มเวลาคืนของตัวเอง
+  ตรงตาม Business Rule เรื่องการคืน/สรุปผลใน CLAUDE.md (returned_at มีต่อชิ้นอยู่แล้ว ไม่ต้อง migration)
+
+- **ยืมเป็นชุดผูกกับอุปกรณ์ (bundle trigger)**
+  - `app/models/bundle.py` — เพิ่มคอลัมน์ `trigger_equipment_id` (FK→equipment, ON DELETE SET NULL)
+    + relationship `trigger_equipment` + property `trigger_equipment_name` (จับคู่ตามชื่อรุ่น)
+  - `app/schemas/bundle.py` — เพิ่ม `trigger_equipment_id` ใน Create/Update/Response
+    และ `trigger_equipment_name` ใน Response
+  - `app/services/bundle_service.py` — create/update บันทึก trigger, eager-load `trigger_equipment`
+    ใน `_load` และ `list_bundles` (กัน lazy-load พังใต้ async)
+  - Migration ใหม่ `alembic/versions/0014_bundle_trigger.py` (0013 → 0014)
+
+- **สคริปต์ seed ของที่ขาด + ชุดจริง** — `scripts/seed_desktop_bundle.py` (idempotent, รันซ้ำได้)
+  - สร้าง material 3 รายการ: `ACC-MOUSE-001` เมาส์ USB, `ACC-KEYBOARD-001` คีย์บอร์ด USB,
+    `ACC-PWR-001` สายไฟ AC คอมพิวเตอร์ (Power Cord) — อย่างละ 40 ชิ้น
+  - สร้างชุด "ชุดคอมพิวเตอร์ตั้งโต๊ะ Dell Optiplex 7040 (อุปกรณ์ต่อพ่วง)"
+    trigger = คอมตั้งโต๊ะ, items = เมาส์ + คีย์บอร์ด + สายไฟ
+
+### Frontend
+
+- **ปุ่มดูใบรับคืนโผล่ตั้งแต่คืนบางส่วน** — `pages/admin/AllBorrowsPage.jsx`
+  เปลี่ยนเงื่อนไขจาก `req.status === 'completed'` เป็น `req.items?.some(i => i.returned)`
+
+- **แก้ปุ่มอนุมัติ/ปฏิเสธเงียบ** — `pages/admin/BorrowRequestsPage.jsx`
+  เดิม `approve`/`reject` ไม่มี try/catch → error โดนกลืน หน้าจอเงียบ เหมือน "กดไม่ติด"
+  เพิ่ม state `actionError` + try/catch + แถบ error สีแดง แสดง `error.response.data.detail`
+
+- **ซ่อนเมนู "คำขอของฉัน" จากแอดมิน** — `components/layout/Sidebar.jsx`
+  เอา `/my-borrows` ออกจาก `ADMIN_NAV` (แอดมินดูคำขอตัวเองใน "ประวัติการยืม" ได้อยู่แล้ว)
+
+- **เพิ่ม auto-expand ชุดตอนกดเพิ่มลงตะกร้า** — `pages/student/EquipmentListPage.jsx`
+  และ `pages/student/EquipmentDetailPage.jsx`
+  จับคู่ชุดด้วย `trigger_equipment_id === id || trigger_equipment_name === eq.name`
+  (ครอบคอมตั้งโต๊ะทั้ง 40 เครื่องด้วยชุดเดียว) แล้วเพิ่มยูนิตที่กด + อุปกรณ์ต่อพ่วงในชุด
+
+- **เพิ่มตัวเลือก "อุปกรณ์ตัวกระตุ้น" ในฟอร์มชุด** — `pages/admin/BundleManagePage.jsx`
+  dropdown เลือก trigger จากรายการในชุด + แก้ `toggleActive` ให้ส่ง trigger เดิมไปด้วย
+  (เพราะ backend เขียนทับ trigger ทุกครั้งที่ update)
+
+### อื่น ๆ (Config, Docker, Docs)
+- ตอบคำถามเชิงเทคนิคเรื่องเก็บรูปใน DB แบบ BLOB/bytea — สรุปว่า **คงเก็บไฟล์ใน /uploads ตามเดิม**
+  ไม่ย้ายไป bytea (รูปน้อย, single-server, bytea กินแรมตอนอ่าน) — ไม่มีการแก้โค้ด
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| แอดมิน "อนุมัติไม่ได้" หน้าจอเงียบ | คำขอมีของสต็อกหมด (AC1200 613001 avail=0) backend คืน 400 ถูกแล้ว แต่ปุ่มไม่มี try/catch | แก้แล้ว — เพิ่มแถบ error ให้เห็นสาเหตุ |
+| แอดมินยืมเกิน 5 รายการไม่ได้ | ลิมิต max_items_per_request บังคับทุก role | แก้แล้ว — ยกเว้น admin |
+| คอมตั้งโต๊ะ 40 เครื่องแต่ trigger ผูก equipment ได้ตัวเดียว | โมเดล trigger เป็น FK เดี่ยว | แก้แล้ว — จับคู่ตามชื่อรุ่น (trigger_equipment_name) ชุดเดียวครอบทุกยูนิต |
+| เมาส์/คีย์บอร์ด/สายไฟ AC ไม่มีแยกชิ้นในคลัง | ตัวคอมลงทะเบียน "พร้อมอุปกรณ์" ก้อนเดียว | แก้แล้ว — seed material 3 รายการ (×40) |
+| ยังไม่ได้ทดสอบ E2E คลิกจริงบน UI | ทดสอบเฉพาะ backend/สคริปต์ | พรุ่งนี้รัน frontend + คลิกทดสอบตาม flow |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบ E2E บน UI: กดเพิ่มคอมตั้งโต๊ะ → เช็คว่าได้เครื่อง + เมาส์/คีย์บอร์ด/สายไฟ ในตะกร้า
+       (ทดสอบทั้งหน้า EquipmentListPage และ EquipmentDetailPage)
+2. [ ] ทดสอบ flow คืนทีละชิ้น → เปิดใบรับคืน เช็คว่ามีเฉพาะชิ้นที่คืน + วัน-เวลาถูกต้อง แล้วคืนเพิ่ม เช็คว่าใบโต
+3. [ ] ทดสอบปุ่มอนุมัติกับคำขอที่ของหมด → ต้องเด้ง error ไม่เงียบ
+4. [ ] ปรับจำนวนเมาส์/คีย์บอร์ด/สายไฟ ให้ตรงจริง (ตอนนี้ตั้ง 40 เป็นค่าเดา) ที่หน้า "จัดการอุปกรณ์"
+5. [ ] commit งานทั้งหมดของวันนี้ (11 ไฟล์แก้ + 2 ไฟล์ใหม่) พร้อมข้อความ commit ที่ชัดเจน
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — โครงสร้างครบ, ฟีเจอร์ตาม ranked list ปิดหมด เหลือ tuning/ทดสอบ
+**Frontend:** ~98% — flow หลักครบ เหลือทดสอบ UI จริงของฟีเจอร์วันนี้ + เก็บ UX รายละเอียด
+**ระยะรวม:** ใกล้เสร็จ — เข้าสู่ช่วงเก็บบัคจากการใช้งานจริง + เตรียม deploy
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **จำนวนอุปกรณ์ต่อพ่วง (40 ชิ้น/รายการ) เป็นค่าเดา** — ต้องยืนยันจำนวนจริงกับผู้ดูแลคลังก่อนใช้งานจริง
+- **จอ 27" และสาย VGA จงใจไม่ใส่ในชุด** — เพราะตัวคอมลงทะเบียน "พร้อมอุปกรณ์...มอนิเตอร์/VGA" อยู่แล้ว
+  ถ้าใส่จะตัดสต็อกซ้ำซ้อน (จอมีแค่ 6 ตัว เป็น pool แยก) — ถ้าต้องการจริงค่อยเพิ่มผ่าน UI
+- ยังไม่ได้ commit (working tree มี 11 ไฟล์ modified + 2 untracked) — ต้อง commit ก่อนจบวัน
+- **Pending Items ตาม CLAUDE.md หัวข้อ 10** ที่ยังค้าง:
+  - รอไฟล์ Excel คลังอุปกรณ์เดิมจากทีมอื่น (column mapping + import script)
+  - ยืนยัน ALLOWED_EMAIL_DOMAINS ที่ใช้จริงกับอาจารย์ก่อน deploy
+  - LINE OA Channel Access Token (stretch goal)
+- ยังไม่ได้ migrate บนเครื่อง production — ต้องรัน `alembic upgrade head` (ถึง 0014) ตอน deploy

@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from html import escape
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,6 +10,7 @@ from app.models.borrow_request import BorrowRequest
 from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
+from app.utils.email import send_email
 
 scheduler = AsyncIOScheduler()
 
@@ -73,6 +75,19 @@ async def _check_overdue() -> None:
                        borrow_request_id=req.id)
 
         await db.commit()
+
+        # อีเมลสรุปให้ admin เป็น digest เดียวต่อรอบ กันสแปมถ้าเกินกำหนดพร้อมกันหลายรายการ
+        if admins:
+            # escape เลขคำขอ — มีส่วนที่มาจาก student_id/username ที่ผู้ใช้กรอกเอง
+            items_html = "".join(
+                f"<li>{escape(r.request_code)} (ครบกำหนด {r.due_date})</li>" for r in rows
+            )
+            body = f"<p>มีคำขอเกินกำหนดคืน {len(rows)} รายการ:</p><ul>{items_html}</ul>"
+            for admin in admins:
+                try:
+                    await send_email(admin.email, f"เกินกำหนดคืน {len(rows)} รายการ", body)
+                except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
+                    print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
 
 
 def start_scheduler() -> None:

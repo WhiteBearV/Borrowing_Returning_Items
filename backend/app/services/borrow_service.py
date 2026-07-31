@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, timezone, timedelta
+from html import escape
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, update
@@ -20,6 +21,7 @@ from app.schemas.borrow import (
     ReturnItemRequest,
 )
 from app.services import audit_service
+from app.utils.email import send_email
 
 # สถานะตอนสรุปผลอุปกรณ์ แยกตามชนิด
 DURABLE_CONDITIONS = {"ok", "damaged", "lost"}
@@ -100,21 +102,25 @@ async def create_request(
     max_active = await _get_setting_int(db, "max_active_requests_per_student")
     max_items = await _get_setting_int(db, "max_items_per_request")
 
-    active_count_result = await db.execute(
-        select(func.count(BorrowRequest.id)).where(
-            BorrowRequest.student_id == current_user.id,
-            BorrowRequest.status.in_(["pending", "approved"]),
+    # ponytail: admin/อาจารย์ ยืมเชิงจัดการ (ยืมเอง/ยืมแทน) ไม่ติดโควตานักศึกษา
+    is_admin = current_user.role == "admin"
+
+    if not is_admin:
+        active_count_result = await db.execute(
+            select(func.count(BorrowRequest.id)).where(
+                BorrowRequest.student_id == current_user.id,
+                BorrowRequest.status.in_(["pending", "approved"]),
+            )
         )
-    )
-    if (active_count_result.scalar() or 0) >= max_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You already have {max_active} active requests.",
-        )
+        if (active_count_result.scalar() or 0) >= max_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You already have {max_active} active requests.",
+            )
 
     if len(body.items) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request must have at least 1 item.")
-    if len(body.items) > max_items:
+    if not is_admin and len(body.items) > max_items:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot request more than {max_items} items at once.",
@@ -168,14 +174,35 @@ async def create_request(
             quantity=item_req.quantity,
         ))
 
-    # แจ้งเตือน admin ทุกคน
-    admins = await db.execute(select(User).where(User.role == "admin", User.is_active == True))
-    for admin in admins.scalars().all():
+    # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
+    # ได้แจ้งเตือน "มีคำขอใหม่" ซ้ำกับคำขอที่ตัวเองเพิ่งส่ง
+    admins = (await db.execute(select(User).where(User.role == "admin", User.is_active == True))).scalars().all()
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
         await _notify(db, admin.id, "new_request_admin",
                       f"คำขอยืมใหม่ {req.request_code} จาก {current_user.full_name}",
                       borrow_request_id=req.id)
 
     await db.commit()
+
+    # แจ้งเตือน admin ทางอีเมลด้วย — ต้อง commit ก่อนเผื่อส่งช้า/พัง ไม่กระทบการสร้างคำขอ
+    # escape ชื่อผู้ใช้/เลขคำขอก่อนฝัง HTML — full_name และ student_id/username มาจาก
+    # ผู้ใช้กรอกตอนสมัคร ไม่ escape จะเปิดช่อง HTML injection ในอีเมล admin
+    safe_name = escape(current_user.full_name)
+    safe_code = escape(req.request_code)
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
+        try:
+            await send_email(
+                admin.email,
+                f"คำขอยืมใหม่ {req.request_code}",
+                f"<p>{safe_name} ส่งคำขอยืม <b>{safe_code}</b> เข้ามา "
+                f"กรุณาเข้าระบบเพื่อตรวจสอบและอนุมัติ/ปฏิเสธ</p>",
+            )
+        except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้สร้างคำขอไม่สำเร็จ
+            print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
 
     # โหลด items กลับมาเพื่อ return response
     return await get_request(db, current_user, req.id)

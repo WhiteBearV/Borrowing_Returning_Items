@@ -16,7 +16,10 @@ async def _load(db: AsyncSession, bundle_id: uuid.UUID) -> Bundle:
     result = await db.execute(
         select(Bundle)
         # eager-load อุปกรณ์ในชุด — response ใช้ชื่อ/หน่วย/ของคงเหลือ ถ้า lazy-load จะพังใต้ async
-        .options(selectinload(Bundle.items).selectinload(BundleItem.equipment))
+        .options(
+            selectinload(Bundle.items).selectinload(BundleItem.equipment),
+            selectinload(Bundle.trigger_equipment),
+        )
         .where(Bundle.id == bundle_id)
     )
     bundle = result.scalar_one_or_none()
@@ -54,7 +57,10 @@ async def _replace_items(db: AsyncSession, bundle: Bundle, items: list) -> None:
 
 async def list_bundles(db: AsyncSession, active_only: bool) -> list[BundleResponse]:
     """รายชุดทั้งหมด — นักศึกษาเห็นเฉพาะชุดที่เปิดใช้งาน"""
-    query = select(Bundle).options(selectinload(Bundle.items).selectinload(BundleItem.equipment))
+    query = select(Bundle).options(
+        selectinload(Bundle.items).selectinload(BundleItem.equipment),
+        selectinload(Bundle.trigger_equipment),
+    )
     if active_only:
         query = query.where(Bundle.is_active == True)  # noqa: E712
     result = await db.execute(query.order_by(Bundle.name))
@@ -63,7 +69,8 @@ async def list_bundles(db: AsyncSession, active_only: bool) -> list[BundleRespon
 
 async def create_bundle(db: AsyncSession, admin: User, body: BundleCreate) -> BundleResponse:
     """สร้างชุดอุปกรณ์ใหม่ (admin)"""
-    bundle = Bundle(name=body.name, description=body.description, is_active=body.is_active)
+    bundle = Bundle(name=body.name, description=body.description, is_active=body.is_active,
+                    trigger_equipment_id=body.trigger_equipment_id)
     await _replace_items(db, bundle, body.items)
     db.add(bundle)
     await db.flush()
@@ -82,6 +89,8 @@ async def update_bundle(
         value = getattr(body, field)
         if value is not None:
             setattr(bundle, field, value)
+    # ponytail: ฟอร์มแอดมินส่งค่าเต็มทุกครั้ง จึง set ตรง ๆ ให้ยกเลิกตัวกระตุ้น (null) ได้ด้วย
+    bundle.trigger_equipment_id = body.trigger_equipment_id
     if body.items is not None:
         if not body.items:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle must have at least 1 item.")

@@ -12,6 +12,7 @@ function BundleForm({ initial, onClose, onSave }) {
   const [items, setItems] = useState(
     initial?.items.map((i) => ({ equipment_id: i.equipment_id, quantity: i.quantity, name: i.equipment_name })) ?? [],
   )
+  const [triggerEquipmentId, setTriggerEquipmentId] = useState(initial?.trigger_equipment_id ?? '')
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
@@ -38,9 +39,12 @@ function BundleForm({ initial, onClose, onSave }) {
     setError('')
     setLoading(true)
     try {
+      // ตัวกระตุ้นต้องเป็นของในชุด — ถ้าถูกถอดออกไปแล้วให้ล้างเป็น null
+      const trigger = items.some((i) => i.equipment_id === triggerEquipmentId) ? triggerEquipmentId : null
       const body = {
         name,
         description: description || undefined,
+        trigger_equipment_id: trigger,
         items: items.map(({ equipment_id, quantity }) => ({ equipment_id, quantity: Number(quantity) })),
       }
       if (isEdit) await bundleApi.update(initial.id, body)
@@ -101,6 +105,19 @@ function BundleForm({ initial, onClose, onSave }) {
             )}
           </div>
 
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              อุปกรณ์ตัวกระตุ้น <span className="text-gray-400">(กดเพิ่มตัวนี้ลงตะกร้าแล้วได้ทั้งชุด)</span>
+            </label>
+            <select value={triggerEquipmentId ?? ''} onChange={(e) => setTriggerEquipmentId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
+              <option value="">— ไม่ขยายอัตโนมัติ —</option>
+              {items.map((it) => (
+                <option key={it.equipment_id} value={it.equipment_id}>{it.name}</option>
+              ))}
+            </select>
+          </div>
+
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
@@ -129,7 +146,8 @@ export default function BundleManagePage() {
   useEffect(load, [])
 
   const toggleActive = async (b) => {
-    await bundleApi.update(b.id, { is_active: !b.is_active })
+    // ส่ง trigger เดิมไปด้วย เพราะ backend เขียนทับค่าตัวกระตุ้นทุกครั้งที่ update
+    await bundleApi.update(b.id, { is_active: !b.is_active, trigger_equipment_id: b.trigger_equipment_id ?? null })
     load()
   }
 

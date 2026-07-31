@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
+import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 
 const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
@@ -11,13 +12,15 @@ const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL 
 export default function EquipmentDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { cart, addItem } = useCart()
+  const { cart, addItem, addBundle } = useCart()
   const [eq, setEq] = useState(null)
+  const [bundles, setBundles] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeImg, setActiveImg] = useState(0)
 
   useEffect(() => {
     equipmentApi.get(id).then(setEq).catch(() => navigate('/equipment')).finally(() => setLoading(false))
+    bundleApi.list().then(setBundles).catch(() => {})
   }, [id])
 
   if (loading) return <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
@@ -127,7 +130,15 @@ export default function EquipmentDetailPage() {
 
           <button
             disabled={!available || inCart}
-            onClick={() => { addItem(eq); navigate('/borrow') }}
+            onClick={() => {
+              // เป็นตัวกระตุ้นของชุด → เพิ่มยูนิตนี้ + อุปกรณ์ต่อพ่วงในชุด (จับคู่ตามชื่อรุ่นด้วย ครอบทุกยูนิต)
+              const bundle = bundles.find(
+                (b) => b.trigger_equipment_id === eq.id || (b.trigger_equipment_name && b.trigger_equipment_name === eq.name),
+              )
+              addItem(eq)
+              if (bundle) addBundle(bundle)
+              navigate('/borrow')
+            }}
             className="w-full rounded-xl py-2.5 text-sm font-semibold transition-colors
               disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed
               enabled:bg-blue-600 enabled:text-white enabled:hover:bg-blue-700"
