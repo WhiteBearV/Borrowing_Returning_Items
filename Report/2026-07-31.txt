@@ -1,0 +1,94 @@
+# รายงานความคืบหน้า — วันที่ 31 กรกฎาคม 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### ตรวจสอบโครงการทั้งหมด (audit)
+เทียบโค้ดจริงกับ `01-proposal-ระบบยืมคืนอุปกรณ์.pdf`, `02-system-design.md`, บันทึกการปรึกษาทั้ง 3 รอบ
+(30 มิ.ย. / 9 ก.ค. / 16 ก.ค.) และ progress notes ถึง 23 ก.ค. — ฟีเจอร์ MVP + ข้อเสนออาจารย์ครบตามที่
+บันทึกไว้จริง (ไม่ใช่แค่มีไฟล์ ตรวจโค้ดจริงทีละ router/service) 98 pytest ผ่านตอนเริ่มตรวจ
+
+**ช่องว่างที่เจอ (backend มีแล้วแต่ frontend เข้าไม่ถึง):**
+- แจ้งเตือนในระบบ (`GET /notifications/me`) — backend สร้าง record จริง แต่ไม่มี component ไหนเรียกเลย
+- ลืมรหัสผ่าน (`/auth/forgot-password`, `/auth/reset-password`) — `LoginPage.jsx` มีลิงก์ไปหน้าที่ไม่มีจริง (404)
+- ปุ่ม remind แบบ manual, QR code อุปกรณ์ — มี API client แล้วแต่ไม่มีปุ่มเรียกใช้ (ยังไม่ได้แก้รอบนี้)
+- `notification_service.send_notification()` เป็น dead code, ช่อง email/line ใน service นี้เป็นแค่ TODO ค้าง
+
+**ช่องว่างเชิงความปลอดภัย/best practice (ยังไม่ได้แก้รอบนี้):** ไม่มี rate limit บน `/auth/login`,
+ไม่มี password policy, ไม่มี CI, `.env` ยัง `DEV_AUTO_VERIFY_EMAIL=true`, ไฟล์รูปกำพร้าใน `/uploads`
+
+### Backend
+- **`borrow_service.py::create_request`** — เพิ่มอีเมลแจ้ง admin ทุกคนเมื่อมีคำขอใหม่ (นอกเหนือจาก
+  in-app เดิม) ยกเว้นตัวเองถ้า admin ยืมของตัวเอง (self-borrow) ไม่ให้ได้แจ้งเตือน "มีคำขอใหม่" ซ้ำกับ
+  คำขอที่ตัวเองเพิ่งส่ง — เจอบั๊กนี้จากทดสอบจริงด้วยบัญชี `6610301006@cdti.ac.th` ที่ผู้ใช้ตั้งเป็น admin
+  แล้วยืมของเอง เห็นแจ้งเตือนแบบ admin ปนกับแบบผู้ยืมของคำขอเดียวกัน
+- **`scheduler.py::_check_overdue`** — เพิ่มอีเมล digest เดียวต่อรอบให้ admin ทุกคนเมื่อมีรายการเกิน
+  กำหนดคืน (กันสแปมถ้าเกินพร้อมกันหลายรายการ)
+- **security fix** (จาก background security review) — `escape()` (stdlib `html`) ชื่อผู้ใช้/เลขคำขอก่อน
+  ฝัง HTML ในอีเมล admin ทั้ง 2 จุดข้างบน `full_name` มาจากผู้ใช้กรอกตอนสมัคร ไม่ escape จะเปิดช่อง
+  HTML injection ในอีเมล
+- ตรวจสาเหตุที่อีเมลไม่ถึงจริงตอนผู้ใช้ทดสอบ: `.env` ยัง `MAIL_USERNAME=your-email@example.com`
+  (placeholder) → `_email_configured=False` → `SUPPRESS_SEND=True` ระบบ print แทนส่งจริงเสมอ ไม่ใช่บั๊ก
+  โค้ด แต่ยังไม่ได้ตั้งค่า SMTP จริง (verify ด้วยการรัน python import `app.utils.email` ตรง ๆ)
+
+### Frontend
+- **`ForgotPasswordPage.jsx`, `ResetPasswordPage.jsx`** (ไฟล์ใหม่) + route ใน `App.jsx` — ปิดช่องว่างลิงก์
+  404 ที่ `LoginPage.jsx` เดิม
+- **`NotificationBell.jsx`** (ไฟล์ใหม่) — กระดิ่งแจ้งเตือนใน `Sidebar.jsx` ทุกหน้า poll ทุก 60s, badge
+  จำนวนที่ยังไม่อ่าน, กดอ่านแล้ว mark read — จุดนี้คือของที่ backend ทำไว้ตั้งนานแต่ไม่มีใครเห็นแจ้งเตือน
+  เลยสักอัน (approved/rejected/due_soon/overdue/returned_confirmed)
+
+### Git
+- commit `f2a2594` — รวมงานค้าง 23 ก.ค. ที่ยังไม่เคย commit (ยืมชุด trigger, ยกเว้นลิมิต admin,
+  ใบคืนสะสม, seed script คอมตั้งโต๊ะ) เข้ากับงานวันนี้ทั้งหมดในคอมมิทเดียว (รายละเอียดครบใน commit body)
+
+### Tests
+- เพิ่ม `backend/tests/test_admin_email_notify.py` — 3 เคส: อีเมลถึง admin ตอนมีคำขอใหม่, admin ยืม
+  ของตัวเองต้องไม่ self-notify, digest ตอนเกินกำหนดคืน
+- **pytest 101 passed** (จาก 98 ก่อนเริ่ม) + `npm run build` ผ่านสะอาด
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| อีเมลไม่ถึงจริงตอนทดสอบ | `.env` ยังเป็น placeholder Gmail credential | ต้องกรอก MAIL_USERNAME/MAIL_PASSWORD (Gmail App Password) จริง แล้ว restart backend |
+| แจ้งเตือน admin ปนกับ user เมื่อบัญชีเดียวเป็นทั้งสองบทบาท | admin ที่ยืมของตัวเองโดน notify ซ้ำ | แก้แล้ววันนี้ — ข้าม self ในลูปแจ้งเตือน |
+| ปุ่ม remind แบบ manual + QR code ไม่มีทางเข้าจาก UI | มี backend/API client แต่ไม่มี component เรียก | ยังไม่ได้ทำรอบนี้ — รอคิว |
+| password policy ไม่มี | schema `password: str` ไม่บังคับความยาว/ความซับซ้อน | ยังไม่ได้ทำ — ต้องคุยกับผู้ใช้ก่อนว่าจะบังคับระดับไหน |
+| `DEV_AUTO_VERIFY_EMAIL=true` ยังเปิดใน `.env` | ตั้งไว้ตอน dev | ต้องปิดก่อน deploy production |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ตัดสินใจว่าจะเปิด SMTP จริงตอนไหน (ผู้ใช้ถามเรื่อง SSO/tri-party login ด้วย — แนะนำยังไม่ทำ
+       เพราะ CLAUDE.md ข้อ 11 กันไว้นอกขอบเขตเฟสนี้แล้ว)
+2. [ ] ต่อปุ่ม remind แบบ manual (`borrowApi.remind`) เข้า UI จริง
+3. [ ] พิจารณา QR code อุปกรณ์ — จะโชว์ใน EquipmentDetailPage หรือปล่อยไว้เป็น stretch goal ตามเดิม
+4. [ ] ปิด `DEV_AUTO_VERIFY_EMAIL` + เพิ่ม password policy ก่อนใกล้ deploy จริง
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% ของ MVP+feedback ทั้งหมด — ฟีเจอร์ตามบันทึกปรึกษาปิดครบ เหลือ hardening
+(rate limit, password policy, ปิด dev flag) ก่อน deploy จริง
+**Frontend:** ~99% — flow หลักครบ, ช่องว่าง UI ที่เจอวันนี้ (ลืมรหัสผ่าน, แจ้งเตือน) ปิดแล้ว เหลือ
+remind/QR ที่ยังไม่มีปุ่มเรียก
+**ระยะรวม:** ใกล้พร้อม deploy — เหลืองาน hardening ด้านความปลอดภัยและตั้งค่า SMTP จริงเป็นด่านสุดท้าย
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ALLOWED_EMAIL_DOMAINS** — `.env` ตั้งเป็น `kmitl.ac.th,student.kmitl.ac.th,cdti.ac.th` แล้ว แต่ยังไม่มี
+  การยืนยันเป็นลายลักษณ์อักษรจากอาจารย์ (Pending Items ข้อ CLAUDE.md หัวข้อ 10) — ตั้งผิด = สมัครไม่ได้ทั้งระบบ
+- **ไฟล์ Excel คลังเดิม** — ยังเหลือ 34 รายการ "ตกทะเบียน" รอถามอาจารย์ว่าเป็นครุภัณฑ์หรือวัสดุถาวร
+- **LINE OA** — ยังไม่ implement (stretch goal ตาม proposal ข้อ 3.2 อยู่แล้ว ไม่บังคับ)
+- บัญชี `6610301006@cdti.ac.th` ตอนนี้ถูกตั้งเป็น `role=admin` ในฐานข้อมูล dev (ไม่ใช่ student ตามที่
+  memory เดิมบันทึกไว้) — ต้องอัปเดต memory test-accounts ให้ตรงสถานะปัจจุบัน (ทำแล้วพร้อมรายงานนี้)

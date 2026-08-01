@@ -11,6 +11,7 @@ from app.schemas.borrow import (
     BorrowRequestResponse,
     PaginatedBorrowRequests,
     RejectRequest,
+    RequestReturnRequest,
     ReturnItemRequest,
 )
 from app.services import borrow_service
@@ -88,6 +89,18 @@ async def renew_item(
 ) -> dict:
     await borrow_service.renew_item(db, current_user, request_id, item_id)
     return {"detail": "Renewal successful."}
+
+
+@router.post("/{request_id}/request-return")
+async def request_return(
+    request_id: uuid.UUID,
+    body: RequestReturnRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """นักศึกษาแจ้งขอคืน (ทีละชิ้น/หลายชิ้น/ทั้งหมด) — ยังไม่ใช่การคืนจริง แค่แจ้ง admin ให้มายืนยัน"""
+    await borrow_service.request_return_items(db, current_user, request_id, body.item_ids)
+    return {"detail": "Return request submitted."}
 
 
 @router.post("/{request_id}/return-all")

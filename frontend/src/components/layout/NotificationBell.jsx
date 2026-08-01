@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { notificationApi } from '../../api/notificationApi.js'
+import { useAuthContext } from '../../context/AuthContext.jsx'
 
 function timeAgo(iso) {
   const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -10,17 +11,50 @@ function timeAgo(iso) {
   return `${Math.floor(hr / 24)} วันที่แล้ว`
 }
 
+// ponytail: บี๊บสั้นๆ จาก Web Audio API แทนโหลดไฟล์เสียง — เบราว์เซอร์บล็อก autoplay
+// จนกว่าจะมี user gesture บนหน้า (login ก็นับ) เงียบไว้ถ้ายัง unlock ไม่ได้ ไม่ทำให้ bell พัง
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.2, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.3)
+  } catch {
+    // เงียบไว้ — ไม่ให้ error เรื่องเสียงกระทบการแจ้งเตือนหลัก
+  }
+}
+
 export default function NotificationBell() {
+  const { user } = useAuthContext()
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
   const boxRef = useRef(null)
+  const seenIds = useRef(null) // null = ยังไม่โหลดรอบแรก
 
   useEffect(() => {
-    const load = () => notificationApi.listMine({ page: 1, page_size: 20 }).then((data) => setItems(data.items ?? []))
+    const load = () => notificationApi.listMine({ page: 1, page_size: 20 }).then((data) => {
+      const list = data.items ?? []
+      const unreadIds = list.filter((n) => !n.is_read).map((n) => n.id)
+      if (seenIds.current === null) {
+        // รอบแรกที่โหลด: จำ backlog เดิมไว้เฉยๆ ไม่ดัง กันเสียงดังทันทีตอนเปิดหน้า
+        seenIds.current = new Set(unreadIds)
+      } else {
+        const hasNew = unreadIds.some((id) => !seenIds.current.has(id))
+        if (hasNew && user?.role === 'admin') beep()
+        seenIds.current = new Set(unreadIds)
+      }
+      setItems(list)
+    })
     load()
     const id = setInterval(load, 60000) // ponytail: poll ทุก 60s แทน websocket
     return () => clearInterval(id)
-  }, [])
+  }, [user])
 
   useEffect(() => {
     const onClickOutside = (e) => {

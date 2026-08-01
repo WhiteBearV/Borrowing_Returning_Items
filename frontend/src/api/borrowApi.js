@@ -10,6 +10,8 @@ export const borrowApi = {
     api.patch(`/borrow-requests/${id}/reject`, { rejection_reason }).then((r) => r.data),
   renewItem: (id, itemId) =>
     api.post(`/borrow-requests/${id}/items/${itemId}/renew`).then((r) => r.data),
+  requestReturn: (id, itemIds) =>
+    api.post(`/borrow-requests/${id}/request-return`, { item_ids: itemIds }).then((r) => r.data),
   returnItem: (id, itemId, data) =>
     api.post(`/borrow-requests/${id}/items/${itemId}/return`, data).then((r) => r.data),
   returnAll: (id) => api.post(`/borrow-requests/${id}/return-all`).then((r) => r.data),

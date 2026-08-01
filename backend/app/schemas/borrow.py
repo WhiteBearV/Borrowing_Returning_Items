@@ -31,6 +31,8 @@ class BorrowItemResponse(BaseModel):
     damage_photo_urls: list[str] | None = None
     renewed_count: int
     extended_due_date: date | None
+    return_requested: bool
+    return_requested_at: datetime | None
 
     model_config = {"from_attributes": True}
 
@@ -67,6 +69,11 @@ class ReturnItemRequest(BaseModel):
     condition_on_return: str
     damage_note: str | None = None
     damage_photo_urls: list[str] | None = None
+
+
+class RequestReturnRequest(BaseModel):
+    """นักศึกษาแจ้งขอคืน — เลือกได้ทีละชิ้น/หลายชิ้น/ทั้งหมดในลิสต์เดียว ไม่ใช่การคืนจริง"""
+    item_ids: list[uuid.UUID] = Field(min_length=1)
 
 
 class PaginatedBorrowRequests(BaseModel):

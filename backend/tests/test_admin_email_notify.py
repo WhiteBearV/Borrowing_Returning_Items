@@ -1,4 +1,5 @@
-"""แจ้งเตือน admin ทางอีเมล (นอกเหนือจาก in-app) เมื่อมีคำขอใหม่ / เกินกำหนดคืน
+"""แจ้งเตือนทางอีเมล (นอกเหนือจาก in-app): admin เมื่อมีคำขอใหม่/เกินกำหนดคืน,
+นักศึกษาเมื่ออนุมัติ/ปฏิเสธ/รับคืน
 
 MAIL_USERNAME ใน .env test เป็น placeholder → send_email() แค่ print แทนส่งจริง
 (ดู app/utils/email.py::_email_configured) จึงตรวจผลจาก stdout ผ่าน capsys
@@ -17,6 +18,15 @@ from app.models.equipment import Equipment
 from app.models.notification import Notification
 from app.models.user import User
 from tests.conftest import auth
+
+
+async def _create_request(client: AsyncClient, student_token: str, equipment: Equipment, purpose: str) -> dict:
+    r = await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": purpose,
+        "items": [{"equipment_id": str(equipment.id), "quantity": 1}],
+    })
+    assert r.status_code == 201
+    return r.json()
 
 
 async def _cleanup_request(req_id: str, eq_id: uuid.UUID) -> None:
@@ -109,5 +119,85 @@ async def test_overdue_job_sends_admin_digest_email(
     assert f"[DEV EMAIL] To: {test_admin.email}" in out
     assert req["request_code"] in out
     assert "เกินกำหนดคืน" in out
+
+    await _cleanup_request(req["id"], test_equipment.id)
+
+
+async def test_approve_emails_student(
+    client: AsyncClient, capsys, student_token: str, admin_token: str,
+    test_student: User, test_equipment: Equipment,
+):
+    req = await _create_request(client, student_token, test_equipment, "ทดสอบอีเมลอนุมัติ")
+    capsys.readouterr()  # ล้าง output จากอีเมลแจ้ง admin ตอนสร้างคำขอ
+
+    r = await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))
+    assert r.status_code == 200
+
+    out = capsys.readouterr().out
+    assert f"[DEV EMAIL] To: {test_student.email}" in out
+    assert req["request_code"] in out
+
+    await _cleanup_request(req["id"], test_equipment.id)
+
+
+async def test_reject_emails_student(
+    client: AsyncClient, capsys, student_token: str, admin_token: str,
+    test_student: User, test_equipment: Equipment,
+):
+    req = await _create_request(client, student_token, test_equipment, "ทดสอบอีเมลปฏิเสธ")
+    capsys.readouterr()
+
+    r = await client.patch(
+        f"/borrow-requests/{req['id']}/reject",
+        headers=auth(admin_token),
+        json={"rejection_reason": "อุปกรณ์ต้องเก็บไว้ใช้ในห้องแล็บ"},
+    )
+    assert r.status_code == 200
+
+    out = capsys.readouterr().out
+    assert f"[DEV EMAIL] To: {test_student.email}" in out
+    assert req["request_code"] in out
+    assert "อุปกรณ์ต้องเก็บไว้ใช้ในห้องแล็บ" in out
+
+    await _cleanup_request(req["id"], test_equipment.id)
+
+
+async def test_return_item_emails_student(
+    client: AsyncClient, capsys, student_token: str, admin_token: str,
+    test_student: User, test_equipment: Equipment,
+):
+    req = await _create_request(client, student_token, test_equipment, "ทดสอบอีเมลรับคืนรายชิ้น")
+    assert (await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))).status_code == 200
+    item_id = req["items"][0]["id"]
+    capsys.readouterr()
+
+    r = await client.post(
+        f"/borrow-requests/{req['id']}/items/{item_id}/return",
+        headers=auth(admin_token),
+        json={"condition_on_return": "ok"},
+    )
+    assert r.status_code == 200
+
+    out = capsys.readouterr().out
+    assert f"[DEV EMAIL] To: {test_student.email}" in out
+    assert req["request_code"] in out
+
+    await _cleanup_request(req["id"], test_equipment.id)
+
+
+async def test_return_all_emails_student(
+    client: AsyncClient, capsys, student_token: str, admin_token: str,
+    test_student: User, test_equipment: Equipment,
+):
+    req = await _create_request(client, student_token, test_equipment, "ทดสอบอีเมลรับคืนทั้งหมด")
+    assert (await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))).status_code == 200
+    capsys.readouterr()
+
+    r = await client.post(f"/borrow-requests/{req['id']}/return-all", headers=auth(admin_token))
+    assert r.status_code == 200
+
+    out = capsys.readouterr().out
+    assert f"[DEV EMAIL] To: {test_student.email}" in out
+    assert req["request_code"] in out
 
     await _cleanup_request(req["id"], test_equipment.id)

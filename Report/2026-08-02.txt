@@ -1,0 +1,102 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-02
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+1. **อีเมลถึงนักศึกษาตอนอนุมัติ/ปฏิเสธ/รับคืน** (`app/services/borrow_service.py`)
+   - `approve_request`, `reject_request`, `return_item`, `return_all_items` — เดิมส่งแค่ in-app notification
+     ตอนนี้เพิ่มการส่งอีเมลหลัง `db.commit()` ด้วย (escape ข้อความก่อนฝัง HTML, ครอบ try/except ไม่ให้อีเมล
+     พังกระทบผลลัพธ์หลัก — เลียนแบบ pattern เดิมที่ใช้แจ้ง admin ตอนมีคำขอใหม่)
+   - **แก้พ่วง**: `reject_request` เดิม query คำขอแบบ `select(BorrowRequest)` เปล่า ๆ ไม่ eager-load
+     ความสัมพันธ์ `student` ทำให้ `req.student.email` throw `MissingGreenlet` (lazy-load ข้าม async
+     context ไม่ได้) — เปลี่ยนไปใช้ `_load_request()` helper ตัวเดียวกับฟังก์ชันอื่นแทน
+
+2. **แก้บั๊ก `GET /borrow-requests?status=approved` พัง 500** (`list_requests`, `borrow_service.py:220-243`)
+   - สาเหตุ: ไม่เคย eager-load ความสัมพันธ์ `approver`/`receiver` ทั้งที่ schema field
+     `approver_name`/`receiver_name` เป็น property ที่อ่าน relationship ตรง ๆ — พอมีคำขอ approved จริงตัว
+     แรกในระบบก็พังทันที (เจอจากการทดสอบใช้งานจริงข้ามเครื่อง ไม่ใช่บั๊กที่ตั้งใจแก้ไว้ก่อน)
+   - แก้: เพิ่ม `selectinload(BorrowRequest.approver)` + `selectinload(BorrowRequest.receiver)` ใน query
+
+3. **Feature ใหม่: นักศึกษาแจ้งขอคืนอุปกรณ์เอง** — Admin ยังต้องกดยืนยันการคืนจริงเหมือนเดิมทุกประการ
+   (คงตาม Business Rule ข้อ 5 ใน CLAUDE.md ที่ห้ามนักศึกษากดคืน/สรุปผลเอง — endpoint คืนจริงยังคง
+   `require_admin` ไม่เปลี่ยน)
+   - Migration ใหม่ `alembic/versions/0015_return_requested.py` — เพิ่มคอลัมน์ `return_requested`
+     (boolean) และ `return_requested_at` ใน `borrow_items`
+   - Service ใหม่ `request_return_items()` — เช็คสิทธิ์เจ้าของคำขอ (เลียนแบบ pattern ของ `renew_item`),
+     รับ item_ids เป็น list เดียว (รองรับเลือกคืนทีละชิ้น/หลายชิ้น/ทั้งหมดในคำขอเดียว), ตั้ง flag แจ้ง
+     admin ทุกคน (in-app + อีเมล) แต่**ไม่แตะ** `returned`/`quantity_available` เลย
+   - Endpoint ใหม่ `POST /borrow-requests/{id}/request-return` (`app/routers/borrow.py`) — ใช้
+     `get_current_user` ไม่ใช่ `require_admin`
+   - `return_item`/`return_all_items` เคลียร์ flag กลับเป็น `False` หลัง admin ยืนยันคืนจริงแล้ว
+
+4. **Tests เพิ่ม** — `test_admin_email_notify.py` (+4 เคสอีเมลอนุมัติ/ปฏิเสธ/รับคืนทีละชิ้น/ทั้งหมด),
+   `test_advisor_fixes.py` (+1 เคส list approved ไม่พัง กันบั๊กข้อ 2 กลับมา), `test_return_request.py`
+   (ไฟล์ใหม่ 6 เคส: แจ้งขอคืน 1/หลายชิ้น, เจ้าของคำขอเท่านั้น, ต้อง approved ก่อน, คืนไปแล้วแจ้งซ้ำไม่ได้,
+   flag เคลียร์หลัง admin ยืนยันจริง) — **pytest รวม 112 ผ่านทั้งหมด** (จากเดิม 101 เมื่อวาน)
+
+### Frontend
+
+1. **`NotificationBell.jsx`** — เพิ่มเสียงแจ้งเตือน (Web Audio API oscillator, ไม่มี asset ไฟล์เสียง ไม่เพิ่ม
+   dependency) เล่นเฉพาะบัญชี admin เมื่อมีการแจ้งเตือน**ใหม่จริง**เท่านั้น (เก็บ id ที่เคยเห็นในรอบ poll
+   ก่อนหน้าไว้เทียบ กันเสียงดังซ้ำกับ backlog เก่าตอนเปิดหน้าครั้งแรก)
+2. **`MyBorrowsPage.jsx`** — เพิ่ม checkbox เลือกอุปกรณ์ที่จะแจ้งขอคืน (ทีละชิ้น/หลายชิ้น/ทั้งหมด), ปุ่ม
+   "เลือกทั้งหมด", popup ยืนยันก่อนส่งกันกดพลาด, badge "รอ Admin ยืนยันคืน" หลังแจ้งไปแล้ว
+3. **`AllBorrowsPage.jsx`** — badge "นักศึกษาแจ้งขอคืนแล้ว" ต่อรายการอุปกรณ์ ช่วยให้ admin เห็นว่าอันไหน
+   นักศึกษาแจ้งมาแล้ว (ไม่แตะปุ่ม/modal รับคืนเดิมเลย — การกดรับคืนแบบเดิมคือการ "ยืนยัน" ตามที่ต้องการ)
+4. **`borrowApi.js`** — เพิ่ม `requestReturn(id, itemIds)`
+
+### อื่น ๆ (Config, ทดสอบข้ามเครื่อง)
+
+- ตั้งค่าให้ทดสอบข้ามเครื่องในเครือข่ายเดียวกันได้จริง: `frontend/.env` (`VITE_API_URL`),
+  `backend/.env` (`FRONTEND_URL`/`APP_BASE_URL`) ชี้ไปที่ LAN IP ของเครื่อง, รัน backend
+  (`uvicorn --host 0.0.0.0`) และ frontend (`vite --host`) แบบ background
+- ทดสอบยืม-อนุมัติ-แจ้งเตือนจริงข้ามอุปกรณ์ (มือถือ + คอมพิวเตอร์) จนเจอบั๊กข้อ 2 ข้างต้นจากการใช้งานจริง
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| Login ไม่ผ่านตอนเปิดผ่าน `localhost:5173` บนเครื่อง admin เอง | ตั้ง `FRONTEND_URL` เป็น LAN IP สำหรับให้เครื่องอื่นเข้าได้ ทำให้ CORS ไม่รับ origin `localhost` อีกต่อไป | แก้แล้ว — ต้องเปิดผ่าน LAN IP เดียวกันทุกเครื่องรวมเครื่อง admin เองด้วย |
+| `GET /borrow-requests?status=approved` พัง 500 (`MissingGreenlet`) | `list_requests` ไม่ eager-load `approver`/`receiver` | แก้แล้ววันนี้ (ดูข้อ 2 ด้านบน) |
+| อีเมลยังไม่ส่งจริงเข้ากล่องจดหมาย | `.env` `MAIL_USERNAME` ยังเป็น placeholder → `SUPPRESS_SEND=True`, print เป็น `[DEV EMAIL]` แทน | ผู้ใช้เลือกทดสอบด้วย DEV EMAIL log ไปก่อน รอตัดสินใจตั้ง Gmail App Password ทีหลัง |
+| บัญชี `6610301006@cdti.ac.th` ที่เคยเป็น admin ถูกลบแล้วสมัครใหม่เป็น student | ผู้ใช้ทดสอบเองผ่าน UI | อัปเดต memory แล้ว ไม่ใช่บัญชี admin ทดสอบอีกต่อไป |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบ E2E จริงบนเบราว์เซอร์คน: เสียงแจ้งเตือน admin + flow แจ้งขอคืนของนักศึกษาให้ครบ (วันนี้ทำแค่
+   `npm run build` ผ่าน ยังไม่ได้คลิกทดสอบจริงในเบราว์เซอร์)
+2. [ ] ต่อปุ่ม remind แบบ manual (`borrowApi.remind`) เข้า UI จริง (ค้างจากก่อนหน้า)
+3. [ ] ตัดสินใจเรื่องตั้งค่า SMTP จริง (Gmail App Password) ถ้าต้องการให้อีเมลไปถึงกล่องจดหมายจริง
+4. [ ] พิจารณาว่าจะเพิ่มหน้า/filter คิว "รอยืนยันคืน" แยกต่างหากไหม (ตอนนี้ตั้งใจไม่ทำ ให้ badge ในหน้าเดิม
+   พอก่อน ตามที่คุยกันไว้)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~95% — core flow ยืม→อนุมัติ→คืน ครบพร้อมแจ้งเตือนอีเมล/in-app ครบทั้งสองทิศทาง (admin↔student)
+แล้ว เหลืองาน polish เล็กน้อย (remind button ยังไม่ต่อ UI, ตั้งค่า SMTP จริง)
+
+**Frontend:** ~95% — ครบ flow หลักรวมเสียงแจ้งเตือนและ UI แจ้งขอคืนของนักศึกษาแล้ว เหลือทดสอบ E2E จริงบน
+เบราว์เซอร์/มือถือให้ครบ
+
+**ระยะรวม:** ใกล้ feature-complete ตาม scope ที่ตกลงกันไว้ เหลืองาน config ก่อน deploy จริง (SMTP,
+ยืนยัน ALLOWED_EMAIL_DOMAINS, ปิด DEV_AUTO_VERIFY_EMAIL)
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- `DEV_AUTO_VERIFY_EMAIL=true` ยังเปิดอยู่ใน `.env` — ต้องปิดก่อน deploy จริง (CLAUDE.md ข้อ 10)
+- `ALLOWED_EMAIL_DOMAINS` ยังไม่ได้ยืนยันกับอาจารย์เป็นลายลักษณ์อักษร (ค้างจากก่อนหน้า, CLAUDE.md ข้อ 10)
+- ยังไม่มี rate limit login, password policy, CI pipeline (จาก audit เต็มโปรเจคก่อนหน้า)
+- SMTP ยังเป็น placeholder — ทุกอีเมลในระบบ (รวมของใหม่วันนี้ 3 จุด) ยังเป็นแค่ print log ไม่ได้ส่งจริง

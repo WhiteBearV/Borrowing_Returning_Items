@@ -120,6 +120,28 @@ async def test_approved_request_exposes_approver_name(
         await _cleanup_request(req_id, test_equipment.id)
 
 
+async def test_list_approved_requests_does_not_crash(
+    client: AsyncClient, admin_token: str, student_token: str,
+    test_admin: User, test_equipment: Equipment
+):
+    """GET /borrow-requests?status=approved ต้องไม่พัง — list_requests ไม่เคย eager-load
+    approver/receiver relationship มาก่อน ทั้งที่ approver_name/receiver_name เป็น property
+    ที่อ่าน relationship ตรงๆ พอมีคำขอ approved_by ไม่ null lazy-load ใต้ async จะ MissingGreenlet"""
+    req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": "ทดสอบ list ไม่พังหลังอนุมัติ",
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+    })).json()["id"]
+    try:
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve",
+                                   headers=auth(admin_token))).status_code == 200
+        r = await client.get("/borrow-requests?status=approved&page_size=50", headers=auth(admin_token))
+        assert r.status_code == 200
+        body = next(item for item in r.json()["items"] if item["id"] == req_id)
+        assert body["approver_name"] == test_admin.full_name
+    finally:
+        await _cleanup_request(req_id, test_equipment.id)
+
+
 async def test_returned_request_exposes_receiver_name(
     client: AsyncClient, admin_token: str, student_token: str,
     test_admin: User, test_equipment: Equipment

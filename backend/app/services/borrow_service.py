@@ -220,6 +220,10 @@ async def list_requests(
     query = select(BorrowRequest).options(
         selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
         selectinload(BorrowRequest.student),
+        # approver_name/receiver_name เป็น property ที่อ่าน relationship ตรงๆ (models/borrow_request.py)
+        # ไม่ eager-load จะพัง MissingGreenlet ทันทีที่มีคำขอที่ approved_by/returned_by ไม่ใช่ null
+        selectinload(BorrowRequest.approver),
+        selectinload(BorrowRequest.receiver),
     )
 
     if current_user.role != "admin":
@@ -318,15 +322,23 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
                                    {"request_code": req.request_code, "due_date": str(req.due_date)})
     await db.commit()
 
+    # แจ้งเตือนนักศึกษาทางอีเมลด้วย — ต้อง commit ก่อนเผื่อส่งช้า/พัง ไม่กระทบผลอนุมัติ
+    try:
+        await send_email(
+            req.student.email,
+            f"คำขอ {req.request_code} ได้รับการอนุมัติ",
+            f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ได้รับการอนุมัติแล้ว "
+            f"กรุณาคืนภายใน {req.due_date}</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลอนุมัติเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
+
 
 async def reject_request(
     db: AsyncSession, admin: User, request_id: uuid.UUID, reason: str
 ) -> None:
     """ปฏิเสธคำขอ พร้อมบันทึกเหตุผล"""
-    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
+    req = await _load_request(db, request_id)
     if req.status != "pending":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -341,6 +353,16 @@ async def reject_request(
     await audit_service.log_action(db, admin, "reject_request", "borrow_requests", req.id,
                                    {"request_code": req.request_code, "reason": reason})
     await db.commit()
+
+    # แจ้งเตือนนักศึกษาทางอีเมลด้วย — reason เป็นข้อความที่ admin พิมพ์เอง ต้อง escape กัน HTML injection
+    try:
+        await send_email(
+            req.student.email,
+            f"คำขอ {req.request_code} ถูกปฏิเสธ",
+            f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ถูกปฏิเสธ: {escape(reason)}</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลปฏิเสธเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
 async def renew_item(
@@ -380,6 +402,64 @@ async def renew_item(
     await db.commit()
 
 
+async def request_return_items(
+    db: AsyncSession, current_user: User, request_id: uuid.UUID, item_ids: list[uuid.UUID]
+) -> None:
+    """นักศึกษาแจ้งขอคืนอุปกรณ์ (ทีละชิ้น/หลายชิ้น/ทั้งหมด) — แค่ตั้ง flag แจ้ง admin
+
+    ไม่แตะ returned/quantity_available เลย — การคืนจริงยังต้องผ่าน return_item/return_all_items
+    (admin only) เหมือนเดิมทุกประการ ตาม CLAUDE.md ข้อ 5
+    """
+    req = await _load_request(db, request_id)
+    if current_user.role != "admin" and req.student_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    if req.status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only request return on approved requests.",
+        )
+
+    matched = []
+    for item_id in item_ids:
+        item = next((i for i in req.items if i.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+        if item.returned:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item already returned.")
+        matched.append(item)
+
+    now = datetime.now(timezone.utc)
+    for item in matched:
+        item.return_requested = True
+        item.return_requested_at = now
+
+    # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเองแจ้งตัวเองซ้ำซ้อน
+    admins = (await db.execute(select(User).where(User.role == "admin", User.is_active == True))).scalars().all()
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
+        await _notify(db, admin.id, "return_requested_admin",
+                      f"นักศึกษาแจ้งขอคืนอุปกรณ์ {len(matched)} รายการจากคำขอ {req.request_code}",
+                      borrow_request_id=req.id)
+    await db.commit()
+
+    # แจ้งเตือน admin ทางอีเมลด้วย — ต้อง commit ก่อนเผื่อส่งช้า/พัง ไม่กระทบผลการแจ้งขอคืน
+    safe_name = escape(current_user.full_name)
+    safe_code = escape(req.request_code)
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
+        try:
+            await send_email(
+                admin.email,
+                f"นักศึกษาแจ้งขอคืนคำขอ {req.request_code}",
+                f"<p>{safe_name} แจ้งขอคืนอุปกรณ์ {len(matched)} รายการจากคำขอ <b>{safe_code}</b> "
+                f"กรุณาเข้าระบบเพื่อตรวจสอบและยืนยันรับคืน</p>",
+            )
+        except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้แจ้งขอคืนไม่สำเร็จ
+            print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
+
+
 async def return_item(
     db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, body: ReturnItemRequest
 ) -> None:
@@ -413,6 +493,8 @@ async def return_item(
     item.condition_on_return = body.condition_on_return
     item.damage_note = body.damage_note
     item.damage_photo_urls = body.damage_photo_urls
+    item.return_requested = False  # เคลียร์ป้ายแจ้งขอคืน กัน badge ค้างหลังคืนจริงแล้ว
+    item.return_requested_at = None
     req.returned_by = admin.id  # ผู้รับคืนล่าสุด — ใบคืนต้องระบุว่าใครรับของมา
 
     if body.condition_on_return in STOCK_RETURN_CONDITIONS:
@@ -432,6 +514,16 @@ async def return_item(
                                     "condition": body.condition_on_return})
     await db.commit()
 
+    # แจ้งเตือนนักศึกษาทางอีเมลด้วย
+    try:
+        await send_email(
+            req.student.email,
+            f"รับคืนอุปกรณ์จากคำขอ {req.request_code}",
+            f"<p>รับคืนอุปกรณ์จากคำขอ <b>{escape(req.request_code)}</b> แล้ว</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลรับคืนเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
+
 
 async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
     """รับคืนครุภัณฑ์ (durable) ทุกชิ้นพร้อมกันแบบสภาพปกติ — admin only
@@ -449,6 +541,8 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
             item.returned = True
             item.returned_at = now
             item.condition_on_return = "ok"
+            item.return_requested = False  # เคลียร์ป้ายแจ้งขอคืน กัน badge ค้างหลังคืนจริงแล้ว
+            item.return_requested_at = None
             item.equipment.quantity_available += item.quantity
             req.returned_by = admin.id
 
@@ -463,6 +557,16 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
     await audit_service.log_action(db, admin, "confirm_return", "borrow_requests", req.id,
                                    {"request_code": req.request_code, "durable_all": True})
     await db.commit()
+
+    # แจ้งเตือนนักศึกษาทางอีเมลด้วย
+    try:
+        await send_email(
+            req.student.email,
+            f"รับคืนครุภัณฑ์จากคำขอ {req.request_code}",
+            f"<p>รับคืนครุภัณฑ์จากคำขอ <b>{escape(req.request_code)}</b> แล้ว</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลรับคืนเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
 async def generate_pdf(

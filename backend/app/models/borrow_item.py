@@ -29,6 +29,9 @@ class BorrowItem(Base):
     damage_photo_urls: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     renewed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     extended_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # นักศึกษาแจ้งขอคืนเอง — แค่ป้ายแจ้ง admin ยังไม่กระทบ returned/quantity_available จนกว่า admin ยืนยัน
+    return_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    return_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

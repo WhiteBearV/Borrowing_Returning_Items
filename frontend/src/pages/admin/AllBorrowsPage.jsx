@@ -199,6 +199,11 @@ export default function AllBorrowsPage() {
                             ) : (
                               req.status === 'approved' && <span className="text-xs text-blue-500">{isConsumable ? 'เบิกแล้ว (รอสรุป)' : 'ยังไม่คืน'}</span>
                             )}
+                            {!item.returned && item.return_requested && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
+                                นักศึกษาแจ้งขอคืนแล้ว
+                              </span>
+                            )}
                           </div>
                           {item.damage_note && <p className="text-xs text-gray-400 mt-0.5">หมายเหตุ: {item.damage_note}</p>}
                           {item.damage_photo_urls?.length > 0 && (

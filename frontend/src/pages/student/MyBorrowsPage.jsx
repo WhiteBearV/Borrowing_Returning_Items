@@ -24,6 +24,7 @@ export default function MyBorrowsPage() {
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [selectedItems, setSelectedItems] = useState(new Set())
 
   const load = () => {
     setLoading(true)
@@ -31,6 +32,11 @@ export default function MyBorrowsPage() {
   }
 
   useEffect(() => { load() }, [page])
+
+  const toggleExpand = (id) => {
+    setExpanded(expanded === id ? null : id)
+    setSelectedItems(new Set())
+  }
 
   const cancel = async (id) => {
     if (!confirm('ยืนยันการยกเลิกคำขอ?')) return
@@ -40,6 +46,22 @@ export default function MyBorrowsPage() {
 
   const renew = async (reqId, itemId) => {
     await borrowApi.renewItem(reqId, itemId)
+    load()
+  }
+
+  const toggleSelect = (itemId) => {
+    setSelectedItems((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }
+
+  const requestReturn = async (reqId) => {
+    if (!confirm('ยืนยันว่าต้องการแจ้งขอคืนอุปกรณ์ที่เลือกใช่หรือไม่?')) return
+    await borrowApi.requestReturn(reqId, [...selectedItems])
+    setSelectedItems(new Set())
     load()
   }
 
@@ -56,11 +78,16 @@ export default function MyBorrowsPage() {
         <p className="text-center text-gray-400 py-16">ยังไม่มีคำขอยืม</p>
       ) : (
         <div className="space-y-3">
-          {data.items.map((req) => (
+          {data.items.map((req) => {
+          const selectableIds = req.status === 'approved'
+            ? req.items.filter((i) => !i.returned && !i.return_requested).map((i) => i.id)
+            : []
+          const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedItems.has(id))
+          return (
             <div key={req.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               {/* Header row */}
               <button
-                onClick={() => setExpanded(expanded === req.id ? null : req.id)}
+                onClick={() => toggleExpand(req.id)}
                 className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
               >
                 <div className="flex items-center gap-3">
@@ -92,20 +119,32 @@ export default function MyBorrowsPage() {
                   <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 overflow-hidden">
                     {req.items.map((item) => (
                       <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                        <div>
-                          <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
-                          <span className="ml-2 text-xs text-gray-400">×{item.quantity}</span>
-                          {item.returned ? (
-                            <span className={`ml-2 text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
-                              {ITEM_CONDITION_LABEL[item.condition_on_return] ?? 'คืนแล้ว'}
-                            </span>
-                          ) : (
-                            req.status === 'approved' && item.item_type_snapshot === 'consumable' &&
-                            <span className="ml-2 text-xs text-blue-500">เบิกแล้ว (รอสรุป)</span>
+                        <div className="flex items-center gap-2">
+                          {selectableIds.includes(item.id) && (
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(item.id)}
+                              onChange={() => toggleSelect(item.id)}
+                              className="rounded border-gray-300"
+                            />
                           )}
-                          {item.renewed_count > 0 && (
-                            <span className="ml-2 text-xs text-blue-500">ต่อเวลา {item.renewed_count}×</span>
-                          )}
+                          <div>
+                            <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
+                            <span className="ml-2 text-xs text-gray-400">×{item.quantity}</span>
+                            {item.returned ? (
+                              <span className={`ml-2 text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
+                                {ITEM_CONDITION_LABEL[item.condition_on_return] ?? 'คืนแล้ว'}
+                              </span>
+                            ) : item.return_requested ? (
+                              <span className="ml-2 text-xs text-purple-600">รอ Admin ยืนยันคืน</span>
+                            ) : (
+                              req.status === 'approved' && item.item_type_snapshot === 'consumable' &&
+                              <span className="ml-2 text-xs text-blue-500">เบิกแล้ว (รอสรุป)</span>
+                            )}
+                            {item.renewed_count > 0 && (
+                              <span className="ml-2 text-xs text-blue-500">ต่อเวลา {item.renewed_count}×</span>
+                            )}
+                          </div>
                         </div>
                         {req.status === 'approved' && !item.returned && item.item_type_snapshot === 'durable' && (
                           <button
@@ -118,6 +157,28 @@ export default function MyBorrowsPage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* เลือกทั้งหมด + แจ้งขอคืน */}
+                  {selectableIds.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      {selectableIds.length > 1 ? (
+                        <button
+                          onClick={() => setSelectedItems(allSelected ? new Set() : new Set(selectableIds))}
+                          className="text-xs text-gray-500 hover:underline"
+                        >
+                          {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'}
+                        </button>
+                      ) : <span />}
+                      {selectedItems.size > 0 && (
+                        <button
+                          onClick={() => requestReturn(req.id)}
+                          className="text-xs font-semibold text-purple-600 hover:underline"
+                        >
+                          แจ้งขอคืนที่เลือก ({selectedItems.size})
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Actions */}
                   <div className="flex gap-2 pt-1">
@@ -148,7 +209,7 @@ export default function MyBorrowsPage() {
                 </div>
               )}
             </div>
-          ))}
+          )})}
         </div>
       )}
 
