@@ -59,7 +59,7 @@ export default function Sidebar({ open, onClose }) {
       )}
 
       <aside
-        className={`flex flex-col w-64 md:w-56 shrink-0 border-r border-gray-200 bg-white h-screen
+        className={`flex flex-col w-64 md:w-56 shrink-0 border-r border-gray-200 bg-white h-screen overflow-y-auto
         fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out
         ${open ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0 md:sticky md:top-0 md:z-auto`}
@@ -76,7 +76,7 @@ export default function Sidebar({ open, onClose }) {
         </div>
 
         {/* Nav links */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1">
           {nav.map(({ to, label, cart: showCart }) => (
             <NavLink key={to} to={to} className={linkClass} onClick={onClose}>
               {label}

@@ -153,7 +153,7 @@ export default function BundleManagePage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">ชุดอุปกรณ์</h1>
           <p className="text-sm text-gray-500 mt-0.5">ชุดเป็นทางลัดหยิบของใส่ตะกร้า นักศึกษาถอดของออกจากชุดได้เอง</p>
