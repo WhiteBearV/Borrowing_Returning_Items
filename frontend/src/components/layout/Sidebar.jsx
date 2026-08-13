@@ -59,10 +59,10 @@ export default function Sidebar({ open, onClose }) {
       )}
 
       <aside
-        className={`flex flex-col w-64 md:w-56 shrink-0 border-r border-gray-200 bg-white h-screen overflow-y-auto
+        className={`flex flex-col w-64 md:w-56 shrink-0 border-r border-gray-200 bg-white overflow-y-auto
         fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out
         ${open ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:sticky md:top-0 md:z-auto`}
+        md:translate-x-0 md:sticky md:top-0 md:z-auto md:h-screen`}
       >
         {/* Logo */}
         <div className="px-4 py-5 border-b border-gray-100 flex items-start justify-between gap-2">
