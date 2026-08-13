@@ -27,6 +27,7 @@ from app.services import audit_service
 from app.utils.qrcode_gen import generate_qr_png
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 async def save_image(file: UploadFile) -> str:
@@ -34,8 +35,12 @@ async def save_image(file: UploadFile) -> str:
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_IMAGE_EXT:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type.")
+    # ต้องเช็คขนาดก่อน read() — endpoint อัปโหลดรูปโปรไฟล์เปิดให้นักศึกษาทุกคนยิงได้
+    # ถ้าเช็คหลัง read() ไฟล์ขนาดกี่ GB ก็ถูกโหลดเข้า RAM จนหมดก่อนถึงบรรทัดตรวจ = worker ตาย
+    if file.size is not None and file.size > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB).")
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:  # จำกัด 5MB กันไฟล์ใหญ่เกิน
+    if len(contents) > MAX_IMAGE_BYTES:  # เผื่อกรณี .size เป็น None
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB).")
     filename = f"{uuid.uuid4().hex}{ext}"
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -143,6 +148,10 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
     for field, value in changed.items():
         setattr(eq, field, value)
+    # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
+    # ถ้าไม่ดักไว้จะไปชน CHECK constraint แล้วกลายเป็น 500 แทนที่จะทำสิ่งที่แอดมินตั้งใจ
+    if eq.quantity_available > eq.quantity_total:
+        eq.quantity_available = eq.quantity_total
     if body.image_urls is not None:
         eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
     if body.category_ids is not None:

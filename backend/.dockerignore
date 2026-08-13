@@ -1,0 +1,17 @@
+# .env มี SECRET_KEY กับรหัสผ่านอีเมล — ห้ามอบติดไปกับ image layer
+# prod ส่งค่าผ่าน environment ของ compose แทน (pydantic-settings อ่าน env ก่อน env_file อยู่แล้ว)
+.env
+.env.*
+!.env.example
+
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ไฟล์จริงอยู่ใน docker volume ไม่ใช่ใน image
+uploads/
+
+tests/
+*.db
+*.sqlite3

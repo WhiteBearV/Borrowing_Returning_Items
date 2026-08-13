@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: true, // ฟังทุก interface ให้มือถือ/เครื่องอื่นใน LAN เข้าถึงได้ — IP เครื่องไหนก็ได้ ไม่ต้องตั้งเอง
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

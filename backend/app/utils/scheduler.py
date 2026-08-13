@@ -3,16 +3,20 @@ from html import escape
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.core.config import TZ
 from app.core.database import AsyncSessionLocal
+from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
 from app.utils.email import send_email
 
-scheduler = AsyncIOScheduler()
+# ต้องระบุ timezone ไม่งั้น APScheduler ใช้โซนของ container ซึ่งเป็น UTC
+# แล้ว CronTrigger(hour=0) จะไปยิงตอน 07:00 น. เวลาไทย ไม่ใช่เที่ยงคืนอย่างที่ตั้งใจ
+scheduler = AsyncIOScheduler(timezone=TZ)
 
 
 def _notif(db, user_id, notif_type, message, borrow_request_id=None):
@@ -51,11 +55,23 @@ async def _check_due_soon() -> None:
 async def _check_overdue() -> None:
     """ตั้งค่า is_overdue=True และแจ้งเตือนรายการที่เกินกำหนดคืน (รันทุกวันเที่ยงคืน)"""
     async with AsyncSessionLocal() as db:
+        # เทียบกำหนดคืน "ที่ใช้จริง" ของแต่ละรายการ = extended_due_date ถ้าต่อเวลาแล้ว
+        # ไม่งั้นใช้ due_date ของใบ — ดูแค่ due_date ระดับใบอย่างเดียวจะทวงคนที่ต่อเวลาถูกต้อง
+        # ใบไหนมีรายการที่ยังไม่คืนและเลยกำหนดแม้แต่ชิ้นเดียว ถือว่าใบนั้นเกินกำหนด
+        has_overdue_item = (
+            select(BorrowItem.id)
+            .where(
+                BorrowItem.borrow_request_id == BorrowRequest.id,
+                BorrowItem.returned == False,
+                func.coalesce(BorrowItem.extended_due_date, BorrowRequest.due_date) < date.today(),
+            )
+            .exists()
+        )
         rows = (await db.execute(
             select(BorrowRequest).where(
                 BorrowRequest.status == "approved",
-                BorrowRequest.due_date < date.today(),
                 BorrowRequest.is_overdue == False,
+                has_overdue_item,
             )
         )).scalars().all()
 
@@ -91,6 +107,10 @@ async def _check_overdue() -> None:
 
 
 def start_scheduler() -> None:
-    scheduler.add_job(_check_due_soon, CronTrigger(hour=0, minute=0), id="due_soon")
-    scheduler.add_job(_check_overdue, CronTrigger(hour=0, minute=1), id="overdue")
+    # misfire_grace_time: ถ้า VM ปิด/รีสตาร์ตคร่อมเที่ยงคืน job จะรันชดเชยภายใน 1 ชม.
+    # ไม่ใส่ = รอบนั้นหายถาวร ไม่มีใครได้รับแจ้งเตือนของวันนั้นเลย
+    scheduler.add_job(_check_due_soon, CronTrigger(hour=0, minute=0),
+                      id="due_soon", misfire_grace_time=3600)
+    scheduler.add_job(_check_overdue, CronTrigger(hour=0, minute=1),
+                      id="overdue", misfire_grace_time=3600)
     scheduler.start()

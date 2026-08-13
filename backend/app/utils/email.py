@@ -2,13 +2,17 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 
 from app.core.config import settings
 
-# ถ้า MAIL_USERNAME ยังเป็น placeholder → print แทนส่งจริง (dev convenience)
-_email_configured = settings.MAIL_USERNAME not in ("", "your-email@example.com")
+# ปิดด้วย ENABLE_EMAIL=false หรือ MAIL_USERNAME ยังเป็น placeholder → print แทนส่งจริง
+# main.py อ่านค่านี้ไปเตือนตอน startup ด้วย จะได้ไม่เผลอ deploy ทั้งที่อีเมลไม่ออก
+_email_configured = settings.ENABLE_EMAIL and settings.MAIL_USERNAME not in ("", "your-email@example.com")
+email_configured = _email_configured
 
 mail_config = ConnectionConfig(
     MAIL_USERNAME=settings.MAIL_USERNAME or "dev",
     MAIL_PASSWORD=settings.MAIL_PASSWORD or "dev",
-    MAIL_FROM=settings.MAIL_FROM or "dev@localhost",
+    # ต้องเป็นอีเมลที่ผ่าน validator ของ pydantic แม้ตอนไม่ได้ตั้งค่าจริง
+    # ("dev@localhost" ไม่ผ่านเพราะไม่มีจุด ทำให้แอปบูตไม่ขึ้นเลยตอน deploy ที่ยังไม่ตั้ง SMTP)
+    MAIL_FROM=settings.MAIL_FROM or "noreply@example.com",
     MAIL_PORT=settings.MAIL_PORT,
     MAIL_SERVER=settings.MAIL_SERVER,
     MAIL_STARTTLS=settings.MAIL_STARTTLS,

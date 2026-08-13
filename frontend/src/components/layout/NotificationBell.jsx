@@ -11,23 +11,10 @@ function timeAgo(iso) {
   return `${Math.floor(hr / 24)} วันที่แล้ว`
 }
 
-// ponytail: บี๊บสั้นๆ จาก Web Audio API แทนโหลดไฟล์เสียง — เบราว์เซอร์บล็อก autoplay
+// ไฟล์เสียงอยู่ที่ frontend/public/notification.wav — เบราว์เซอร์อาจบล็อก autoplay
 // จนกว่าจะมี user gesture บนหน้า (login ก็นับ) เงียบไว้ถ้ายัง unlock ไม่ได้ ไม่ทำให้ bell พัง
 function beep() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    gain.gain.setValueAtTime(0.2, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.3)
-  } catch {
-    // เงียบไว้ — ไม่ให้ error เรื่องเสียงกระทบการแจ้งเตือนหลัก
-  }
+  new Audio('/notification.wav').play().catch(() => {})
 }
 
 export default function NotificationBell() {
@@ -46,13 +33,13 @@ export default function NotificationBell() {
         seenIds.current = new Set(unreadIds)
       } else {
         const hasNew = unreadIds.some((id) => !seenIds.current.has(id))
-        if (hasNew && user?.role === 'admin') beep()
+        if (hasNew) beep()
         seenIds.current = new Set(unreadIds)
       }
       setItems(list)
     })
     load()
-    const id = setInterval(load, 60000) // ponytail: poll ทุก 60s แทน websocket
+    const id = setInterval(load, 10000) // ponytail: poll ทุก 10s แทน websocket
     return () => clearInterval(id)
   }, [user])
 

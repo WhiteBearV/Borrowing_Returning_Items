@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr
 
+from app.schemas.auth import Password
+
 
 class UserResponse(BaseModel):
     id: uuid.UUID
@@ -22,7 +24,7 @@ class UserResponse(BaseModel):
 class UserCreateRequest(BaseModel):
     email: EmailStr
     full_name: str
-    password: str
+    password: Password
     role: str = "student"  # student / admin
     username: str | None = None
     student_id: str | None = None

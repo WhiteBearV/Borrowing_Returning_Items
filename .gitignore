@@ -73,3 +73,6 @@ CLAUDE.md
 
 # Test output / screenshots
 result/
+
+# ไฟล์ทะเบียนที่แอดมินอัปมา preview (เก็บนอก uploads/ เพราะ uploads/ ถูกเสิร์ฟสาธารณะ)
+backend/import_tmp/

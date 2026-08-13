@@ -7,34 +7,45 @@
 # รูปอยู่บนดิสก์ (uploads/) ไม่ได้อยู่ใน DB จึงต้อง backup แยกอีกชุด
 # ไม่งั้นกู้ DB มาแล้ว path รูปในตารางจะชี้ไปไฟล์ที่ไม่มีอยู่
 #
-# ใช้: bash backend/scripts/backup_db.sh
-# ตั้ง cron ตี 2 ทุกวัน:  0 2 * * * bash /path/to/backend/scripts/backup_db.sh >> /var/log/eqb-backup.log 2>&1
+# ทุกอย่างวิ่งผ่าน docker compose exec เพราะ deploy จริงไม่ publish port 5432
+# ออกมาที่ host และไฟล์รูปจริงอยู่ใน volume uploads_data ไม่ใช่ backend/uploads
+# บนดิสก์ — เวอร์ชันก่อนหน้า tar โฟลเดอร์ว่างบน host แล้วรายงานว่าสำเร็จ
+#
+# ใช้:  bash backend/scripts/backup_db.sh
+# cron ตี 2 ทุกวัน:  0 2 * * * bash /path/to/TermPJ/backend/scripts/backup_db.sh >> /var/log/eqb-backup.log 2>&1
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+COMPOSE=(docker compose -f "$REPO_ROOT/docker-compose.prod.yml")
 
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/equipment-borrow}"
 RETAIN_DAYS="${RETAIN_DAYS:-7}"
-UPLOAD_DIR="${UPLOAD_DIR:-$(dirname "$0")/../uploads}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
-# อ่าน DATABASE_URL จาก .env ถ้าไม่ได้ตั้งไว้ใน environment
-if [[ -z "${DATABASE_URL:-}" && -f "$(dirname "$0")/../.env" ]]; then
-  DATABASE_URL="$(grep -E '^DATABASE_URL=' "$(dirname "$0")/../.env" | cut -d= -f2-)"
-fi
-: "${DATABASE_URL:?ต้องมี DATABASE_URL (ตั้งใน env หรือ backend/.env)}"
-
-# pg_dump ไม่รู้จัก +asyncpg ที่ SQLAlchemy ใช้ ต้องตัดออกก่อน
-PG_URL="${DATABASE_URL/+asyncpg/}"
+# ชื่อ DB/user อ่านจาก .env ที่ root ตัวเดียวกับที่ compose ใช้
+set -a; source "$REPO_ROOT/.env"; set +a
+: "${POSTGRES_USER:?ต้องมี POSTGRES_USER ใน .env}"
+: "${POSTGRES_DB:?ต้องมี POSTGRES_DB ใน .env}"
 
 mkdir -p "$BACKUP_DIR"
 
 echo "[$(date -Is)] dump ฐานข้อมูล → $BACKUP_DIR/db-$STAMP.dump"
 # -Fc = custom format บีบอัดในตัว และ restore ทีละตารางได้
-pg_dump -Fc "$PG_URL" -f "$BACKUP_DIR/db-$STAMP.dump"
+# -T กัน docker จัดสรร TTY ซึ่งจะทำให้ binary stream เพี้ยน
+"${COMPOSE[@]}" exec -T db pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" \
+  > "$BACKUP_DIR/db-$STAMP.dump"
 
-if [[ -d "$UPLOAD_DIR" ]]; then
-  echo "[$(date -Is)] เก็บรูป → $BACKUP_DIR/uploads-$STAMP.tar.gz"
-  tar czf "$BACKUP_DIR/uploads-$STAMP.tar.gz" -C "$(dirname "$UPLOAD_DIR")" "$(basename "$UPLOAD_DIR")"
-fi
+echo "[$(date -Is)] เก็บรูปจาก volume → $BACKUP_DIR/uploads-$STAMP.tar.gz"
+"${COMPOSE[@]}" exec -T backend tar czf - -C /app uploads \
+  > "$BACKUP_DIR/uploads-$STAMP.tar.gz"
+
+# backup ที่ว่างเปล่าคือ backup ที่ใช้กู้ไม่ได้ ต้องรู้ตั้งแต่ตอนนี้ ไม่ใช่ตอนของหาย
+for f in "$BACKUP_DIR/db-$STAMP.dump" "$BACKUP_DIR/uploads-$STAMP.tar.gz"; do
+  if [[ ! -s "$f" ]]; then
+    echo "ผิดพลาด: $f ว่างเปล่า — backup ครั้งนี้ใช้ไม่ได้" >&2
+    exit 1
+  fi
+done
 
 echo "[$(date -Is)] ลบ backup เก่าเกิน $RETAIN_DAYS วัน"
 find "$BACKUP_DIR" -name 'db-*.dump' -mtime "+$RETAIN_DAYS" -delete

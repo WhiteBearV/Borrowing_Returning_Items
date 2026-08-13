@@ -1,0 +1,248 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-02 (รอบที่ 2)
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+**หัวข้อรอบนี้:** เตรียมระบบ deploy ขึ้น Proxmox VM ของคณะ — ปิด blocker และช่องโหว่ร้ายแรง
+
+> รอบแรกของวันนี้ (ดู `2026-08-02.txt`) เป็นงานฟีเจอร์: อีเมลแจ้งนักศึกษา + นักศึกษาแจ้งขอคืนเอง
+> รอบนี้ไม่แตะฟีเจอร์เลย เป็นงานชั้น deploy/security ล้วน ๆ
+> แผนเต็มพร้อม checklist บันทึกไว้ที่ `DEPLOY-PLAN.md` (ไฟล์ใหม่ที่ root)
+
+---
+
+## บริบท: ทำไมต้องทำรอบนี้
+
+ตรวจทั้งโปรเจคเพื่อประเมินความพร้อม deploy พบว่า **ฟีเจอร์เสร็จจริงตามที่รายงานไว้**
+(endpoint ครบ 100% ตาม design doc, business rule 13 ข้อบังคับใช้ครบใน `borrow_service.py`)
+แต่ `docker compose -f docker-compose.prod.yml up --build` **รันไม่ขึ้นเลยแม้แต่ครั้งเดียว**
+และมีช่องโหว่ที่ทำให้ข้อมูลพังหรือถูกเจาะได้จริงในรอบ pilot
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### การตัดสินใจเชิงสถาปัตยกรรม: ยิง API ผ่าน `/api` origin เดียว
+
+พบว่า `frontend/vite.config.js:8-13` **มี proxy `/api` → `localhost:8000` พร้อม rewrite อยู่แล้ว**
+แต่ frontend ไม่ได้ใช้เพราะ `VITE_API_URL` ตั้งเป็น URL เต็ม (`http://192.168.1.164:8000`)
+
+แค่ตั้ง `VITE_API_URL=/api` แล้วให้ nginx rewrite แบบเดียวกับ vite → ได้ 5 อย่าง
+**โดยไม่แก้โค้ด frontend สักบรรทัด**: ไม่ต้องตั้ง CORS / IP ไม่ถูกฝังใน bundle /
+ไม่ต้องเปิด port 8000 / วาง rate limit + จำกัดขนาดไฟล์ที่ nginx ได้ / เติม TLS ทีหลังแก้ไฟล์เดียว
+
+ตรวจแล้วใช้ได้จริงทุกจุด: `axiosInstance.js:4` baseURL, refresh interceptor `:26`
+(ใช้ `api.defaults.baseURL` จึงตามไปด้วย) และ `imgSrc` ทั้ง 5 จุดที่ประกอบ URL รูป
+
+**ข้อควรระวังที่บันทึกไว้:** ห้าม proxy ตาม path prefix ตรง ๆ แทน `/api` เพราะ route ฝั่ง React
+มี `/dashboard` (`App.jsx:45`) และ `/equipment` (`:50-51`) ซึ่งชนกับ API prefix พอดี
+
+### Backend
+
+1. **แก้ race condition ตอนอนุมัติ ที่ทำให้สต็อกรั่ว** (`app/services/borrow_service.py`, `approve_request`)
+   - เดิมเป็น read-check-modify ใน Python ล้วน ไม่มี row lock (`grep with_for_update` ทั้ง repo = 0 hit)
+     แอดมิน 2 คนกดอนุมัติของชิ้นสุดท้ายพร้อมกัน จะอ่านได้ค่าเดียวกันทั้งคู่ ผ่านเงื่อนไขทั้งคู่ แล้วเขียนทับกัน
+     = **ปล่อยของชิ้นเดียวออกไป 2 ใบโดยไม่มี error ใด ๆ** รู้อีกทีตอนนับของจริงแล้วไม่ครบ
+   - เพิ่ม `select(Equipment).where(id.in_(...)).order_by(Equipment.id).with_for_update()
+     .execution_options(populate_existing=True)` ก่อนลูปหักสต็อก
+     (`order_by` กัน deadlock ตอนอนุมัติพร้อมกัน, `populate_existing` บังคับรีเฟรชค่าที่ `selectinload` โหลดไว้)
+   - Migration ใหม่ `alembic/versions/0016_equipment_quantity_check.py` — เพิ่ม
+     `CHECK (quantity_available >= 0 AND quantity_available <= quantity_total)`
+     ซึ่ง design doc §2.3 กำหนดไว้ตั้งแต่แรกแต่ `0001_initial_schema.py:70` ไม่ได้ใส่มา
+   - แก้พ่วง `equipment_service.update_equipment` — เดิมปล่อยให้ตั้ง `quantity_total` ต่ำกว่า
+     `quantity_available` ได้ ซึ่งจะไปชน constraint ใหม่แล้วกลายเป็น 500 → ดักให้ลดของว่างตามอัตโนมัติ
+
+2. **จำกัดขนาดไฟล์อัปโหลดก่อนอ่านเข้า RAM** (`equipment_service.save_image`, `import_service.preview_import`)
+   - เดิมทำ `contents = await file.read()` **ก่อน** เช็คขนาด — `POST /users/me/avatar`
+     (`routers/users.py:34-41`) นักศึกษาคนไหนก็ยิงได้ ส่งไฟล์ 4GB ไป worker เดียวก็ OOM ทั้งระบบล่ม
+   - เช็ค `file.size` ก่อน `read()` ทั้ง 2 จุด (คง `len(contents)` ไว้เผื่อ `.size` เป็น `None`)
+
+3. **ย้ายไฟล์ทะเบียนที่ import ออกจากโฟลเดอร์สาธารณะ** (`core/config.py` เพิ่ม `IMPORT_DIR`,
+   `import_service._import_path()` + จุดเขียนไฟล์)
+   - เดิมเขียน Excel ทะเบียนครุภัณฑ์ทั้งคณะลง `UPLOAD_DIR/imports/` ซึ่ง `main.py:36`
+     mount เป็น `StaticFiles` **ไม่มี auth** → เดา URL ได้ก็โหลดทะเบียนไปทั้งไฟล์
+   - พบไฟล์ค้างอยู่จริง **93 ไฟล์ (1.9 MB)** ย้ายไป `backend/import_tmp/` แล้ว + เพิ่มใน `.gitignore`
+
+4. **บังคับความยาวรหัสผ่าน** (`schemas/auth.py`, `schemas/user.py`)
+   - เดิมเป็น `password: str` เปล่า ๆ ทั้ง 3 จุด สมัครด้วยรหัส `"1"` ผ่านฉลุย
+   - เพิ่ม type alias `Password = Annotated[str, Field(min_length=8, max_length=72)]`
+     (72 เพราะ bcrypt ตัดส่วนเกินทิ้งเงียบ ๆ ปล่อยไว้ผู้ใช้จะเข้าใจผิดว่ารหัสยาวกว่าที่ใช้จริง)
+
+5. **แก้ scheduler ยิงผิดเวลา** (`app/utils/scheduler.py`)
+   - `AsyncIOScheduler()` ไม่ตั้ง timezone → container เป็น UTC → `CronTrigger(hour=0)`
+     **ยิงจริงตอน 07:00 น. เวลาไทย** ทั้งที่ `config.py:7` นิยาม `TZ = ZoneInfo("Asia/Bangkok")` ไว้แล้ว
+     แต่ไม่มีใครเรียกใช้ → เปลี่ยนเป็น `AsyncIOScheduler(timezone=TZ)`
+   - เพิ่ม `misfire_grace_time=3600` ทั้ง 2 job — VM ปิด/รีสตาร์ตคร่อมเที่ยงคืน รอบนั้นจะหายถาวร
+
+6. **แก้บั๊ก: ต่อเวลาแล้วยังโดนตีตราเกินกำหนด** (`borrow_service.renew_item`, `scheduler._check_overdue`)
+   - `renew_item` เขียนแค่ `item.extended_due_date` ไม่แตะ `req.due_date` แต่ `_check_overdue`
+     กรองด้วย `BorrowRequest.due_date` อย่างเดียว → **นักศึกษาที่ต่อเวลาถูกต้องยังโดนอีเมลทวง**
+     และ `is_overdue` ไม่เคยถูกรีเซ็ตกลับเลย
+   - `_check_overdue` เปลี่ยนไปใช้ EXISTS subquery เทียบกำหนดคืน "ที่ใช้จริง"
+     = `COALESCE(extended_due_date, req.due_date)` ต่อ item ที่ยังไม่คืน
+   - `renew_item` เคลียร์ `req.is_overdue` ถ้าไม่เหลือรายการที่เลยกำหนด
+
+7. **`/health` แตะ DB จริง** (`app/main.py`) — เดิมคืน `{"status":"ok"}` แบบ literal
+   เขียวตลอดแม้ Postgres ตาย ใช้เป็น healthcheck ของ docker ไม่ได้เลย
+
+8. **เตือนตอน startup เมื่อเปิดโหมด dev** (`app/main.py` `_warn_unsafe_config()`)
+   - เตือนถ้า `DEV_AUTO_VERIFY_EMAIL=true` และเตือนถ้า `MAIL_USERNAME` ยังไม่ตั้ง
+     (`email.py` ตั้ง `SUPPRESS_SEND=True` เงียบสนิท — ระบบทำงานปกติทุกอย่าง แค่อีเมลไม่ออก)
+
+9. **แก้บั๊กที่เจอตอนรันจริง: แอปบูตไม่ขึ้นถ้ายังไม่ตั้ง SMTP** (`app/utils/email.py:11`)
+   - `MAIL_FROM=settings.MAIL_FROM or "dev@localhost"` — `dev@localhost` **ไม่ผ่าน validator
+     ของ pydantic** (ส่วนหลัง @ ไม่มีจุด) ทำให้ `ConnectionConfig` throw ตั้งแต่ import
+   - บน dev ไม่เคยเจอเพราะ `backend/.env` มี `MAIL_FROM` จริงอยู่แล้ว แต่บน VM ที่ยังไม่ตั้ง SMTP
+     จะ **crash loop ทันที** — เจอจากการยกสแตกจริงเท่านั้น อ่านโค้ดไม่มีทางเจอ
+   - แก้เป็น `noreply@example.com`
+
+10. **สคริปต์ใหม่ `backend/scripts/create_admin.py`** — เดิม**ไม่มีทางสร้าง admin คนแรกได้เลย**
+    `POST /users` ที่รับ `role` ถูกกั้นด้วย `require_admin` (`routers/users.py:56-59`)
+    ส่วน `RegisterRequest` ไม่มีฟิลด์ `role` ทุกคนที่สมัครเองเป็น student เสมอ
+    (grep `create_admin|superuser|bootstrap` ทั้ง repo = 0 hit, ไม่มีใน README ด้วย)
+    รองรับทั้งสร้างใหม่และเลื่อนขั้นบัญชีเดิมที่สมัครไปแล้ว
+
+### Frontend
+
+- `EquipmentManagePage.jsx:376` และ `UsersPage.jsx:67` เปลี่ยน `overflow-hidden` → `overflow-x-auto`
+  ตาราง 8 คอลัมน์เดิมถูกตัดทิ้งบนจอมือถือโดยเลื่อนดูไม่ได้เลย (`AuditLogPage.jsx:40` ทำถูกอยู่แล้ว)
+- ไม่แตะโค้ดส่วน API เลย — เปลี่ยนที่ค่า env `VITE_API_URL=/api` อย่างเดียว
+
+### อื่น ๆ (Docker, Config, Backup, Tests)
+
+1. **`frontend/nginx.conf` (ไฟล์ใหม่)** — ไฟล์นี้**ไม่มีในดิสก์และไม่เคย commit**
+   แต่ `frontend/Dockerfile:10` `COPY nginx.conf ...` เรียกใช้อยู่ → build fail ตั้งแต่ layer นั้น
+   ทำ 4 หน้าที่: SPA history fallback / proxy `/api` พร้อม rewrite /
+   `client_max_body_size 11m` / `limit_req` 5r/m เฉพาะ `/auth/login` + `/auth/forgot-password`
+   (อุด brute-force โดยไม่ต้องเพิ่ม dependency ฝั่ง Python) + เตรียม block `listen 443` เป็น comment
+
+2. **`.env.prod.example` (ไฟล์ใหม่ที่ root) + รื้อ `docker-compose.prod.yml`**
+   - เดิม prod ไม่มีที่มาของ `${POSTGRES_*}` เลย (ไม่มี `.env` ที่ root) และ**ไม่ override
+     `DATABASE_URL`** จึงสืบทอดค่าจาก `backend/.env` ที่ชี้ `localhost:5432`
+     ซึ่งใน container คือตัว backend เอง ไม่ใช่ Postgres → ทุก request พัง
+   - เปลี่ยนไปใช้ `.env` ที่ root ไฟล์เดียวคุมทั้ง stack, ตั้ง `DATABASE_URL` ใน `environment:`
+     (ชนะ `env_file:` จึงตั้งผิดไม่ได้), เพิ่ม `alembic upgrade head` ก่อน uvicorn,
+     db healthcheck + `depends_on: condition: service_healthy`, log rotation 10m×3,
+     ลบ `"443:443"` ที่ไม่มีอะไร listen
+   - **`--workers 2` → `--workers 1`** เพราะ APScheduler รันใน process เดียวกับแอป
+     สอง worker = อีเมลทวงของเกินกำหนดถึง admin **ส่งซ้ำ 2 รอบทุกคืน** (ใส่คอมเมนต์อธิบายไว้แล้ว)
+
+3. **`.dockerignore` 2 ไฟล์ (ใหม่)** — เดิมไม่มีทั้งคู่ → `backend/Dockerfile:13` `COPY . .`
+   **อบ `backend/.env` (SECRET_KEY, รหัสผ่านอีเมล) ลง image layer** พร้อมลาก `venv/`
+   และ `uploads/` 14MB เข้าไปด้วย; `frontend/Dockerfile:5` ทับ `node_modules` ที่ `npm ci` เพิ่งสร้าง
+
+4. **`frontend/Dockerfile`** — เพิ่ม `ARG/ENV VITE_API_URL` **ก่อน** `RUN npm run build`
+   เพราะ vite แทนค่า `import.meta.env` ตอน build ไม่ใช่ตอน run
+
+5. **รื้อ `backend/scripts/backup_db.sh` + เขียน `restore_db.sh` ใหม่**
+   - ของเดิมพังกับ deployment แบบ Docker 3 ทาง: `pg_dump` ยิงจาก host แต่ prod ไม่ publish 5432 /
+     อ่าน `DATABASE_URL` ที่ชี้ `localhost` / **tar โฟลเดอร์ `backend/uploads` บน host ซึ่งว่างเปล่า
+     เพราะไฟล์จริงอยู่ใน volume `uploads_data`** → ได้ backup ที่รายงานว่าสำเร็จแต่ไม่มีรูปสักไฟล์
+   - เปลี่ยนทั้งหมดไปวิ่งผ่าน `docker compose exec -T` + เพิ่มเช็คว่าไฟล์ผลลัพธ์ไม่ว่างเปล่า
+   - `restore_db.sh` ใหม่ (เดิมเป็นคำสั่ง manual 4 บรรทัดใน `README.md:141-155` ที่ไม่มีใครกล้ารันตอนของจริงหาย)
+
+6. **กันเทสต์ล้างฐานข้อมูลจริง** (`tests/conftest.py`)
+   - fixture ลบแถวตรง ๆ ผ่าน `AsyncSessionLocal` ตัวเดียวกับที่แอปใช้ ถ้าเผลอรัน `pytest`
+     ใน container ตอน deploy **ข้อมูลผู้ใช้/คำขอยืมหายทันที**
+   - เพิ่ม guard: ชื่อ DB ต้องลงท้าย `_test` หรือตั้ง `PYTEST_ALLOW_DB=1`
+     (prod ไม่มี `backend/.env` ใน image อยู่แล้วจึงถูกปฏิเสธโดยอัตโนมัติ)
+   - พ่วง: `Settings` ตั้ง `extra="ignore"` เพราะคีย์ที่ไม่ใช่ของ backend ใน `.env`
+     (`POSTGRES_*`, `PYTEST_ALLOW_DB`) เดิมทำให้แอปไม่ยอมบูตทั้งระบบ
+
+7. **เทสต์ใหม่ `backend/tests/test_stock_race.py`** — รายละเอียดในหัวข้อถัดไป
+
+---
+
+## บทเรียนสำคัญ: เทสต์ concurrency ตัวแรกใช้ไม่ได้ 🔴
+
+เทสต์ race condition เวอร์ชันแรกยิง `approve_request` 2 ใบพร้อมกันด้วย `asyncio.gather`
+แล้ว assert ว่าต้องผ่านใบเดียว — **มันผ่าน**
+
+แต่พอลอง**ถอด `with_for_update()` ออกแล้วรันซ้ำ มันก็ยังผ่านอยู่ดี** แปลว่าเทสต์ไม่ได้ทดสอบอะไรเลย
+สาเหตุคือผลลัพธ์ขึ้นกับจังหวะ scheduler ของ asyncio ล้วน ๆ ไม่ได้เกิดการชนจริง
+
+เขียนใหม่ให้บังคับชนแน่นอน: ให้อีก transaction ถือ row lock พร้อมหักสต็อกจนหมดค้างไว้
+แล้วค่อยปล่อย — ถ้า `approve_request` ไม่ล็อกแถวจะอ่านได้ค่าเก่าแล้วอนุมัติสำเร็จทั้งที่ของหมด
+ยืนยันแล้วว่า **ถอด fix ออก → เทสต์พัง / ใส่กลับ → ผ่าน**
+
+**บทเรียน:** เทสต์ concurrency ทุกตัวต้องพิสูจน์ว่าถอด fix ออกแล้วมันพังจริง ไม่งั้นได้เทสต์ปลอม
+
+---
+
+## ผลการทดสอบ ✅
+
+ยกสแตก prod ขึ้นจริงบนเครื่อง dev แล้วตรวจ:
+
+| # | ตรวจอะไร | ผล |
+|---|---|---|
+| 1 | `docker compose -f docker-compose.prod.yml build` | ผ่านทั้ง 3 image |
+| 2 | Stack ขึ้น | db healthy → backend รอจนพร้อม → alembic ถึง `0016 (head)` |
+| 3 | SPA + proxy | หน้าแรก 200, `/admin/equipment` คืน `index.html` ไม่ 404, `/api/health` ตอบ `{"status":"ok"}`, `/api/equipment` ไม่มี token → 401 |
+| 4 | สร้าง admin + login | `create_admin.py` สร้างได้ → login ผ่าน nginx ได้ token → `/api/settings` + `/api/audit-logs` ตอบ 200, ไม่มี token → 401 |
+| 5 | Race condition | `test_stock_race.py` ผ่าน และพิสูจน์แล้วว่าพังถ้าถอด lock ออก |
+| 6 | CHECK constraint | `UPDATE equipment SET quantity_available=-1` โดน `IntegrityError` ปฏิเสธ |
+| 7 | Rate limit | ยิง login ผิดรวด: `401 ×6` แล้ว `429 ×14`; `/api/health` ยิงติดกัน 8 ครั้งยังได้ 200 (ไม่โดนลูกหลง) |
+| 8 | Regression | **pytest 113 ตัวผ่านหมด** (จาก 112 + เทสต์ race ใหม่) + `npm test` 5 ตัวผ่าน |
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| prod stack build ไม่ผ่านเลย | `frontend/nginx.conf` ไม่เคยถูกสร้าง/commit แต่ Dockerfile เรียกใช้ | แก้แล้ว — เขียนไฟล์ใหม่ |
+| backend ต่อ DB ไม่ได้บน prod | prod ไม่ override `DATABASE_URL` จึงใช้ค่า dev ที่ชี้ `localhost` | แก้แล้ว — ตั้งใน `environment:` ของ compose |
+| แอป crash loop ถ้ายังไม่ตั้ง SMTP | `MAIL_FROM` fallback `dev@localhost` ไม่ผ่าน validator pydantic | แก้แล้ว — เจอตอนยกสแตกจริงเท่านั้น |
+| ไฟล์ทะเบียนครุภัณฑ์ 93 ไฟล์โหลดได้โดยไม่ต้อง login | เขียนลง `UPLOAD_DIR` ที่ mount เป็น StaticFiles สาธารณะ | แก้แล้ว — ย้ายไป `import_tmp/` นอก `UPLOAD_DIR` |
+| **SMTP ยังไม่ยืนยันว่าใช้ได้** | ยังไม่ได้ตัดสินใจเรื่อง Gmail App Password (ค้างจากรอบแรก) | ต้องทดสอบส่งจริงบน VM ก่อน แล้วค่อยตัดสินว่าจะตั้ง `DEV_AUTO_VERIFY_EMAIL` เป็นอะไร |
+| ยังไม่ได้ทดสอบ E2E บนเบราว์เซอร์จริงหลังรื้อ deploy | ทดสอบด้วย curl ผ่าน nginx เท่านั้น | ทำบน VM หลัง deploy |
+| ยังไม่ได้ซ้อม backup/restore จริง | สแตกทดสอบถูกรื้อไปแล้ว | ต้องซ้อม 1 รอบบน VM — backup ที่ไม่เคย restore ไม่นับว่ามี |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] **Deploy ขึ้น Proxmox VM จริง** — `cp .env.prod.example .env` แล้วแก้ `SECRET_KEY`,
+       `POSTGRES_PASSWORD`, `FRONTEND_URL`/`APP_BASE_URL` เป็น IP ของ VM (คำสั่งครบใน `DEPLOY-PLAN.md`)
+2. [ ] **ทดสอบ SMTP จริง** — สมัคร 1 ใบ ดูว่าอีเมล verify เข้ากล่องจริงไม่ใช่แค่ออก log
+       → ผลตัดสินว่าจะปิด `DEV_AUTO_VERIFY_EMAIL` ได้ไหม
+3. [ ] **สร้าง admin คนแรกบน VM** ด้วย `scripts/create_admin.py`
+4. [ ] **E2E บนเบราว์เซอร์** — ยื่นคำขอ → อนุมัติ (สต็อกลด) → ต่อเวลา → รับคืน durable `ok` (สต็อกคืน)
+       + วัสดุ `used_up` (สต็อกไม่คืน) → `completed` → โหลด PDF → เช็ค audit log
+5. [ ] **ซ้อม backup/restore 1 รอบ** — `tar tzf` ต้องเห็นไฟล์รูปจริง แล้ว restore กลับมา login ได้
+6. [ ] **ตั้ง cron backup ตี 2** บน VM
+7. [ ] ทดสอบ scheduler: ตั้ง `due_date` ย้อนหลัง เรียก `_check_overdue()` มือ
+       → ต้องแจ้งครั้งเดียวไม่ซ้ำ และคนที่ต่อเวลาแล้วต้องไม่ถูกทวง
+8. [ ] ต่อปุ่ม remind แบบ manual เข้า UI (ค้างจากรอบแรก)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~98% — ฟีเจอร์ครบ + ปิดช่องโหว่ race condition/upload/rate limit แล้ว
+เหลือแค่ยืนยัน SMTP บนเครื่องจริง
+
+**Frontend:** ~97% — ครบ flow หลัก + แก้ตารางแอดมินให้เลื่อนบนมือถือได้
+เหลือ E2E บนเบราว์เซอร์จริงหลังรื้อ deploy
+
+**Deploy readiness:** เดิม **0%** (build ไม่ผ่านเลย) → ตอนนี้ยกสแตกขึ้นได้จริงและผ่านการตรวจ 8 ข้อ
+เหลือแต่การยืนยันบนฮาร์ดแวร์จริง
+
+**ระยะรวม:** พร้อมขึ้น VM ทดลองใช้จริงได้แล้ว ที่เหลือเป็นงานยืนยันบนเครื่องจริง ไม่ใช่งานเขียนโค้ด
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **`FRONTEND_URL` ใน `.env` ต้องเป็น IP ที่ผู้ใช้พิมพ์ในเบราว์เซอร์จริง** ไม่ใช่ `localhost`
+  ตั้งผิดแล้วลิงก์ยืนยันอีเมล/รีเซ็ตรหัสผ่านจะพาผู้ใช้ไปผิดที่ (ตรวจก่อนเปิดให้คนอื่นใช้)
+- **ถ้า SMTP ยังใช้ไม่ได้แล้วจำเป็นต้องตั้ง `DEV_AUTO_VERIFY_EMAIL=true` ชั่วคราว
+  ต้องปิดหน้าสมัครเองควบคู่ไปด้วย** ให้แอดมินสร้างบัญชีผ่าน `POST /users` แทน
+  ไม่งั้นใครก็สมัครด้วยอีเมล `@cdti.ac.th` ที่ไม่ใช่ของตัวเองแล้วเข้าใช้ได้ทันที (CLAUDE.md ข้อ 10)
+- **`ALLOWED_EMAIL_DOMAINS` ยังไม่ได้ยืนยันกับอาจารย์เป็นลายลักษณ์อักษร** (ค้างมาหลายรอบ, CLAUDE.md ข้อ 10)
+- **`--workers 1` เป็นเรื่องตั้งใจ ห้ามเพิ่มโดยไม่แยก scheduler ออกเป็น service ก่อน**
+  ไม่งั้นอีเมลทวงของเกินกำหนดจะส่งซ้ำตามจำนวน worker ทุกคืน
+- **`backend/.env` เป็นไฟล์ของ dev อย่างเดียวแล้ว** prod ใช้ `.env` ที่ root และ `.dockerignore`
+  กันไม่ให้ติดไปกับ image — อย่าเผลอเอา `env_file: ./backend/.env` กลับมา
+- ยังไม่มี TLS (LAN คณะจึงยอมรับได้), ยังไม่มี CI, `requirements.txt` ยัง `>=` ทั้งหมด
+  — ทั้งหมดตัดสินใจข้ามพร้อมเหตุผลและเงื่อนไขที่ต้องกลับมาทำ บันทึกไว้ใน `DEPLOY-PLAN.md`
+- **`frontend/.env` ยังชี้ `http://192.168.1.164:8000`** ไม่ได้แก้เพราะ dev ใช้ได้อยู่
+  ถ้าอยากให้ dev เหมือน prod เปลี่ยนเป็น `/api` ได้ (vite proxy รองรับอยู่แล้ว)

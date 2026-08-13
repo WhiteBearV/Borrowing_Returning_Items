@@ -271,10 +271,12 @@ async def cancel_request(db: AsyncSession, current_user: User, request_id: uuid.
 async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
     """
     อนุมัติคำขอ:
-    - ลด quantity_available ของทุก equipment ใน request
+    - ลด quantity_available ของทุก equipment ใน request (ทั้ง durable และ consumable)
     - คำนวณ due_date = today + max_loan_days_durable
-    - consumable: ตั้ง returned=True ทันที (เบิกแล้วไม่ต้องคืน)
     - ส่งแจ้งเตือนนักศึกษา
+
+    ไม่ตั้ง returned=True ให้ item ใดทั้งสิ้น แม้แต่ consumable —
+    แอดมินต้องสรุปผลภายหลังว่าคืนครบ/ใช้หมด/เสียหาย (CLAUDE.md §5)
     """
     max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
     req = await _load_request(db, request_id)
@@ -284,6 +286,19 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot approve request with status '{req.status}'.",
         )
+
+    # ล็อกแถวอุปกรณ์ก่อนอ่านค่าสต็อกมาตัดสินใจ
+    # ไม่มีบรรทัดนี้ = แอดมิน 2 คนกดอนุมัติของชิ้นสุดท้ายพร้อมกัน จะอ่านได้ค่าเดียวกันทั้งคู่
+    # ผ่านเงื่อนไขทั้งคู่ แล้วเขียนทับกัน = ปล่อยของชิ้นเดียวออกไป 2 ครั้งโดยไม่มี error
+    #   order_by(id)      เรียงลำดับการล็อกให้เหมือนกันทุก transaction กัน deadlock
+    #   populate_existing บังคับให้ค่าที่ selectinload โหลดไว้ก่อนหน้าถูกเขียนทับด้วยค่าที่เพิ่งล็อก
+    await db.execute(
+        select(Equipment)
+        .where(Equipment.id.in_([i.equipment_id for i in req.items]))
+        .order_by(Equipment.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
     now = datetime.now(timezone.utc)
     for item in req.items:
@@ -399,6 +414,18 @@ async def renew_item(
     base_date = item.extended_due_date or req.due_date or date.today()
     item.extended_due_date = base_date + timedelta(days=renew_days)
     item.renewed_count += 1
+
+    # เคลียร์ธงเกินกำหนดถ้าไม่เหลือรายการที่ยังไม่คืนและเลยกำหนดแล้ว
+    # ไม่มีบรรทัดนี้ นักศึกษาที่ต่อเวลาถูกต้องจะติดธงค้างคืนไปตลอด — ไม่มีจุดไหนรีเซ็ตธงนี้เลย
+    still_overdue = (await db.execute(
+        select(BorrowItem.id).where(
+            BorrowItem.borrow_request_id == req.id,
+            BorrowItem.returned == False,
+            func.coalesce(BorrowItem.extended_due_date, req.due_date or date.today()) < date.today(),
+        ).limit(1)
+    )).first()
+    req.is_overdue = still_overdue is not None
+
     await db.commit()
 
 

@@ -227,9 +227,8 @@ def _parse_file(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
 
 def _import_path(import_id: str) -> str | None:
     """หาไฟล์ที่อัปโหลดไว้จาก import_id (นามสกุลต่างกันได้ตามชนิดไฟล์ที่แอดมินอัปมา)"""
-    import_dir = os.path.join(settings.UPLOAD_DIR, "imports")
     for ext in (".xlsx", *ocr_import.SCAN_EXTS):
-        path = os.path.join(import_dir, f"{import_id}{ext}")
+        path = os.path.join(settings.IMPORT_DIR, f"{import_id}{ext}")
         if os.path.exists(path):
             return path
     return None
@@ -241,14 +240,17 @@ async def preview_import(db: AsyncSession, file: UploadFile) -> dict[str, Any]:
     if ext != ".xlsx" and not ocr_import.is_scan(file.filename or ""):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="รองรับไฟล์ .xlsx หรือรูปถ่าย/PDF ของทะเบียน (.jpg .png .pdf)")
+    # เช็คขนาดก่อน read() — ไม่งั้นไฟล์ใหญ่เท่าไรก็ถูกโหลดเข้า RAM หมดก่อนถึงบรรทัดตรวจ
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไฟล์ใหญ่เกิน 10MB")
     contents = await file.read()
-    if len(contents) > MAX_UPLOAD_BYTES:
+    if len(contents) > MAX_UPLOAD_BYTES:  # เผื่อกรณี .size เป็น None
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไฟล์ใหญ่เกิน 10MB")
 
-    import_dir = os.path.join(settings.UPLOAD_DIR, "imports")
-    os.makedirs(import_dir, exist_ok=True)
+    # เก็บนอก UPLOAD_DIR — ที่นั่นถูก mount เป็น StaticFiles สาธารณะ ไฟล์ทะเบียนคณะจะหลุด
+    os.makedirs(settings.IMPORT_DIR, exist_ok=True)
     import_id = uuid.uuid4().hex
-    path = os.path.join(import_dir, f"{import_id}{ext}")
+    path = os.path.join(settings.IMPORT_DIR, f"{import_id}{ext}")
     with open(path, "wb") as f:
         f.write(contents)
 

@@ -5,6 +5,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
 from app.main import app
@@ -16,6 +17,18 @@ from app.models.equipment_category import EquipmentCategory
 from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
+
+
+# fixture ในไฟล์นี้ลบแถวตรง ๆ ผ่าน AsyncSessionLocal ตัวเดียวกับที่แอปใช้
+# ถ้าเผลอรัน pytest บนเครื่องที่ .env ชี้ DB ของจริง (เช่นใน container ตอน deploy)
+# ข้อมูลผู้ใช้/คำขอยืมจะหายทันทีโดยไม่มีอะไรถาม — กันไว้ตรงนี้เพราะกู้คืนแพงกว่ามาก
+_DB_NAME = settings.DATABASE_URL.rsplit("/", 1)[-1].split("?")[0]
+if not _DB_NAME.endswith("_test") and not settings.PYTEST_ALLOW_DB:
+    raise RuntimeError(
+        f"ปฏิเสธการรันเทสต์กับฐานข้อมูล '{_DB_NAME}' เพราะเทสต์จะลบข้อมูลทิ้ง\n"
+        f"ใช้ฐานข้อมูลที่ชื่อลงท้ายด้วย _test หรือถ้ายืนยันว่าเป็นเครื่อง dev "
+        f"ให้ตั้ง PYTEST_ALLOW_DB=1 ใน backend/.env"
+    )
 
 
 def auth(token: str) -> dict:

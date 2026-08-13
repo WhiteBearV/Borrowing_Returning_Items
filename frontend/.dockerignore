@@ -1,0 +1,7 @@
+# ไม่กันไว้ COPY . . จะทับ node_modules ที่ npm ci เพิ่งติดตั้ง (เสี่ยง binary ผิด platform)
+node_modules/
+dist/
+
+.env
+.env.*
+!.env.example

@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Table, Text, func,
+    JSON, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric,
+    String, Table, Text, func,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -56,4 +57,10 @@ class Equipment(Base):
     __table_args__ = (
         Index("ix_equipment_item_type", "item_type"),
         Index("ix_equipment_status", "status"),
+        # ตาข่ายชั้นสุดท้ายของสต็อก — ถ้ามีเส้นทางไหนหักสต็อกโดยลืมล็อกแถว
+        # จะได้ error ทันทีแทนที่จะเป็นสต็อกติดลบเงียบ ๆ (ดู migration 0016)
+        CheckConstraint(
+            "quantity_available >= 0 AND quantity_available <= quantity_total",
+            name="ck_equipment_quantity_available_range",
+        ),
     )
