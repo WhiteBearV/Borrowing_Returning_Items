@@ -1,0 +1,66 @@
+# รายงานความคืบหน้า — วันที่ 13 สิงหาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา)
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Deploy / Infrastructure
+- แก้ปัญหา SSH เข้า Proxmox VM (172.16.46.10) ไม่ได้ — เดิมไม่มี public key ตั้งไว้ใน Cloud-Init ("SSH public key: none") และ host key เปลี่ยนหลัง regenerate image ทำให้ `Host key verification failed`
+- commit `0dd7ade` — รวมงานเตรียม deploy ที่ค้างจากรอบก่อน (nginx.conf, .dockerignore ทั้งสองฝั่ง, `backend/scripts/create_admin.py`, `restore_db.sh`, `backend/tests/test_stock_race.py`, migration `0016_equipment_quantity_check.py`) push ขึ้น GitHub และ deploy ขึ้น VM จริงเป็นครั้งแรกสำเร็จ (`docker compose -f docker-compose.prod.yml up --build -d`)
+- สอนและช่วยรันครบทุกขั้นตามคู่มือใน `DEPLOY-PLAN.md`: สร้าง admin คนแรกผ่าน `create_admin.py`, ทดสอบรัน `backup_db.sh` มือ (ผ่าน, ไฟล์ `.dump` + `.tar.gz` ไม่ว่างเปล่า), ตั้ง cron backup ตี 2 ทุกวันสำเร็จ (`crontab -e` ผ่าน VS Code Remote-SSH)
+- **ย้ายข้อมูลอุปกรณ์จริงจาก dev DB → VM DB**: `pg_dump --data-only` เฉพาะตาราง `equipment_categories`/`equipment`/`equipment_category_links` (1,256 อุปกรณ์ + 12 หมวดหมู่ + 1,261 ความเชื่อมโยง) + tar โฟลเดอร์ `backend/uploads/` (472 รายการมีรูป, ไฟล์รูปจริง 105+9 ไฟล์) restore เข้า VM ด้วย `SET session_replication_role = replica` กันปัญหาลำดับ FK ยืนยันผ่านจริงด้วย `curl` โหลดรูปตัวอย่างได้ HTTP 200
+
+### QA รอบใหญ่บนระบบจริง (http://172.16.46.10/)
+ทดสอบ end-to-end ครบทุก flow หลักตาม Business Rules ใน CLAUDE.md §5:
+- ยื่นคำขอ (durable/material + consumable ผสมกัน) → อนุมัติ (เช็คสต็อกลดถูกต้องทั้งสองชนิด) → ต่อเวลา (ทดสอบผ่าน API ตรง เพราะเจอบั๊ก UI — ดูตารางปัญหา) → คืนของ (`used_up` ไม่คืนสต็อก / `ok` คืนสต็อกเต็ม ตรงตาม `borrow_service.py`) → request เป็น `completed` อัตโนมัติเมื่อครบทุก item
+- ดาวน์โหลด PDF ใบยืม + ใบรับคืน (`GET /borrow-requests/{id}/pdf`, `/return-pdf`) ตรวจเนื้อหาแล้วถูกต้องครบทุกฟิลด์ (หน่วย/จำนวน/สภาพ/ผู้รับคืน)
+- Audit log บันทึกครบทุก action (`approve`, `return` ×2) พร้อม actor snapshot ตรงตาม `audit_service.log_action`
+- Edge case ยิงตรงผ่าน API ยืนยันครบ: บล็อกยืมของ `quantity_available=0` (400), บังคับแนบ `damage_photo_urls` ตอนแจ้ง `lost`/`damaged` (400 ไม่มีรูป → 200 มีรูป), บล็อกเกิน `max_items_per_request=5` (400), บล็อกเกิน `max_active_requests_per_student=2` (400)
+- ทดสอบสมัครสมาชิกผ่านหน้าเว็บจริง (`RegisterPage.jsx`) → auto-verify เพราะ `DEV_AUTO_VERIFY_EMAIL=true` → login เข้าใช้ได้ทันที ไม่ติดกับดัก "เช็คอีเมล" ที่เคยกังวลไว้
+- เก็บกวาดข้อมูลทดสอบออกจาก DB จริงหลัง QA เสร็จ: ลบ 3 คำขอทดสอบ, คืนสต็อก `613001`/`CON-WIRE-001` กลับค่าเดิม, ลบบัญชีทดสอบ `6699999999@cdti.ac.th` (รวม `auth_tokens` ที่ผูกอยู่)
+
+### Frontend — Mobile/Tablet Responsive (แก้ตามรายงานผู้ใช้จริงจากมือถือ)
+- **`frontend/src/components/layout/Sidebar.jsx`** — เดิม `w-56` ตายตัวไม่มี responsive breakpoint เลย เปลี่ยนเป็น off-canvas drawer: ซ่อนไว้นอกจอใต้ `md` breakpoint, เปิดด้วยปุ่ม hamburger, มี backdrop กดปิด, แตะลิงก์เมนูปิดอัตโนมัติ
+- **`frontend/src/components/layout/ProtectedRoute.jsx`** — เพิ่ม topbar มือถือ (ปุ่ม hamburger + ชื่อระบบ) คุม state เปิด/ปิด sidebar ร่วมกัน
+- แก้บั๊ก **เลื่อนไม่ถึงปุ่มออกจากระบบ**: `h-screen` (100vh) ชนกับ `inset-y-0` บน `position:fixed` — `height` ที่ระบุตรงชนะ `bottom:0` เสมอ ทำให้ยังอิงหน่วย `vh` ที่มีบั๊กกับ address bar มือถือ (พื้นที่มองเห็นจริงน้อยกว่า 100vh) แก้โดยตัด `h-screen` ออกจากฝั่งมือถือ เหลือ `inset-y-0` เพียว ๆ ซึ่งยึดตาม viewport จริงเสมอ คงไว้แค่ `md:h-screen` สำหรับจอใหญ่ที่เป็น `sticky`
+- แก้บั๊ก **`<select>` หมวดหมู่ล้นขอบจอ** — form control ไม่ยอม shrink ต่ำกว่า content width เริ่มต้นใน flex row (ปัญหา flexbox คลาสสิก) เจอ pattern เดียวกันซ้ำ 4 หน้า: `EquipmentListPage.jsx`, `EquipmentManagePage.jsx`, `UsersPage.jsx`, `AllBorrowsPage.jsx` แก้เป็น stack แนวตั้งบนมือถือ (`flex-col sm:flex-row`) + cap ความกว้าง select ตอนเรียงแถวจอใหญ่
+- แก้ **`EquipmentManagePage.jsx`/`BundleManagePage.jsx`** — header มีปุ่ม 4 ปุ่มเรียงแถวเดียวไม่มี wrap เพิ่ม `flex-wrap` + stack กับ title บนมือถือ
+- แก้ **`frontend/index.html`** — browser tab title ยังเขียน "KMITL" ทั้งที่โปรเจกต์นี้เป็นของ CDTI (สถาบันเทคโนโลยีจิตรลดา) เปลี่ยนเป็น "CE & DD CDTI" — เช็คทั้งโปรเจกต์แล้วเป็นจุดเดียวที่หลุด (PDF/email domain ถูกต้องอยู่แล้ว)
+- Deploy ขึ้น VM จริงรวม 4 รอบระหว่างวัน (commit `300cf07`, `823345a`, `343a895`, `1dfac0e`) ตามที่ทดสอบเจอปัญหาเพิ่มทีละจุดจากอุปกรณ์จริง
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ปุ่ม "ต่อเวลา" ไม่โชว์ให้อุปกรณ์ประเภท `material` | `frontend/src/pages/student/MyBorrowsPage.jsx:149` เช็คเงื่อนไข `item_type_snapshot === 'durable'` เท่านั้น ทั้งที่ backend (`borrow_service.renew_item`) ไม่มีข้อจำกัดนี้เลย (ทดสอบยิง API ตรงผ่าน 200 จริง) | รอทำ — ผู้ใช้บอก "ยังไม่ต้องตอนนี้" ให้ความสำคัญกับ mobile responsive ก่อน แก้ง่าย แค่เปลี่ยนเงื่อนไขบรรทัด 149 ให้รวม `material` ด้วย |
+| Sidebar มือถือฝั่ง **Admin** ยังเลื่อนไม่ถึงปุ่มออกจากระบบ ("เหมือนเดิม") ทั้งที่ฝั่ง student เลื่อนได้แล้วหลัง deploy ล่าสุด | ยังไม่ยืนยันสาเหตุ — โค้ด `Sidebar.jsx` ใช้ component เดียวกันทุก role ไม่มีจุดแยกพฤติกรรมตาม role เลย ต่างกันแค่จำนวนรายการเมนู (11 รายการฝั่ง admin vs 5 ฝั่ง student) สงสัยว่า tab ทดสอบ admin อาจค้าง JS bundle เก่าจาก session ก่อน deploy รอบล่าสุด (SPA ไม่ reload JS เองถ้าไม่ hard refresh) | รอผู้ใช้ hard refresh / เปิด tab ใหม่ฝั่ง admin แล้วทดสอบซ้ำ ถ้ายังไม่หายจะขอสกรีนช็อตแบบเดียวกับที่ให้มาก่อนหน้าเพื่อเทียบหาจุดต่าง |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ยืนยันผลทดสอบ Sidebar มือถือฝั่ง Admin จากผู้ใช้ — ถ้ายังพังจริง ต้อง diagnose เพิ่มด้วยสกรีนช็อตจริง
+2. [ ] แก้ปุ่ม "ต่อเวลา" ให้โชว์กับ `material` ด้วย (`MyBorrowsPage.jsx:149`) ตามที่ผู้ใช้ขอเลื่อนไว้
+3. [ ] ตรวจ mobile responsive หน้าที่เหลือที่ยังไม่ได้ตรวจละเอียด (`BorrowRequestsPage`, `AuditLogPage`, `SettingsPage`, `DashboardPage` ทั้งสอง role) เผื่อมี pattern ล้นขอบจอแบบเดียวกันซ้ำอีก
+4. [ ] End-to-end บนเบราว์เซอร์จริงที่เหลือตาม `DEPLOY-PLAN.md` ข้อ 11: ซ้อม restore backup จริง 1 รอบ (backup_db.sh → restore_db.sh → login ได้)
+5. [ ] ทดสอบ Scheduler บน VM จริง (ตั้ง `due_date` ย้อนหลัง เรียก `_check_overdue()` มือ เช็คไม่แจ้งซ้ำ + คนต่อเวลาแล้วไม่ถูกทวง)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~98% — endpoint และ business rule ครบตาม `02-system-design.md` ทั้งหมด ผ่าน QA จริงบน production ครบทุก flow หลักและ edge case สำคัญ ไม่พบบั๊ก backend ใหม่วันนี้เลย (บั๊กที่พบเป็นฝั่ง frontend ล้วน)
+**Frontend:** ~95% — mobile responsive แก้ไปหลายจุดใหญ่วันนี้ (sidebar drawer, filter overflow, header wrap) เหลือ 1 จุดที่ยังไม่ยืนยันว่าหายจริง (admin scroll) + บั๊กเล็ก 1 จุดที่เลื่อนไว้ (ปุ่มต่อเวลา material)
+**ระยะรวม:** ระบบขึ้น production จริงบน Proxmox VM แล้ว พร้อมข้อมูลอุปกรณ์จริงครบ 1,256 รายการ (ย้ายจาก dev DB) วันนี้เป็นวันแรกที่ทดสอบผ่านมือถือจริงและพบว่า UI เดิมใช้ไม่ได้เลยบนอุปกรณ์อื่นนอกจากคอม — ถือเป็นความเสี่ยงสำคัญที่เจอทันเวลาก่อนเปิดให้นักศึกษาใช้จริงเป็นวงกว้าง
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending item จาก CLAUDE.md §10** — ยังไม่ได้ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริงเป็นทางการ (ตอนนี้ใช้ `cdti.ac.th`/`student.cdti.ac.th` ตามค่าที่มีอยู่) และไฟล์ Excel คลังอุปกรณ์เดิมจากทีมอื่นยังไม่มีอัปเดตเพิ่มเติมจากที่ import ไปแล้ว
+- **`DEV_AUTO_VERIFY_EMAIL=true` + `ENABLE_EMAIL=false`** ยังเป็นค่าที่ตั้งใจใช้ชั่วคราวสำหรับรอบ pilot นี้ตาม `DEPLOY-PLAN.md` — ต้องเปลี่ยนกลับก่อนเปิดใช้งานจริงเต็มรูปแบบ (ตั้ง SMTP จริงแล้วปิด auto-verify)
+- มือถือ/แท็บเล็ตเพิ่งเริ่มทดสอบจริงวันนี้เป็นวันแรก แนะนำให้ทดสอบเพิ่มบนอุปกรณ์ Android ด้วย (วันนี้ทดสอบจาก iPhone เท่านั้น) เผื่อมีความต่างของ browser engine

@@ -1,0 +1,91 @@
+# รายงานความคืบหน้า — วันที่ 17 สิงหาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา)
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### ตรวจสอบงานค้างจากรอบก่อนก่อนเริ่มงานใหม่
+ก่อนรับ feedback รอบใหม่ ได้ไล่ตรวจ working tree พบว่ามีงานจากรอบก่อน (TLS self-signed cert, ฟีเจอร์ `requested_due_date`, portal fix ของ ConfirmModal/NotificationBell, ช่องคำนำหน้าตอนสร้าง user) ค้างอยู่แบบ **uncommitted ทั้งหมด** — เปิด backend+frontend dev server จริงแล้วทดสอบผ่าน Chrome ทีละจุดจนยืนยันว่าใช้งานได้จริงครบ ก่อนเริ่มรับ feedback ใหม่
+
+### Backend
+
+**บั๊ก preview PDF (แก้แล้ว)**
+- `backend/app/services/borrow_service.py::generate_preview_pdf` — `BorrowItemResponse` ที่สร้างเองจากตะกร้าไม่มี field `return_requested`/`return_requested_at` ที่ schema บังคับ ทำให้ปุ่ม "ดูตัวอย่างใบยืม" ได้ 500 ทุกครั้ง เพิ่ง 2 field เข้าไปก็หาย
+- `frontend/src/api/axiosInstance.js` — response interceptor แกะ error body ที่เป็น Blob กลับเป็น JSON ก่อนส่งต่อ แก้บั๊กคลาสเดียวกัน (`err.response.data.detail` อ่านไม่ได้) ที่กระทบทุก endpoint แบบ `responseType: 'blob'` (preview/download PDF, stock document, QR code) จุดเดียวจบ
+
+**ยุบครุภัณฑ์รุ่นเดียวกันเป็นชิ้นเดียว + เลือกหน่วยว่างเลขต่ำสุดอัตโนมัติ (feature ใหญ่สุดของวันนี้)**
+- `backend/app/services/equipment_service.py` — เพิ่ม `_normalize_name()` (กัน grouping พลาดเพราะช่องว่างเกิน), `find_group_members()` (หาแถวรุ่นเดียวกันเรียงตาม code), `list_equipment_grouped()` (ยุบแสดงเป็นการ์ดเดียว), `get_equipment_group_detail()`, แก้ `get_holders()` ให้รับลิสต์ id (กลุ่ม), `create_equipment`/`update_equipment` normalize ชื่อก่อนบันทึก
+- `backend/app/schemas/equipment.py` — เพิ่ม `EquipmentGroupResponse`, `PaginatedEquipmentGroup`, `EquipmentGroupDetailResponse`
+- `backend/app/routers/equipment.py` — endpoint ใหม่ `GET /equipment/grouped`, `GET /equipment/grouped/{id}`
+- `backend/app/services/borrow_service.py::create_request` — บรรทัดคำขอที่ตรงกับรุ่นที่มีหลายหน่วยขยายเป็นหลาย `BorrowItem` อัตโนมัติ (เลือกหน่วยรหัสต่ำสุดที่ว่าง) โดยไม่กระทบเพดาน `max_items_per_request` (นับจากบรรทัดคำขอ ไม่ใช่จำนวนหน่วย)
+- `backend/app/services/borrow_service.py::approve_request` — ขยาย lock (`with_for_update()`) จาก "ล็อกเฉพาะหน่วยที่ผูกไว้ตอนยื่น" เป็น **ล็อกทั้งกลุ่ม** แล้วเลือกหน่วยรหัสต่ำสุดที่ว่างจริง ณ ตอนอนุมัติเสมอ — race-free จริงแม้ 2 คำขอผูกหน่วยเดียวกันไว้ตอนยื่น (ตอบคำถามที่ถามระหว่างวางแผนเรื่อง race condition)
+- `backend/tests/test_equipment_group_race.py` (ใหม่) — 3 เทสต์ รวมเทสต์ concurrency จริงแบบเดียวกับ `test_stock_race.py` เดิม (ถือ lock ค้างไว้บังคับให้ชนจริง) — **พิสูจน์แล้วว่าถอด fix (ย่อ lock กลับไปแบบเดิม) แล้วเทสต์ fail จริง** ตามธรรมเนียมโปรเจกต์
+
+**Dashboard แอดมิน — ตัดเมตริกซ้ำ + นิยาม "สต็อกต่ำ" ใหม่**
+- `backend/app/services/dashboard_service.py` — ตัด `active_borrowers` ("นักศึกษาที่ยืมอยู่") ที่ query ซ้ำกับ `active_borrows` ออก, เพิ่ม `equipment_counts` (ครุภัณฑ์/วัสดุ/วัสดุสิ้นเปลือง/รวม) จาก `GROUP BY item_type`, นิยาม "สต็อกต่ำ" ใหม่ให้ครอบทุกชิ้น (เดิมนับเฉพาะชิ้นที่ตั้ง threshold รายชิ้นเอง)
+- `backend/app/schemas/dashboard.py` (ใหม่) — `DashboardSummaryResponse`/`EquipmentCounts`, endpoint นี้ไม่เคยมี response schema มาก่อน
+- `backend/alembic/versions/0018_low_stock_default_setting.py` (ใหม่) — seed setting `low_stock_threshold_default`
+- `backend/app/routers/dashboard.py` — ใส่ `response_model`
+
+**อื่น ๆ**
+- แก้เทสต์ 7 ไฟล์ (`test_admin_email_notify.py`, `test_advisor_fixes.py`, `test_api_integration.py` ฯลฯ) ให้ส่ง `requested_due_date` ในทุก POST `/borrow-requests` — จำเป็นเพราะฟีเจอร์ที่ค้างจากรอบก่อนบังคับ field นี้แล้ว
+- `test_api_integration.py::test_dashboard_summary_has_all_fields` แก้ให้ตรงกับ schema ใหม่
+
+### Frontend
+
+- `frontend/src/utils/formatDate.js` (ใหม่) — ฟังก์ชัน `DD/MM/YYYY` ตายตัว ไม่ใช้ `toLocaleDateString('th-TH')` (พ.ศ./ไม่ zero-pad) — เชื่อมเข้า `BorrowRequestsPage.jsx`, `MyBorrowsPage.jsx`, `EquipmentDetailPage.jsx`, `AllBorrowsPage.jsx`
+- `frontend/src/pages/admin/EquipmentManagePage.jsx` — เพิ่ม UI เลือก "ชุดอุปกรณ์" (bundle) + ตั้งตัวกระตุ้นได้จากฟอร์มแก้ไขอุปกรณ์โดยตรง ไม่ต้องไปหน้า "จัดการชุดอุปกรณ์" แยกอีกต่อไป (ยังเก็บหน้าเดิมไว้ใช้สร้าง/แก้ไขชุดแบบเต็มรูปแบบ)
+- `frontend/src/pages/student/EquipmentListPage.jsx` — ลบแบนเนอร์ "ชุดอุปกรณ์" แยกออก (ฟีเจอร์กดเพิ่มการ์ดแล้วขยายทั้งชุดอัตโนมัติมีอยู่แล้วในโค้ด แค่ยังไม่เคยตั้งค่า trigger ให้ชุด Dell Optiplex — วันนี้ตั้งให้แล้วผ่านฟอร์มใหม่ด้านบน), เปลี่ยนไปใช้ `equipmentApi.listGrouped`
+- `frontend/src/pages/student/EquipmentDetailPage.jsx` — เปลี่ยนไปใช้ `equipmentApi.getGrouped`
+- `frontend/src/hooks/cartRules.js::mergeCartItem` — เลิกล็อก `item_type === 'durable'` ไว้ที่ 1 เสมอ เปลี่ยนไปอิง `quantity_available` ของการ์ดแทน (การ์ดที่ยุบรวมหลายหน่วยแล้วขอเกิน 1 ได้)
+- `frontend/src/pages/student/BorrowRequestPage.jsx` — ช่องกรอกจำนวนในตะกร้าโชว์เมื่อ `quantity_available > 1` แทนที่จะเช็คจาก `item_type`
+- `frontend/src/pages/admin/DashboardPage.jsx` — ตัด tile ซ้ำ, เพิ่มแถวสรุปคลัง 4 tile (ครุภัณฑ์/วัสดุ/วัสดุสิ้นเปลือง/รวม)
+- `frontend/src/api/equipmentApi.js` — เพิ่ม `listGrouped`/`getGrouped`
+- `frontend/src/hooks/cartRules.test.mjs` — ปรับ/เพิ่มเทสต์ให้ตรงกับพฤติกรรมใหม่
+
+### QA / Verification
+- `pytest` backend: **116/116 ผ่าน** (113 เดิม + 3 เทสต์ race ใหม่)
+- `node --test` cartRules: **6/6 ผ่าน**
+- `npm run build`: ผ่าน
+- ทดสอบจริงใน Chrome ครบทุกข้อ: preview PDF เปิดได้จริง, วันที่ขึ้น DD/MM/YYYY, ตั้งชุด Dell Optiplex แล้วกด "+ เพิ่มในตะกร้า" ได้ทั้งชุดจริง (คอม+เมาส์+คีย์บอร์ด+สายไฟ), AC1200 12 หน่วยยุบเหลือการ์ดเดียว "เหลือให้ยืม 12 ชิ้น", ยืม 3 ชิ้นขยายเป็น 3 `BorrowItem` จริง (613001-613003), อนุมัติแล้วสต็อกลด 12→9, คืนแล้วสต็อกกลับ 9→12, dashboard ไม่มี tile ซ้ำและตัวเลขสรุปคลังตรงกับหน้าจัดการอุปกรณ์ (707 ครุภัณฑ์ / 545 วัสดุ / 4 วัสดุสิ้นเปลือง / 1256 รวม)
+- ข้อมูลทดสอบ (คำขอยืม AC1200 x3 ของบัญชี admin) คืนสต็อกกลับสู่ค่าเดิมครบหลังทดสอบ ไม่ทิ้งค้าง
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| **ยังไม่ commit อะไรเลย** — งานทั้งวันนี้ + งานค้างจากรอบก่อน (TLS, requested_due_date) อยู่ใน working tree ล้วน | ยังไม่ได้รับคำสั่งให้ commit | ต้อง commit ก่อนอย่างอื่น เสี่ยงข้อมูลหายถ้าเครื่อง dev มีปัญหา |
+| ชุด "Dell Optiplex 7040" กดเพิ่มในตะกร้าแล้วไม่ได้ทั้งชุด (feedback เดิมจาก admin) | ไม่ใช่บั๊กโค้ด — bundle นั้นไม่เคยตั้ง `trigger_equipment_id` ไว้เลย | ตั้งค่าผ่านฟอร์มใหม่ที่เพิ่มวันนี้แล้ว ทดสอบผ่านจริง |
+| `max_loan_days_durable` setting ไม่มีจุดไหนอ่านแล้ว (ถูกแทนด้วย `requested_due_date`) แต่ยังโผล่ในหน้า Settings ให้แก้ได้ | ค้างจากรอบก่อน ยังไม่ได้ลบ | ลบทีหลัง หลัง commit งาน `requested_due_date` เรียบร้อยแล้ว |
+| อนุมัติคำขอของรุ่นที่มีหลายหน่วยตอนนี้ล็อกทั้งกลุ่ม (เช่น ล็อกทั้ง 12 หน่วยของ AC1200) ไม่ใช่แค่หน่วยเดียวเหมือนเดิม | ต้องล็อกทั้งกลุ่มถึงจะเลือกหน่วยสำรองแทนได้แบบ race-free | ที่สเกล ≤100 ชิ้นไม่กระทบ performance แต่บันทึกไว้เป็น behavior change ที่ควรรู้ตอน review |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Commit งานทั้งหมด (รอบก่อน + วันนี้) แล้วดีพลอยขึ้น VM จริงเพื่อทดสอบซ้ำ
+2. [ ] ลบ setting `max_loan_days_durable` ที่ตายแล้วออกจากหน้า Settings
+3. [ ] ตรวจ mobile responsive หน้าที่เหลือ (`BorrowRequestsPage`, `AuditLogPage`, `SettingsPage`, `DashboardPage` ทั้งสอง role) ตามที่ค้างจาก 13 ส.ค.
+4. [ ] ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ + ขอ SMTP จริงจากคณะเพื่อเปิด `ENABLE_EMAIL`
+5. [ ] เริ่ม security review (MITM/ดักรหัส/ช่องโหว่) ตามที่ admin ขอไว้ ยังไม่ได้เริ่ม
+6. [ ] เรื่อง SN สำหรับค้นหาโน้ตบุ๊ก — รออนุมัติจาก admin ตามที่แจ้งไว้ ยังไม่ต้องทำอะไร
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% ตาม `02-system-design.md` — ครบทุกข้อ feedback รอบ 17 ส.ค. แล้ว เหลือ commit + ทดสอบซ้ำบน VM จริง
+**Frontend:** ~97% — ครบทุกข้อ feedback รอบนี้ เหลือตรวจ mobile responsive หน้าที่ยังไม่ได้ไล่ดู
+**ระยะรวม:** วันนี้เป็นวันที่ทำงานหนักที่สุดวันหนึ่ง — รับ feedback จาก QA รอบ 2 ของ admin จริง 6 ข้อ วางแผนละเอียด (ใช้ agent สำรวจโค้ด 3 ตัว + agent ออกแบบ 1 ตัว) แล้ว implement + เทสต์ + verify ผ่าน Chrome จริงครบทุกข้อในวันเดียว รวมงานสถาปัตยกรรมใหญ่ (ยุบกลุ่มครุภัณฑ์ + จัดสรรแบบ race-free) ที่แตะทั้ง backend service/schema/router และ frontend cart logic
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending item จาก CLAUDE.md §10** — `ALLOWED_EMAIL_DOMAINS` ยังไม่ได้ยืนยันกับอาจารย์ก่อน deploy จริงเป็นทางการ, ไฟล์ Excel คลังอุปกรณ์เดิมจากทีมอื่นยังไม่มีอัปเดตเพิ่ม
+- `ENABLE_EMAIL=false` ยังตั้งใจปิดไว้ (ตามแผน pilot เดิม) — โค้ดแจ้งเตือนทางอีเมลทุกจุด (อนุมัติ/ปฏิเสธ/รับคืน/ใกล้ครบกำหนด/เกินกำหนด) พร้อมใช้แล้วแค่รอ SMTP จริง
+- งานทั้งหมดของวันนี้ยังไม่ผ่านการทดสอบบน VM จริง (ทดสอบบนเครื่อง dev เท่านั้น) ตาม `DEPLOY-PLAN.md` ที่ยังมีรายการ "ยังต้องทำบน VM จริง" ค้างอยู่จากรอบก่อน
