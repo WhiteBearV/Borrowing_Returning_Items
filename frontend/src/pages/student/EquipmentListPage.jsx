@@ -62,7 +62,7 @@ export default function EquipmentListPage() {
   useEffect(() => {
     setLoading(true)
     equipmentApi
-      .list({ search: search || undefined, category_id: categoryId || undefined, page, page_size: 12 })
+      .listGrouped({ search: search || undefined, category_id: categoryId || undefined, page, page_size: 12 })
       .then(setData)
       .finally(() => setLoading(false))
   }, [search, categoryId, page])
@@ -94,24 +94,9 @@ export default function EquipmentListPage() {
         </button>
       </div>
 
-      {/* ชุดอุปกรณ์ — ทางลัดหยิบของหลายชิ้นทีเดียว แล้วไปปรับ/ถอดออกในตะกร้าได้ */}
-      {bundles.length > 0 && (
-        <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-          <p className="text-sm font-semibold text-gray-700 mb-2">ชุดอุปกรณ์</p>
-          <div className="flex flex-wrap gap-2">
-            {bundles.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => handleAddBundle(b)}
-                title={b.items.map((i) => `${i.equipment_name} ×${i.quantity}`).join('\n')}
-                className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100"
-              >
-                + {b.name} <span className="text-xs text-gray-400">({b.items.length} รายการ)</span>
-              </button>
-            ))}
-          </div>
-          {bundleMsg && <p className="mt-2 text-xs text-gray-600">{bundleMsg}</p>}
-        </div>
+      {/* ชุดอุปกรณ์ขยายอัตโนมัติตอนกด "+ เพิ่มในตะกร้า" บนอุปกรณ์ตัวกระตุ้น (ดู handleAdd) — ข้อความผลลัพธ์ */}
+      {bundleMsg && (
+        <p className="mb-4 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-gray-600">{bundleMsg}</p>
       )}
 
       {/* Filters */}

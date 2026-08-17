@@ -4,6 +4,7 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { openPdf } from '../../utils/openPdf.js'
+import { formatDate } from '../../utils/formatDate.js'
 
 const STATUS_STYLE = {
   pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-blue-100 text-blue-700',
@@ -173,7 +174,7 @@ export default function AllBorrowsPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  {req.due_date && <span className="text-xs text-gray-400">ครบ {req.due_date}</span>}
+                  {req.due_date && <span className="text-xs text-gray-400">ครบ {formatDate(req.due_date)}</span>}
                   <span className="text-xs text-gray-400">{expanded === req.id ? '▲' : '▼'}</span>
                 </div>
               </button>

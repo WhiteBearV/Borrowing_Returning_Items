@@ -126,7 +126,7 @@ async def test_unauthorized_without_token(client: AsyncClient):
 async def borrow_request_id(client: AsyncClient, student_token: str, test_equipment: Equipment):
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ integration",
-        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201, r.text
     req_id = r.json()["id"]
@@ -217,7 +217,7 @@ async def test_quota_limit(client: AsyncClient, student_token: str, test_equipme
         for i in range(3):
             r = await client.post("/borrow-requests", headers=auth(student_token), json={
                 "purpose": f"ทดสอบ quota {i}",
-                "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+                "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
             })
             if r.status_code == 201:
                 created_ids.append(r.json()["id"])
@@ -241,10 +241,12 @@ async def test_dashboard_summary_has_all_fields(client: AsyncClient, admin_token
     r = await client.get("/dashboard/summary", headers=auth(admin_token))
     assert r.status_code == 200
     body = r.json()
-    for field in ("pending_requests", "overdue_requests", "low_stock_items",
-                  "active_borrows", "active_borrowers"):
+    for field in ("pending_requests", "overdue_requests", "low_stock_items", "active_borrows"):
         assert field in body, f"missing field: {field}"
         assert isinstance(body[field], int), f"{field} must be int"
+    for field in ("durable", "material", "consumable", "total"):
+        assert field in body["equipment_counts"], f"missing equipment_counts field: {field}"
+        assert isinstance(body["equipment_counts"][field], int), f"equipment_counts.{field} must be int"
 
 
 async def test_dashboard_requires_admin(client: AsyncClient, student_token: str):

@@ -7,9 +7,19 @@ from app.core.config import TZ
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
+from app.models.setting import Setting
+from app.schemas.dashboard import DashboardSummaryResponse, EquipmentCounts
+
+ITEM_TYPES = ("durable", "material", "consumable")
 
 
-async def get_summary(db: AsyncSession) -> dict:
+async def _get_setting_int(db: AsyncSession, key: str) -> int:
+    """อ่านค่า int จาก settings — ไฟล์นี้เก็บ helper แยกของตัวเอง ไม่ import จาก borrow_service"""
+    result = await db.execute(select(Setting).where(Setting.key == key))
+    return int(result.scalar_one().value)
+
+
+async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
     """สรุปภาพรวมสำหรับ dashboard admin"""
     pending_result = await db.execute(
         select(func.count(BorrowRequest.id)).where(BorrowRequest.status == "pending")
@@ -19,21 +29,34 @@ async def get_summary(db: AsyncSession) -> dict:
             BorrowRequest.is_overdue == True, BorrowRequest.status == "approved"
         )
     )
+
+    # สต็อกต่ำ: ใช้เกณฑ์เฉพาะชิ้นถ้าตั้งไว้ ไม่งั้น fallback เป็นเกณฑ์กลาง — ครอบทุกชิ้น consumable
+    # ไม่มีใครหลุดเหมือนเดิมที่นับเฉพาะชิ้นที่ตั้ง threshold รายชิ้นเอาไว้เท่านั้น
+    default_threshold = await _get_setting_int(db, "low_stock_threshold_default")
     low_stock_result = await db.execute(
         select(func.count(Equipment.id)).where(
             Equipment.item_type == "consumable",
-            Equipment.low_stock_threshold.is_not(None),
-            Equipment.quantity_available <= Equipment.low_stock_threshold,
+            Equipment.quantity_available <= func.coalesce(Equipment.low_stock_threshold, default_threshold),
         )
     )
+
     # คำขอที่อยู่ระหว่างการยืม (approved ยังไม่คืนครบ)
     active_borrows_result = await db.execute(
         select(func.count(BorrowRequest.id)).where(BorrowRequest.status == "approved")
     )
-    # จำนวนนักศึกษาที่ยืมของอยู่ (distinct student)
-    active_borrowers_result = await db.execute(
-        select(func.count(func.distinct(BorrowRequest.student_id))).where(BorrowRequest.status == "approved")
+
+    # สรุปจำนวนอุปกรณ์ตามประเภท — ix_equipment_item_type มีอยู่แล้ว query นี้ถูกมาก
+    counts_result = await db.execute(
+        select(Equipment.item_type, func.count(Equipment.id)).group_by(Equipment.item_type)
     )
+    counts_by_type = {t: n for t, n in counts_result.all()}
+    equipment_counts = EquipmentCounts(
+        durable=counts_by_type.get("durable", 0),
+        material=counts_by_type.get("material", 0),
+        consumable=counts_by_type.get("consumable", 0),
+        total=sum(counts_by_type.values()),
+    )
+
     # ต้นทุนวัสดุที่ถูกใช้ไปในเดือนนี้ = ผลรวม (จำนวน × ราคาต่อหน่วย ณ วันอนุมัติ)
     # นับเฉพาะ used_up/discarded — ของที่คืนครบ (returned_full) กลับเข้าคลังแล้ว ไม่ใช่ต้นทุน
     month_start = datetime.now(TZ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -43,11 +66,12 @@ async def get_summary(db: AsyncSession) -> dict:
             BorrowItem.returned_at >= month_start,
         )
     )
-    return {
-        "pending_requests": pending_result.scalar() or 0,
-        "overdue_requests": overdue_result.scalar() or 0,
-        "low_stock_items": low_stock_result.scalar() or 0,
-        "active_borrows": active_borrows_result.scalar() or 0,
-        "active_borrowers": active_borrowers_result.scalar() or 0,
-        "consumed_value_this_month": float(consumed_result.scalar() or 0),
-    }
+
+    return DashboardSummaryResponse(
+        pending_requests=pending_result.scalar() or 0,
+        overdue_requests=overdue_result.scalar() or 0,
+        low_stock_items=low_stock_result.scalar() or 0,
+        active_borrows=active_borrows_result.scalar() or 0,
+        equipment_counts=equipment_counts,
+        consumed_value_this_month=float(consumed_result.scalar() or 0),
+    )

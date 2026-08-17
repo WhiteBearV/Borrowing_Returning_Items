@@ -50,6 +50,26 @@ class EquipmentDetailResponse(EquipmentResponse):
     holders: list[HolderInfo]
 
 
+class EquipmentGroupResponse(EquipmentResponse):
+    """อุปกรณ์รุ่นเดียวกันหลายหน่วย (name+item_type ตรงกัน) ยุบเป็นการ์ดเดียว
+
+    id/code/รูป/คำอธิบาย ฯลฯ มาจากหน่วยรหัสต่ำสุด — quantity_* เป็นผลรวมทั้งกลุ่ม
+    unit_count = จำนวนหน่วยจริงในรุ่นนี้ (ใช้รู้ว่าต้องมีช่องกรอกจำนวน >1 ไหม)
+    """
+    unit_count: int
+
+
+class PaginatedEquipmentGroup(BaseModel):
+    items: list[EquipmentGroupResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class EquipmentGroupDetailResponse(EquipmentGroupResponse):
+    holders: list[HolderInfo]
+
+
 class EquipmentCreate(BaseModel):
     code: str
     name: str

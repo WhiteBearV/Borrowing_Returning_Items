@@ -12,10 +12,12 @@ from app.schemas.equipment import (
     CategoryResponse,
     EquipmentCreate,
     EquipmentDetailResponse,
+    EquipmentGroupDetailResponse,
     EquipmentResponse,
     EquipmentUpdate,
     ImportCommitRequest,
     PaginatedEquipment,
+    PaginatedEquipmentGroup,
 )
 from app.services import equipment_service, import_service
 
@@ -34,6 +36,30 @@ async def list_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipment:
     return await equipment_service.list_equipment(db, page, page_size, category_id, item_type, status, search)
+
+
+@router.get("/equipment/grouped", response_model=PaginatedEquipmentGroup)
+async def list_equipment_grouped(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    category_id: uuid.UUID | None = Query(None),
+    item_type: str | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PaginatedEquipmentGroup:
+    """เหมือน /equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้"""
+    return await equipment_service.list_equipment_grouped(db, page, page_size, category_id, item_type, status, search)
+
+
+@router.get("/equipment/grouped/{equipment_id}", response_model=EquipmentGroupDetailResponse)
+async def get_equipment_group_detail(
+    equipment_id: uuid.UUID,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EquipmentGroupDetailResponse:
+    return await equipment_service.get_equipment_group_detail(db, equipment_id)
 
 
 @router.get("/equipment/repair-document")
@@ -87,7 +113,7 @@ async def get_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentDetailResponse:
     eq = await equipment_service.get_equipment(db, equipment_id)
-    holders = await equipment_service.get_holders(db, equipment_id)
+    holders = await equipment_service.get_holders(db, [equipment_id])
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
     return EquipmentDetailResponse(**base.model_dump(), holders=holders)
 

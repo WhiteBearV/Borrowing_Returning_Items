@@ -4,18 +4,23 @@ import { borrowApi } from '../../api/borrowApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 
+const tomorrow = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+
 export default function BorrowRequestPage() {
   const navigate = useNavigate()
   const { cart, removeItem, updateQuantity, clearCart, purpose, setPurpose } = useCart()
+  const [dueDate, setDueDate] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const cartPayload = () => ({
     purpose: purpose || undefined,
+    requested_due_date: dueDate,
     items: cart.map((c) => ({ equipment_id: c.equipment.id, quantity: c.quantity })),
   })
 
   const previewDraft = async () => {
+    if (!dueDate) { setError('กรุณาระบุวันที่คาดว่าจะคืนก่อน'); return }
     setError('')
     try {
       openPdf(await borrowApi.previewPdf(cartPayload()))
@@ -27,6 +32,7 @@ export default function BorrowRequestPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (cart.length === 0) return
+    if (!dueDate) { setError('กรุณาระบุวันที่คาดว่าจะคืนก่อน'); return }
     setError('')
     setLoading(true)
     try {
@@ -70,7 +76,8 @@ export default function BorrowRequestPage() {
                 <p className="text-sm font-medium text-gray-800 truncate">{eq.name}</p>
                 <p className="text-xs text-gray-400">{eq.code}</p>
               </div>
-              {eq.item_type !== 'durable' ? (
+              {/* การ์ดที่ยุบรวมหลายหน่วยรุ่นเดียวกันขอเกิน 1 ได้ ไม่ได้ล็อกตาม item_type อีกต่อไป */}
+              {eq.quantity_available > 1 ? (
                 <div className="flex items-center gap-1.5">
                   <input
                     type="number"
@@ -106,6 +113,21 @@ export default function BorrowRequestPage() {
             onChange={(e) => setPurpose(e.target.value)}
             placeholder="ระบุวัตถุประสงค์ (ไม่บังคับ)"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </div>
+
+        {/* วันที่คาดว่าจะคืน — นักศึกษาระบุเอง แอดมินพิจารณาอนุมัติ/ปฏิเสธตามวันนี้ */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            วันที่คาดว่าจะคืน <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="date"
+            required
+            min={tomorrow()}
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 

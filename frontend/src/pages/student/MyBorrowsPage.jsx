@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
 import { openPdf } from '../../utils/openPdf.js'
+import { formatDate } from '../../utils/formatDate.js'
 import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_STYLE = {
@@ -101,7 +102,7 @@ export default function MyBorrowsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   {req.due_date && (
-                    <span className="text-xs text-gray-400">ครบ {req.due_date}</span>
+                    <span className="text-xs text-gray-400">ครบ {formatDate(req.due_date)}</span>
                   )}
                   <span className="text-gray-400 text-xs">{expanded === req.id ? '▲' : '▼'}</span>
                 </div>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
+import { formatDate } from '../../utils/formatDate.js'
 
 const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
@@ -19,7 +20,7 @@ export default function EquipmentDetailPage() {
   const [activeImg, setActiveImg] = useState(0)
 
   useEffect(() => {
-    equipmentApi.get(id).then(setEq).catch(() => navigate('/equipment')).finally(() => setLoading(false))
+    equipmentApi.getGrouped(id).then(setEq).catch(() => navigate('/equipment')).finally(() => setLoading(false))
     bundleApi.list().then(setBundles).catch(() => {})
   }, [id])
 
@@ -111,7 +112,7 @@ export default function EquipmentDetailPage() {
                 {eq.holders.map((h, i) => (
                   <li key={i} className="flex justify-between">
                     <span>{h.holder_name}{h.quantity > 1 ? ` ×${h.quantity}` : ''}</span>
-                    <span className="text-gray-400">{h.due_date ? `กำหนดคืน ${h.due_date}` : ''}</span>
+                    <span className="text-gray-400">{h.due_date ? `กำหนดคืน ${formatDate(h.due_date)}` : ''}</span>
                   </li>
                 ))}
               </ul>

@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone, timedelta
 from html import escape
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,7 +20,7 @@ from app.schemas.borrow import (
     PaginatedBorrowRequests,
     ReturnItemRequest,
 )
-from app.services import audit_service
+from app.services import audit_service, equipment_service
 from app.utils.email import send_email
 
 # สถานะตอนสรุปผลอุปกรณ์ แยกตามชนิด
@@ -118,6 +118,12 @@ async def create_request(
                 detail=f"You already have {max_active} active requests.",
             )
 
+    if body.requested_due_date <= date.today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requested return date must be in the future.",
+        )
+
     if len(body.items) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request must have at least 1 item.")
     if not is_admin and len(body.items) > max_items:
@@ -126,8 +132,11 @@ async def create_request(
             detail=f"Cannot request more than {max_items} items at once.",
         )
 
-    # ตรวจสอบ equipment ทุกรายการก่อน insert
-    equipment_map: dict[uuid.UUID, Equipment] = {}
+    # ตรวจสอบ equipment ทุกรายการก่อน insert — คำนวณด้วยว่าแต่ละบรรทัดจะได้หน่วยไหนบ้าง
+    # (eq, quantity) ต่อ BorrowItem ที่จะสร้างจริง — รุ่นที่มีหลายหน่วย (ครุภัณฑ์/วัสดุ) 1 บรรทัดคำขอ
+    # ขยายเป็นหลายแถว หน่วยละ 1 ชิ้น เลือกจากรหัสต่ำสุดที่ว่างก่อน — "จอง" แค่ตอนนี้ไม่ผูกมัด
+    # ของจริงเลือกซ้ำอีกทีตอนอนุมัติภายใต้ lock กัน race (ดู approve_request)
+    resolved: list[tuple[Equipment, int]] = []
     for item_req in body.items:
         eq_result = await db.execute(select(Equipment).where(Equipment.id == item_req.equipment_id))
         eq = eq_result.scalar_one_or_none()
@@ -148,30 +157,45 @@ async def create_request(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
             )
-        if eq.quantity_available < item_req.quantity:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' has insufficient stock (available: {eq.quantity_available}).",
-            )
-        equipment_map[eq.id] = eq
+
+        group = (
+            [eq] if eq.item_type == "consumable"
+            else await equipment_service.find_group_members(db, eq.name, eq.item_type)
+        )
+        if len(group) <= 1:
+            if eq.quantity_available < item_req.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' has insufficient stock (available: {eq.quantity_available}).",
+                )
+            resolved.append((eq, item_req.quantity))
+        else:
+            eligible = [g for g in group if g.is_borrowable and g.status == "available" and g.quantity_available > 0]
+            if len(eligible) < item_req.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' has insufficient stock (available: {len(eligible)}).",
+                )
+            for unit in eligible[:item_req.quantity]:
+                resolved.append((unit, 1))
 
     req = BorrowRequest(
         id=uuid.uuid4(),
         request_code=await _next_request_code(db, current_user),
         student_id=current_user.id,
         purpose=body.purpose,
+        requested_due_date=body.requested_due_date,
         status="pending",
     )
     db.add(req)
     await db.flush()  # ได้ req.id
 
-    for item_req in body.items:
-        eq = equipment_map[item_req.equipment_id]
+    for eq, quantity in resolved:
         db.add(BorrowItem(
             borrow_request_id=req.id,
             equipment_id=eq.id,
             item_type_snapshot=eq.item_type,
-            quantity=item_req.quantity,
+            quantity=quantity,
         ))
 
     # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
@@ -272,13 +296,12 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
     """
     อนุมัติคำขอ:
     - ลด quantity_available ของทุก equipment ใน request (ทั้ง durable และ consumable)
-    - คำนวณ due_date = today + max_loan_days_durable
+    - due_date = วันที่นักศึกษาขอคืนเอง (requested_due_date) ตอนยื่นคำขอ — ไม่คำนวณจาก setting แล้ว
     - ส่งแจ้งเตือนนักศึกษา
 
     ไม่ตั้ง returned=True ให้ item ใดทั้งสิ้น แม้แต่ consumable —
     แอดมินต้องสรุปผลภายหลังว่าคืนครบ/ใช้หมด/เสียหาย (CLAUDE.md §5)
     """
-    max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
     req = await _load_request(db, request_id)
 
     if req.status != "pending":
@@ -287,48 +310,74 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
             detail=f"Cannot approve request with status '{req.status}'.",
         )
 
-    # ล็อกแถวอุปกรณ์ก่อนอ่านค่าสต็อกมาตัดสินใจ
-    # ไม่มีบรรทัดนี้ = แอดมิน 2 คนกดอนุมัติของชิ้นสุดท้ายพร้อมกัน จะอ่านได้ค่าเดียวกันทั้งคู่
-    # ผ่านเงื่อนไขทั้งคู่ แล้วเขียนทับกัน = ปล่อยของชิ้นเดียวออกไป 2 ครั้งโดยไม่มี error
-    #   order_by(id)      เรียงลำดับการล็อกให้เหมือนกันทุก transaction กัน deadlock
-    #   populate_existing บังคับให้ค่าที่ selectinload โหลดไว้ก่อนหน้าถูกเขียนทับด้วยค่าที่เพิ่งล็อก
-    await db.execute(
+    # ล็อกอุปกรณ์ก่อนอ่านค่าสต็อกมาตัดสินใจ — ล็อกทั้ง "กลุ่ม" ของทุก item ไม่ใช่แค่หน่วยที่ผูกไว้ตอนยื่น
+    # เพราะรุ่นที่มีหลายหน่วย (ครุภัณฑ์/วัสดุ) หน่วยที่ผูกไว้ตอนยื่นอาจถูกคำขออื่นอนุมัติแซงไปก่อน
+    # ต้องเลือกหน่วยอื่นในรุ่นเดียวกันแทนได้ — ไม่มีการล็อกนี้ = แอดมิน 2 คนกดอนุมัติของชิ้นสุดท้ายพร้อมกัน
+    # จะอ่านได้ค่าเดียวกันทั้งคู่ ผ่านเงื่อนไขทั้งคู่ แล้วเขียนทับกัน = ปล่อยของชิ้นเดียวออกไป 2 ครั้งโดยไม่มี error
+    #   order_by(code)     เรียงลำดับการล็อกให้เหมือนกันทุก transaction กัน deadlock + ได้ลำดับ "รหัสต่ำสุดก่อน" มาในตัว
+    #   populate_existing  บังคับให้ค่าที่ selectinload โหลดไว้ก่อนหน้าถูกเขียนทับด้วยค่าที่เพิ่งล็อก
+    group_keys = {(i.equipment.name, i.equipment.item_type) for i in req.items}
+    conditions = [(Equipment.name == n) & (Equipment.item_type == t) for n, t in group_keys]
+    locked_rows = list((await db.execute(
         select(Equipment)
-        .where(Equipment.id.in_([i.equipment_id for i in req.items]))
-        .order_by(Equipment.id)
+        .where(or_(*conditions))
+        .order_by(Equipment.code)
         .with_for_update()
         .execution_options(populate_existing=True)
-    )
+    )).scalars().all())
+    rows_by_group: dict[tuple[str, str], list[Equipment]] = {}
+    for r in locked_rows:
+        rows_by_group.setdefault((r.name, r.item_type), []).append(r)
 
     now = datetime.now(timezone.utc)
     for item in req.items:
         eq = item.equipment
-        # เช็คซ้ำตอนอนุมัติ — สถานะอาจเปลี่ยนเป็นห้ามยืมหลังนักศึกษายื่นคำขอ
-        if not eq.is_borrowable:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' is not lendable.",
+        group = rows_by_group.get((eq.name, eq.item_type)) or [eq]
+
+        if len(group) <= 1:
+            # เช็คซ้ำตอนอนุมัติ — สถานะอาจเปลี่ยนเป็นห้ามยืมหลังนักศึกษายื่นคำขอ (พฤติกรรมเดิมเป๊ะ)
+            if not eq.is_borrowable:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' is not lendable.",
+                )
+            if eq.status != "available":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
+                )
+            if eq.quantity_available < item.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' no longer has sufficient stock.",
+                )
+            chosen = eq
+        else:
+            # รุ่นที่มีหลายหน่วย — เลือกหน่วยรหัสต่ำสุดที่ว่างจริง ณ ตอนนี้เสมอ ไม่ใช่หน่วยที่ผูกไว้ตอนยื่น
+            # (group เรียงตาม code จากการล็อกด้านบนแล้ว) หน่วยเดิมยังว่างก็จะถูกเลือกอยู่ดีเพราะเป็นรหัสต่ำสุด
+            chosen = next(
+                (g for g in group if g.is_borrowable and g.status == "available" and g.quantity_available >= item.quantity),
+                None,
             )
-        if eq.status != "available":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
-            )
-        if eq.quantity_available < item.quantity:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' no longer has sufficient stock.",
-            )
+            if chosen is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' no longer has sufficient stock.",
+                )
+            if chosen.id != eq.id:
+                item.equipment_id = chosen.id
+                item.equipment = chosen
+
         # หักสต็อกทั้ง durable และ consumable — ของออกจากคลังแล้ว
         # consumable ไม่ auto-คืนอีกต่อไป: admin ต้องสรุปผลภายหลัง (คืนครบ/ใช้หมด/เสียหาย)
-        eq.quantity_available -= item.quantity
+        chosen.quantity_available -= item.quantity
         # ล็อกราคาต่อหน่วย ณ วันอนุมัติ ใช้คิดต้นทุนวัสดุที่ถูกใช้ไป
-        item.unit_value_snapshot = eq.unit_value
+        item.unit_value_snapshot = chosen.unit_value
 
     req.status = "approved"
     req.approved_by = admin.id
     req.approved_at = now
-    req.due_date = (now + timedelta(days=max_loan_days)).date()
+    req.due_date = req.requested_due_date
 
     await _notify(db, req.student_id, "approved",
                   f"คำขอ {req.request_code} ได้รับการอนุมัติแล้ว กรุณาคืนภายใน {req.due_date}",
@@ -607,8 +656,7 @@ async def generate_pdf(
     from app.utils.pdf import generate_borrow_pdf, generate_preview_pdf as _gen_preview
     req = await get_request(db, current_user, request_id)
     if req.status == "pending":
-        max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
-        req.due_date = (req.requested_at + timedelta(days=max_loan_days)).date()
+        req.due_date = req.requested_due_date
         return _gen_preview(req)
     return generate_borrow_pdf(req)
 
@@ -652,12 +700,11 @@ async def generate_preview_pdf(
             quantity=it.quantity,
             returned=False, returned_at=None, condition_on_return=None,
             damage_note=None, damage_photo_urls=None, renewed_count=0, extended_due_date=None,
+            return_requested=False, return_requested_at=None,
         )
         for it in body.items
     ]
     now = datetime.now(timezone.utc)
-    # กำหนดคืนจริงนับจากวันอนุมัติ — ร่างยังไม่รู้ จึงประมาณจากวันนี้ให้ผู้ยืมเห็นกรอบเวลา
-    max_loan_days = await _get_setting_int(db, "max_loan_days_durable")
     req = BorrowRequestResponse(
         id=uuid.uuid4(),
         request_code=f"REQ-{now.year}-{_ident(current_user)}-XXXX (ตัวอย่าง — เลขจริงออกเมื่อส่งคำขอ)",
@@ -669,7 +716,8 @@ async def generate_preview_pdf(
         status="pending",
         requested_at=now,
         approved_by=None, approved_at=None, rejection_reason=None,
-        due_date=(now + timedelta(days=max_loan_days)).date(),
+        requested_due_date=body.requested_due_date,
+        due_date=body.requested_due_date,
         is_overdue=False, returned_at=None,
         items=items,
     )
@@ -694,8 +742,12 @@ async def delete_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -
 
 
 async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
-    """ส่ง reminder แบบ manual โดย admin"""
-    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
+    """ส่ง reminder แบบ manual โดย admin — ทั้ง in-app และอีเมล"""
+    result = await db.execute(
+        select(BorrowRequest)
+        .options(selectinload(BorrowRequest.student))
+        .where(BorrowRequest.id == request_id)
+    )
     req = result.scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
@@ -706,3 +758,13 @@ async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
                   f"แจ้งเตือน: คำขอ {req.request_code} ครบกำหนดคืนวันที่ {req.due_date}",
                   borrow_request_id=req.id)
     await db.commit()
+
+    try:
+        await send_email(
+            req.student.email,
+            f"แจ้งเตือน: คำขอ {req.request_code} ครบกำหนดคืน",
+            f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ครบกำหนดคืนวันที่ {req.due_date} "
+            f"กรุณานำอุปกรณ์มาคืน</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ส่ง reminder ล้ม
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")

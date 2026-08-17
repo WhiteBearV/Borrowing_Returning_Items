@@ -12,10 +12,25 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// endpoint ที่โหลดไฟล์ (responseType: 'blob') พอ error กลับมาเป็น JSON ก็ยังถูกอ่านเป็น Blob
+// ทำให้ err.response.data.detail อ่านไม่ได้ทุกจุดที่ใช้ blob — แกะกลับเป็น object ให้ที่เดียวจบ
+async function unwrapBlobError(error) {
+  const data = error.response?.data
+  if (data instanceof Blob && data.type.includes('json')) {
+    try {
+      error.response.data = JSON.parse(await data.text())
+    } catch {
+      // เนื้อหาไม่ใช่ JSON จริง ปล่อยเป็น Blob เดิม ไม่ต้องทำอะไรเพิ่ม
+    }
+  }
+  return error
+}
+
 // Refresh token เมื่อได้ 401
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
+    await unwrapBlobError(error)
     const original = error.config
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { equipmentApi } from '../../api/equipmentApi.js'
+import { bundleApi } from '../../api/bundleApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
@@ -28,6 +29,51 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+
+  // ชุดอุปกรณ์ที่อุปกรณ์ชิ้นนี้เป็นสมาชิกอยู่ — แก้ไขได้ตรงนี้แทนที่จะต้องไปหน้า "ชุดอุปกรณ์" แยก
+  // เฉพาะตอนแก้ไข (มี id แล้ว) ของใหม่ยังไม่มี id ให้ผูกกับชุดไม่ได้
+  const [bundles, setBundles] = useState([])
+  const [bundleMembership, setBundleMembership] = useState({}) // { [bundleId]: { included, trigger } }
+
+  useEffect(() => {
+    if (!isEdit) return
+    bundleApi.list().then((list) => {
+      setBundles(list)
+      const membership = {}
+      for (const b of list) {
+        membership[b.id] = {
+          included: b.items.some((i) => i.equipment_id === initial.id),
+          trigger: b.trigger_equipment_id === initial.id,
+        }
+      }
+      setBundleMembership(membership)
+    }).catch(() => {})
+  }, [])
+
+  const toggleBundleIncluded = (bundleId) => setBundleMembership((m) => ({
+    ...m,
+    [bundleId]: { included: !m[bundleId].included, trigger: m[bundleId].included ? false : m[bundleId].trigger },
+  }))
+  const toggleBundleTrigger = (bundleId) => setBundleMembership((m) => ({
+    ...m, [bundleId]: { ...m[bundleId], trigger: !m[bundleId].trigger },
+  }))
+
+  // บันทึกชุดที่สมาชิกภาพ/ตัวกระตุ้นเปลี่ยนไปจากตอนเปิดฟอร์ม — เรียกหลัง equipment บันทึกสำเร็จแล้ว
+  const saveBundleChanges = async (equipmentId) => {
+    for (const b of bundles) {
+      const m = bundleMembership[b.id]
+      const wasIncluded = b.items.some((i) => i.equipment_id === equipmentId)
+      const wasTrigger = b.trigger_equipment_id === equipmentId
+      if (m.included === wasIncluded && m.trigger === wasTrigger) continue
+      const items = m.included
+        ? (wasIncluded ? b.items : [...b.items, { equipment_id: equipmentId, quantity: 1 }])
+        : b.items.filter((i) => i.equipment_id !== equipmentId)
+      await bundleApi.update(b.id, {
+        trigger_equipment_id: m.trigger ? equipmentId : (wasTrigger ? null : b.trigger_equipment_id),
+        items: items.map(({ equipment_id, quantity }) => ({ equipment_id, quantity })),
+      })
+    }
+  }
 
   const uploadImage = async (e) => {
     const files = Array.from(e.target.files ?? [])
@@ -75,6 +121,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
       }
       if (isEdit) {
         await equipmentApi.update(initial.id, payload)
+        await saveBundleChanges(initial.id)
       } else {
         await equipmentApi.create(payload)
       }
@@ -173,6 +220,35 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 <option value="under_repair">ซ่อมอยู่</option>
                 <option value="retired">ปลดระวาง</option>
               </select>
+            </div>
+          )}
+
+          {isEdit && bundles.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">ชุดอุปกรณ์</label>
+              <div className="space-y-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
+                {bundles.map((b) => {
+                  const m = bundleMembership[b.id]
+                  if (!m) return null
+                  return (
+                    <div key={b.id} className="flex items-center gap-2 text-xs">
+                      <label className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <input type="checkbox" checked={m.included} onChange={() => toggleBundleIncluded(b.id)} />
+                        <span className="truncate text-gray-700">{b.name}</span>
+                      </label>
+                      {m.included && (
+                        <label className="flex items-center gap-1 shrink-0 text-gray-500">
+                          <input type="checkbox" checked={m.trigger} onChange={() => toggleBundleTrigger(b.id)} />
+                          ตัวกระตุ้น
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                ติ๊ก "ตัวกระตุ้น" = กด "+ เพิ่มในตะกร้า" บนอุปกรณ์นี้แล้วได้ทั้งชุดอัตโนมัติ
+              </p>
             </div>
           )}
 

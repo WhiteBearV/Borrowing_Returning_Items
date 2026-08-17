@@ -6,6 +6,7 @@ import { isBundleItemAvailable, mergeCartItem } from './cartRules.js'
 
 const wire = { id: 'w', item_type: 'consumable', quantity_available: 500 }
 const pc = { id: 'p', item_type: 'durable', quantity_available: 1 }
+const grouped_ap = { id: 'ap', item_type: 'durable', quantity_available: 12 } // การ์ดยุบรวมหลายหน่วยรุ่นเดียวกัน
 
 test('ของใหม่ถูกเพิ่มเข้าตะกร้า', () => {
   assert.deepEqual(mergeCartItem([], wire, 100), [{ equipment: wire, quantity: 100 }])
@@ -22,9 +23,14 @@ test('บวกแล้วต้องไม่เกินของคงเ�
   assert.equal(cart[0].quantity, 500)
 })
 
-test('ครุภัณฑ์ซ้ำไม่บวกเพิ่ม (ยืมได้ทีละตัว)', () => {
+test('ครุภัณฑ์ที่เหลือหน่วยเดียวยังล็อกที่ 1 (ไม่ได้อิง item_type แล้ว แต่ quantity_available ยังคุมพฤติกรรมเดิมได้)', () => {
   const cart = mergeCartItem([{ equipment: pc, quantity: 1 }], pc, 1)
   assert.equal(cart[0].quantity, 1)
+})
+
+test('ครุภัณฑ์รุ่นที่ยุบรวมหลายหน่วยขอเกิน 1 ได้ (ไม่ล็อกตาม item_type อีกต่อไป)', () => {
+  const cart = mergeCartItem([{ equipment: grouped_ap, quantity: 1 }], grouped_ap, 2)
+  assert.equal(cart[0].quantity, 3)
 })
 
 test('ของในชุดที่ยืมไม่ได้ต้องถูกข้าม', () => {

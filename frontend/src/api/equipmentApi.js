@@ -3,6 +3,9 @@ import { api } from './axiosInstance.js'
 export const equipmentApi = {
   list: (params) => api.get('/equipment', { params }).then((r) => r.data),
   get: (id) => api.get(`/equipment/${id}`).then((r) => r.data),
+  // อุปกรณ์รุ่นเดียวกันหลายหน่วย (ครุภัณฑ์/วัสดุ) ยุบเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้
+  listGrouped: (params) => api.get('/equipment/grouped', { params }).then((r) => r.data),
+  getGrouped: (id) => api.get(`/equipment/grouped/${id}`).then((r) => r.data),
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
   retire: (id, reason) => api.delete(`/equipment/${id}`, { params: reason ? { reason } : {} }),

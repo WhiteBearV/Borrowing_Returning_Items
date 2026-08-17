@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import { openPdf } from '../../utils/openPdf.js'
+import { formatDate } from '../../utils/formatDate.js'
 
 export default function BorrowRequestsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -79,6 +80,9 @@ export default function BorrowRequestsPage() {
               {expanded === req.id && (
                 <div className="border-t px-4 py-3 space-y-3">
                   {req.purpose && <p className="text-sm text-gray-500">วัตถุประสงค์: {req.purpose}</p>}
+                  <p className="text-sm text-gray-500">
+                    วันที่ขอคืน: <span className="font-medium text-gray-700">{formatDate(req.requested_due_date)}</span>
+                  </p>
 
                   <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
                     {req.items.map((item) => (

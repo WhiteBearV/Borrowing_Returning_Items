@@ -17,10 +17,13 @@ from app.schemas.equipment import (
     CategoryCreate,
     CategoryResponse,
     EquipmentCreate,
+    EquipmentGroupDetailResponse,
+    EquipmentGroupResponse,
     EquipmentResponse,
     EquipmentUpdate,
     HolderInfo,
     PaginatedEquipment,
+    PaginatedEquipmentGroup,
 )
 from app.core.config import TZ, settings
 from app.services import audit_service
@@ -28,6 +31,27 @@ from app.utils.qrcode_gen import generate_qr_png
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def _normalize_name(name: str) -> str:
+    """ตัด whitespace/ขึ้นบรรทัดหัวท้าย+ซ้ำ — เหมือน import_service._clean() เพื่อให้ทุกจุดที่เขียน name
+
+    ผ่าน key เดียวกันเป๊ะ (ไฟล์นำเข้า clean ให้แล้ว แต่ฟอร์มแอดมินพิมพ์เองไม่เคย normalize)
+    ป้องกันการยุบกลุ่มอุปกรณ์รุ่นเดียวกัน (ดู find_group_members) พลาดเพราะช่องว่างเกิน/เว้นวรรคไม่ตรงกัน
+    """
+    return " ".join(name.split())
+
+
+async def find_group_members(db: AsyncSession, name: str, item_type: str) -> list[Equipment]:
+    """คืนทุกแถวที่เป็นรุ่นเดียวกัน (name+item_type ตรงกันเป๊ะ) เรียงตาม code จากน้อยไปมาก
+
+    ใช้เลือกหน่วยที่ว่างเลขต่ำสุดตอนยืม/อนุมัติ และยุบแสดงเป็นชิ้นเดียวตอน list —
+    ผู้เรียกต้องเว้น consumable เอง (วัสดุสิ้นเปลืองเป็นก้อนเดียวต่อแถวอยู่แล้ว ไม่ควรยุบรวม)
+    """
+    result = await db.execute(
+        select(Equipment).where(Equipment.name == name, Equipment.item_type == item_type).order_by(Equipment.code)
+    )
+    return list(result.scalars().all())
 
 
 async def save_image(file: UploadFile) -> str:
@@ -87,6 +111,70 @@ async def list_equipment(
     return PaginatedEquipment(items=items, total=total, page=page, page_size=page_size)  # type: ignore
 
 
+def _is_eligible(eq: Equipment) -> bool:
+    return eq.is_borrowable and eq.status == "available"
+
+
+def _group_key(eq: Equipment) -> tuple:
+    # consumable ไม่ยุบรวมแม้ชื่อซ้ำ (เป็นก้อนเดียวต่อแถวอยู่แล้ว) — คีย์เป็น id เดียวกันไม่ได้กับแถวอื่น
+    return (eq.id,) if eq.item_type == "consumable" else (eq.name, eq.item_type)
+
+
+def _build_group_response(rows: list[Equipment]) -> EquipmentGroupResponse:
+    """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)"""
+    rep = rows[0]
+    eligible = [r for r in rows if _is_eligible(r)]
+    base = EquipmentResponse.model_validate(rep, from_attributes=True).model_dump()
+    base["quantity_total"] = sum(r.quantity_total for r in rows)
+    base["quantity_available"] = sum(r.quantity_available for r in eligible)
+    # มีหน่วยว่างพร้อมยืมอย่างน้อย 1 ชิ้น = การ์ดนี้ "พร้อมให้ยืม" ไม่งั้น fallback ไปสถานะของตัวแทน
+    if eligible:
+        base["is_borrowable"] = True
+        base["status"] = "available"
+    return EquipmentGroupResponse(**base, unit_count=len(rows))
+
+
+async def list_equipment_grouped(
+    db: AsyncSession,
+    page: int,
+    page_size: int,
+    category_id: uuid.UUID | None,
+    item_type: str | None,
+    filter_status: str | None,
+    search: str | None,
+) -> PaginatedEquipmentGroup:
+    """เหมือน list_equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว
+
+    สเกลคลัง ≤100 รายการตาม CLAUDE.md — ดึงมาทั้งหมดแล้ว group/sort/paginate ด้วย Python พอ
+    ไม่ต้องใช้ window function ให้ซับซ้อนเกินจำเป็น
+    """
+    query = select(Equipment)
+    if category_id:
+        query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
+    if item_type:
+        query = query.where(Equipment.item_type == item_type)
+    if filter_status:
+        query = query.where(Equipment.status == filter_status)
+    if search:
+        kw = f"%{search.strip()}%"
+        query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
+    query = query.options(selectinload(Equipment.categories)).order_by(Equipment.code)
+
+    rows = list((await db.execute(query)).scalars().all())
+
+    groups: dict[tuple, list[Equipment]] = {}
+    for eq in rows:
+        groups.setdefault(_group_key(eq), []).append(eq)
+
+    cards = [_build_group_response(members) for members in groups.values()]
+    cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
+
+    total = len(cards)
+    start = (page - 1) * page_size
+    page_items = cards[start:start + page_size]
+    return PaginatedEquipmentGroup(items=page_items, total=total, page=page, page_size=page_size)
+
+
 async def get_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> Equipment:
     result = await db.execute(
         select(Equipment).where(Equipment.id == equipment_id).options(selectinload(Equipment.categories))
@@ -97,14 +185,30 @@ async def get_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> Equipment:
     return eq
 
 
-async def get_holders(db: AsyncSession, equipment_id: uuid.UUID) -> list[HolderInfo]:
-    """คืนรายชื่อผู้ที่ยืมอุปกรณ์ชิ้นนี้อยู่แต่ยังไม่คืน เพื่อให้นักศึกษาเห็นผู้ครอบครองในขณะนั้น"""
+async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) -> EquipmentGroupDetailResponse:
+    """รายละเอียดอุปกรณ์แบบยุบกลุ่ม + ผู้ครอบครองทั้งกลุ่ม
+
+    equipment_id เป็นหน่วยไหนในกลุ่มก็ได้ (หน้าเว็บส่งมาจากการ์ดที่โชว์ = หน่วยรหัสต่ำสุดอยู่แล้ว)
+    """
+    eq = await get_equipment(db, equipment_id)
+    members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
+    group = _build_group_response(members)
+    holders = await get_holders(db, [m.id for m in members])
+    return EquipmentGroupDetailResponse(**group.model_dump(), holders=holders)
+
+
+async def get_holders(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> list[HolderInfo]:
+    """คืนรายชื่อผู้ที่ยืมอุปกรณ์กลุ่มนี้อยู่แต่ยังไม่คืน เพื่อให้นักศึกษาเห็นผู้ครอบครองในขณะนั้น
+
+    รับเป็นลิสต์ id เพราะรุ่นที่มีหลายหน่วย (ดู find_group_members) ต้องรวมผู้ครอบครองทั้งกลุ่ม
+    ไม่ใช่แค่หน่วยตัวแทนที่โชว์เป็นการ์ดเดียว — ผู้เรียกที่มีแค่ 1 ชิ้นส่ง list ค่าเดียวได้ตามปกติ
+    """
     result = await db.execute(
         select(User.full_name, BorrowItem.extended_due_date, BorrowRequest.due_date, BorrowItem.quantity)
         .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
         .join(User, BorrowRequest.student_id == User.id)
         .where(
-            BorrowItem.equipment_id == equipment_id,
+            BorrowItem.equipment_id.in_(equipment_ids),
             BorrowItem.returned.is_(False),
             BorrowRequest.status == "approved",
         )
@@ -129,6 +233,7 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
     data = body.model_dump(exclude={"category_ids"})
+    data["name"] = _normalize_name(data["name"])
     data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
     eq = Equipment(**data)
     eq.categories = await _resolve_categories(db, body.category_ids)
@@ -146,6 +251,8 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
 async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID, body: EquipmentUpdate) -> Equipment:
     eq = await get_equipment(db, equipment_id)
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
+    if "name" in changed:
+        changed["name"] = _normalize_name(changed["name"])
     for field, value in changed.items():
         setattr(eq, field, value)
     # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
