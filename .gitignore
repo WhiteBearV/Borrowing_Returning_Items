@@ -76,3 +76,6 @@ result/
 
 # ไฟล์ทะเบียนที่แอดมินอัปมา preview (เก็บนอก uploads/ เพราะ uploads/ ถูกเสิร์ฟสาธารณะ)
 backend/import_tmp/
+
+# TLS cert/key ของจริงบน VM (ออกจาก gen-self-signed-cert.sh หรือ certbot) — ห้าม commit เด็ดขาด
+/certs/

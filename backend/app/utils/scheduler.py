@@ -4,6 +4,7 @@ from html import escape
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.core.config import TZ
 from app.core.database import AsyncSessionLocal
@@ -36,7 +37,9 @@ async def _check_due_soon() -> None:
         target_date = date.today() + timedelta(days=int(s.value) if s else 2)
 
         rows = (await db.execute(
-            select(BorrowRequest).where(
+            select(BorrowRequest)
+            .options(selectinload(BorrowRequest.student))
+            .where(
                 BorrowRequest.status == "approved",
                 BorrowRequest.due_date == target_date,
                 BorrowRequest.is_overdue == False,
@@ -50,6 +53,18 @@ async def _check_due_soon() -> None:
 
         if rows:
             await db.commit()
+
+        # อีเมลแจ้งนักศึกษาทีละคน (ไม่ใช่ digest เหมือน admin เพราะแต่ละคนมีแค่ 1-2 รายการ)
+        for req in rows:
+            try:
+                await send_email(
+                    req.student.email,
+                    f"ใกล้ครบกำหนดคืน — คำขอ {req.request_code}",
+                    f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ใกล้ครบกำหนดคืนแล้ว "
+                    f"(ภายในวันที่ {req.due_date}) กรุณาเตรียมนำอุปกรณ์มาคืน</p>",
+                )
+            except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
+                print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
 async def _check_overdue() -> None:
@@ -68,7 +83,9 @@ async def _check_overdue() -> None:
             .exists()
         )
         rows = (await db.execute(
-            select(BorrowRequest).where(
+            select(BorrowRequest)
+            .options(selectinload(BorrowRequest.student))
+            .where(
                 BorrowRequest.status == "approved",
                 BorrowRequest.is_overdue == False,
                 has_overdue_item,
@@ -91,6 +108,18 @@ async def _check_overdue() -> None:
                        borrow_request_id=req.id)
 
         await db.commit()
+
+        # อีเมลแจ้งนักศึกษาแต่ละคนด้วย (เดิมมีแค่ in-app + digest ให้ admin เท่านั้น)
+        for req in rows:
+            try:
+                await send_email(
+                    req.student.email,
+                    f"เกินกำหนดคืน — คำขอ {req.request_code}",
+                    f"<p>คำขอยืม <b>{escape(req.request_code)}</b> เกินกำหนดคืนแล้ว "
+                    f"(ครบกำหนด {req.due_date}) กรุณานำอุปกรณ์มาคืนโดยด่วน</p>",
+                )
+            except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
+                print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
         # อีเมลสรุปให้ admin เป็น digest เดียวต่อรอบ กันสแปมถ้าเกินกำหนดพร้อมกันหลายรายการ
         if admins:

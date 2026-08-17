@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { notificationApi } from '../../api/notificationApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 
@@ -21,7 +22,9 @@ export default function NotificationBell() {
   const { user } = useAuthContext()
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
   const boxRef = useRef(null)
+  const dropdownRef = useRef(null)
   const seenIds = useRef(null) // null = ยังไม่โหลดรอบแรก
 
   useEffect(() => {
@@ -45,11 +48,30 @@ export default function NotificationBell() {
 
   useEffect(() => {
     const onClickOutside = (e) => {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
+      if (
+        boxRef.current && !boxRef.current.contains(e.target) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target)
+      ) setOpen(false)
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [])
+
+  // dropdown ต้อง portal ออกไปที่ document.body เพราะ sidebar ที่ครอบอยู่มี
+  // overflow-y-auto + transform (drawer มือถือ) ซึ่งตัดขอบ/เลื่อนตำแหน่ง absolute ผิดที่
+  // ตำแหน่งจึงต้องคำนวณเองจาก bounding rect ของปุ่มกระดิ่งแทนการอิง relative wrapper
+  const reposition = () => {
+    if (!boxRef.current) return
+    const r = boxRef.current.getBoundingClientRect()
+    setPos({ top: r.bottom + 8, left: r.left })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    reposition()
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  }, [open])
 
   const unread = items.filter((n) => !n.is_read).length
 
@@ -74,8 +96,12 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full mt-2 w-72 max-h-96 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg z-50">
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ top: pos.top, left: pos.left }}
+          className="fixed w-72 max-h-96 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg z-50"
+        >
           <p className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">การแจ้งเตือน</p>
           {items.length === 0 ? (
             <p className="px-3 py-4 text-sm text-gray-400 text-center">ไม่มีการแจ้งเตือน</p>
@@ -93,7 +119,8 @@ export default function NotificationBell() {
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

@@ -101,9 +101,10 @@
 
 ### ความปลอดภัย
 
-- **TLS / HTTPS (certbot)**
-  - *รอได้เพราะ:* ทราฟฟิกวิ่งใน LAN คณะเท่านั้น ไม่ออกอินเทอร์เน็ต และยังไม่มี domain ให้ออกใบรับรองได้
-  - *กลับมาทำเมื่อ:* มี domain จริง หรือเปิดให้เข้าจากนอกคณะ — `nginx.conf` จากข้อ 1 เตรียม block `listen 443` ไว้เป็น comment แล้ว แก้ไฟล์เดียวจบ
+- ~~**TLS / HTTPS (certbot)**~~ — **ทำแล้ว 17 ส.ค. 2026** (feedback แอดมินหลังทดลองใช้จริง ขอปิดช่องดักรหัสผ่านระหว่างทางก่อน pilot จริง)
+  - ยังไม่มี domain จึงใช้ **self-signed cert** แทน certbot ไปก่อน: `./gen-self-signed-cert.sh <ip-vm>` สร้าง cert (SAN=IP, อายุ 2 ปี) mount เข้า `docker-compose.prod.yml` ที่ `/etc/nginx/certs/`, `nginx.conf` เปิด `listen 443 ssl` แล้ว + `:80` redirect ไป `:443` ทั้งหมด + เพิ่ม security headers (HSTS/X-Frame-Options/X-Content-Type-Options/Referrer-Policy)
+  - ผลข้างเคียงที่ต้องแจ้งผู้ใช้: เบราว์เซอร์จะเตือน "ไม่ปลอดภัย" ครั้งแรก (cert ไม่มี CA รับรอง) กด "ขั้นสูง > ไปต่อ" ได้ปกติ — เข้ารหัสจริง แค่ไม่มีใครยืนยันตัวตน server
+  - *กลับมาทำเมื่อมี domain จริง:* สลับจาก self-signed ไปเป็น certbot แค่เปลี่ยนไฟล์ cert ใน `certs/` เป็นของ Let's Encrypt (path เดิมใน nginx.conf ไม่ต้องแก้)
 
 - **Refresh token เพิกถอนไม่ได้ / ไม่มี logout / ไม่ rotate**
   - *รอได้เพราะ:* token อายุ 7 วัน อยู่ใน LAN ปิด และแอดมินตัดสิทธิ์ทันทีได้ด้วย `is_active` (`auth_service.py:110`) ซึ่งเช็คทุก request

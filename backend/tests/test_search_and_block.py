@@ -42,7 +42,7 @@ async def test_search_by_code(client: AsyncClient, student_token: str, blocked_m
 async def test_cannot_borrow_unavailable_material(client: AsyncClient, student_token: str, blocked_material):
     eq_id, _ = blocked_material
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
-        "purpose": "ทดสอบห้ามยืม", "items": [{"equipment_id": str(eq_id), "quantity": 1}],
+        "purpose": "ทดสอบห้ามยืม", "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(eq_id), "quantity": 1}],
     })
     assert r.status_code == 400
     assert "not available" in r.json()["detail"]
@@ -68,7 +68,7 @@ async def fixed_asset():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_cannot_borrow_fixed_asset(client: AsyncClient, student_token: str, fixed_asset):
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
-        "purpose": "ทดสอบยืมโต๊ะ", "items": [{"equipment_id": str(fixed_asset), "quantity": 1}],
+        "purpose": "ทดสอบยืมโต๊ะ", "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(fixed_asset), "quantity": 1}],
     })
     assert r.status_code == 400
     assert "not lendable" in r.json()["detail"]

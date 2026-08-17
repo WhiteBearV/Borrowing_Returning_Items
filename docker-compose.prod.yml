@@ -1,9 +1,10 @@
 # Deploy จริง — อ่านค่าจาก .env ที่ root (คัดลอกจาก .env.prod.example)
 #
 #   cp .env.prod.example .env && vi .env
+#   ./gen-self-signed-cert.sh <ip-ของ-vm>      # สร้าง cert ก่อน up ครั้งแรก (ดู DEPLOY-PLAN.md)
 #   docker compose -f docker-compose.prod.yml up --build -d
 #
-# เข้าใช้งานที่ http://<ip-ของ-vm>/ — เปิดเฉพาะ port 80 ทางเดียว
+# เข้าใช้งานที่ https://<ip-ของ-vm>/ — :80 redirect ไป :443 อัตโนมัติ
 # backend กับ db ไม่ publish port ออกนอก คุยกันผ่าน network ภายในของ compose
 
 x-logging: &default-logging
@@ -68,6 +69,10 @@ services:
         VITE_API_URL: /api
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # cert self-signed จาก ./gen-self-signed-cert.sh (หรือ certbot ทีหลัง) — ห้าม commit, ดู .gitignore
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       - backend
     restart: unless-stopped

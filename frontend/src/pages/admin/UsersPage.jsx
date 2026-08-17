@@ -4,6 +4,8 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
+// ดร. เพิ่มจาก RegisterPage.jsx เพราะ admin สร้างบัญชีอาจารย์ได้ด้วย ไม่ใช่แค่นักศึกษา
+const TITLES = ['นาย', 'นาง', 'นางสาว', 'ดร.']
 
 export default function UsersPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -133,7 +135,7 @@ export default function UsersPage() {
 
 function AddUserModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
-    role: 'student', first_name: '', last_name: '', email: '', password: '',
+    role: 'student', title: '', first_name: '', last_name: '', email: '', password: '',
     student_id: '', username: '', major: 'comp_eng',
   })
   const [error, setError] = useState('')
@@ -147,7 +149,7 @@ function AddUserModal({ onClose, onCreated }) {
     // ส่งเฉพาะ field ที่เกี่ยวกับ role นั้น ๆ (ค่าว่าง -> undefined)
     const payload = {
       role: form.role,
-      full_name: `${form.first_name} ${form.last_name}`.trim(),
+      full_name: `${form.title}${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
       email: form.email,
       password: form.password,
       student_id: form.role === 'student' ? form.student_id || undefined : undefined,
@@ -183,6 +185,15 @@ function AddUserModal({ onClose, onCreated }) {
         </div>
 
         <div className="flex gap-2">
+          <select
+            className="w-28 flex-none rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required value={form.title} onChange={set('title')}
+          >
+            <option value="">คำนำหน้า</option>
+            {TITLES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
           <input className={input} placeholder="ชื่อ" required value={form.first_name} onChange={set('first_name')} />
           <input className={input} placeholder="นามสกุล" required value={form.last_name} onChange={set('last_name')} />
         </div>

@@ -1,5 +1,9 @@
+import { createPortal } from 'react-dom'
+
 export default function ConfirmModal({ title, message, confirmLabel = 'ยืนยัน', danger = false, onConfirm, onCancel }) {
-  return (
+  // portal ออกไปที่ document.body — กัน parent ที่มี transform (เช่น sidebar drawer มือถือ)
+  // เปลี่ยน containing block ของ position:fixed แล้วดันโมดัลไปโผล่มุมจอผิดที่แทนกึ่งกลาง
+  return createPortal(
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
         <h2 className="font-bold text-gray-800 text-lg">{title}</h2>
@@ -15,6 +19,7 @@ export default function ConfirmModal({ title, message, confirmLabel = 'ยืน
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

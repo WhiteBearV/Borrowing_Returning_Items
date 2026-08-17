@@ -25,6 +25,8 @@ class BorrowRequest(Base):
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # วันที่นักศึกษาขอคืนเอง ระบุตอนยื่นคำขอ — ไม่มีเพดานสูงสุด แอดมินใช้ดุลพินิจตอนอนุมัติ/ปฏิเสธ
+    requested_due_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     is_overdue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

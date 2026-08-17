@@ -12,6 +12,7 @@ class BorrowItemRequest(BaseModel):
 
 class BorrowRequestCreate(BaseModel):
     purpose: str | None = None
+    requested_due_date: date
     items: list[BorrowItemRequest]
 
 
@@ -51,6 +52,7 @@ class BorrowRequestResponse(BaseModel):
     approver_name: str | None = None
     approved_at: datetime | None
     rejection_reason: str | None
+    requested_due_date: date
     due_date: date | None
     is_overdue: bool
     returned_at: datetime | None

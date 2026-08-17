@@ -10,6 +10,7 @@
 """
 import asyncio
 import uuid
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -65,6 +66,7 @@ async def _make_pending_request(student: User, eq_id: uuid.UUID) -> uuid.UUID:
             student_id=student.id,
             status="pending",
             purpose="ทดสอบแย่งของชิ้นสุดท้าย",
+            requested_due_date=date(2099, 1, 1),
         ))
         db.add(BorrowItem(
             id=uuid.uuid4(),

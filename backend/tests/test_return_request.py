@@ -39,7 +39,7 @@ async def _cleanup_request(req_id: str, eq_ids: list[uuid.UUID]) -> None:
 async def _create_request(client: AsyncClient, student_token: str, equipment_ids: list[uuid.UUID], purpose: str) -> dict:
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": purpose,
-        "items": [{"equipment_id": str(eid), "quantity": 1} for eid in equipment_ids],
+        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(eid), "quantity": 1} for eid in equipment_ids],
     })
     assert r.status_code == 201, r.text
     return r.json()
