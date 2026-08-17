@@ -13,5 +13,6 @@ class DashboardSummaryResponse(BaseModel):
     overdue_requests: int
     low_stock_items: int
     active_borrows: int
+    equipment_borrowed_out: int
     equipment_counts: EquipmentCounts
     consumed_value_this_month: float

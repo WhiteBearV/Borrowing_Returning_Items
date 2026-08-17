@@ -74,6 +74,13 @@ async def test_bundle_rejects_invalid_items(
         {"equipment_id": str(uuid.uuid4()), "quantity": 1}]})
     assert r.status_code == 404, r.text
 
+    # ตัวกระตุ้นต้องไม่ซ้ำกับสมาชิกในชุด — ไม่งั้นกดยืมแล้วได้ตัวกระตุ้น 2 เท่า (ของจริงที่เคยพัง)
+    r = await client.post("/bundles", headers=h, json={
+        "name": "ตัวกระตุ้นซ้ำสมาชิก", "trigger_equipment_id": eq_id,
+        "items": [{"equipment_id": eq_id, "quantity": 1}],
+    })
+    assert r.status_code == 400, r.text
+
 
 async def test_bundle_permissions_and_active_filter(
     client: AsyncClient, admin_token: str, student_token: str, test_equipment: Equipment

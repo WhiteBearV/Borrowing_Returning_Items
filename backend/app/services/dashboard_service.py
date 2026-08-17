@@ -45,6 +45,15 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         select(func.count(BorrowRequest.id)).where(BorrowRequest.status == "approved")
     )
 
+    # จำนวนอุปกรณ์ที่ถูกยืมออกไปจริง (approved + ยังไม่คืน) — ต้องนับจาก borrow_item เท่านั้น
+    # ห้ามใช้ quantity_total - quantity_available เพราะรวมของที่ชำรุด/ซ่อมอยู่/แอดมินปิดใช้งานเองด้วย
+    # ซึ่งไม่ใช่ "ถูกยืมอยู่" (พบจาก QA จริง: ค่าขึ้น 55 ทั้งที่ active_borrows request = 0)
+    borrowed_out_result = await db.execute(
+        select(func.coalesce(func.sum(BorrowItem.quantity), 0))
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
+    )
+
     # สรุปจำนวนอุปกรณ์ตามประเภท — ix_equipment_item_type มีอยู่แล้ว query นี้ถูกมาก
     counts_result = await db.execute(
         select(Equipment.item_type, func.count(Equipment.id)).group_by(Equipment.item_type)
@@ -72,6 +81,7 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         overdue_requests=overdue_result.scalar() or 0,
         low_stock_items=low_stock_result.scalar() or 0,
         active_borrows=active_borrows_result.scalar() or 0,
+        equipment_borrowed_out=borrowed_out_result.scalar() or 0,
         equipment_counts=equipment_counts,
         consumed_value_this_month=float(consumed_result.scalar() or 0),
     )

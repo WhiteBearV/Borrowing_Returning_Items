@@ -241,7 +241,7 @@ async def test_dashboard_summary_has_all_fields(client: AsyncClient, admin_token
     r = await client.get("/dashboard/summary", headers=auth(admin_token))
     assert r.status_code == 200
     body = r.json()
-    for field in ("pending_requests", "overdue_requests", "low_stock_items", "active_borrows"):
+    for field in ("pending_requests", "overdue_requests", "low_stock_items", "active_borrows", "equipment_borrowed_out"):
         assert field in body, f"missing field: {field}"
         assert isinstance(body[field], int), f"{field} must be int"
     for field in ("durable", "material", "consumable", "total"):
@@ -252,3 +252,37 @@ async def test_dashboard_summary_has_all_fields(client: AsyncClient, admin_token
 async def test_dashboard_requires_admin(client: AsyncClient, student_token: str):
     r = await client.get("/dashboard/summary", headers=auth(student_token))
     assert r.status_code == 403
+
+
+async def test_dashboard_equipment_borrowed_out_tracks_approve_and_return(
+    client: AsyncClient, admin_token: str, student_token: str, test_equipment: Equipment
+):
+    """อนุมัติแล้วเลข equipment_borrowed_out ต้องขึ้นตามจำนวนที่อนุมัติ คืนของแล้วต้องลดกลับที่เดิม"""
+    h_admin = auth(admin_token)
+    before = (await client.get("/dashboard/summary", headers=h_admin)).json()["equipment_borrowed_out"]
+
+    r = await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": "ทดสอบ dashboard borrowed_out",
+        "requested_due_date": "2099-01-01",
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+    })
+    assert r.status_code == 201, r.text
+    req_id = r.json()["id"]
+    try:
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+        after_approve = (await client.get("/dashboard/summary", headers=h_admin)).json()["equipment_borrowed_out"]
+        assert after_approve == before + 1, "อนุมัติแล้วเลขต้องขึ้น 1 ตามจำนวนที่ยืม"
+
+        assert (await client.post(f"/borrow-requests/{req_id}/return-all", headers=h_admin)).status_code == 200
+        after_return = (await client.get("/dashboard/summary", headers=h_admin)).json()["equipment_borrowed_out"]
+        assert after_return == before, "คืนครบแล้วเลขต้องลดกลับที่เดิม"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.borrow_request_id == req_id))
+            await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == req_id))
+            await db.execute(delete(BorrowRequest).where(BorrowRequest.id == req_id))
+            eq = await db.get(Equipment, test_equipment.id)
+            if eq:
+                eq.quantity_available = eq.quantity_total
+                eq.status = "available"
+            await db.commit()

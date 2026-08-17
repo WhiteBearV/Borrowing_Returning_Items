@@ -54,9 +54,10 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
     ...m,
     [bundleId]: { included: !m[bundleId].included, trigger: m[bundleId].included ? false : m[bundleId].trigger },
   }))
-  const toggleBundleTrigger = (bundleId) => setBundleMembership((m) => ({
-    ...m, [bundleId]: { ...m[bundleId], trigger: !m[bundleId].trigger },
-  }))
+  const toggleBundleTrigger = (bundleId) => setBundleMembership((m) => {
+    const trigger = !m[bundleId].trigger
+    return { ...m, [bundleId]: { included: trigger ? false : m[bundleId].included, trigger } }
+  })
 
   // บันทึกชุดที่สมาชิกภาพ/ตัวกระตุ้นเปลี่ยนไปจากตอนเปิดฟอร์ม — เรียกหลัง equipment บันทึกสำเร็จแล้ว
   const saveBundleChanges = async (equipmentId) => {
@@ -142,7 +143,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
           {[
             { label: 'รหัสอุปกรณ์ *', key: 'code', required: true, disabled: isEdit },
             { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true },
-            { label: 'สถานที่เก็บ', key: 'location' },
+            { label: 'สถานที่เก็บ', key: 'location', placeholder: 'เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)' },
           ].map(({ label, key, required, disabled, placeholder }) => (
             <div key={key}>
               <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
@@ -311,9 +312,10 @@ export default function EquipmentManagePage() {
 
   const reloadCategories = () => equipmentApi.listCategories().then(setCategories).catch(() => {})
 
+  // ยุบครุภัณฑ์รุ่นเดียวกันหลายหน่วยเป็นแถวเดียว (เหมือนหน้ายืมของนักศึกษา) — กางดูรายหน่วยได้ผ่าน expanded
   const load = () => {
     setLoading(true)
-    equipmentApi.list({
+    equipmentApi.listGrouped({
       search: search || undefined,
       category_id: filterCategory || undefined,
       item_type: filterType || undefined,
@@ -324,8 +326,28 @@ export default function EquipmentManagePage() {
   useEffect(() => { reloadCategories() }, [])
   useEffect(() => { load() }, [search, filterCategory, filterType, page])
 
+  // { [groupId]: EquipmentUnitSummary[] } — กลุ่มที่กำลังกางดูหน่วยย่อยอยู่
+  const [expanded, setExpanded] = useState({})
+
+  const toggleExpand = (groupId) => {
+    if (expanded[groupId]) {
+      setExpanded((e) => { const n = { ...e }; delete n[groupId]; return n })
+      return
+    }
+    equipmentApi.getGrouped(groupId).then((detail) => setExpanded((e) => ({ ...e, [groupId]: detail.members })))
+  }
+
+  const refreshExpanded = (groupId) => {
+    if (!(groupId in expanded)) return
+    equipmentApi.getGrouped(groupId).then((detail) => setExpanded((e) => ({ ...e, [groupId]: detail.members })))
+  }
+
+  // แก้ไขหน่วยเดียวในกลุ่ม — ต้องโหลดข้อมูลเต็มก่อน (การ์ดกลุ่มมีแค่ฟิลด์สรุป)
+  const editMember = (id) => { equipmentApi.get(id).then(setModal) }
+
   // ปลดระวาง: ถามเหตุผลด้วย prompt (ใช้ออกใบปลดระวาง/ร่างออก ภายหลัง) — ยกเลิกได้ถ้ากด Cancel
-  const retire = (id, name) => {
+  // groupId: ถ้าปลดระวางหน่วยย่อยในกลุ่มที่กางอยู่ ต้อง refresh รายการหน่วยย่อยด้วย
+  const retire = (id, name, groupId) => {
     const reason = window.prompt(`ปลดระวาง "${name}"\nระบุเหตุผล (เช่น ชำรุด/สูญหาย/หมดสภาพ):`, '')
     if (reason === null) return // กด Cancel
     setConfirm({
@@ -333,7 +355,12 @@ export default function EquipmentManagePage() {
       message: `ปลดระวาง "${name}" ?\nเหตุผล: ${reason.trim() || '(ไม่ระบุ)'}\nอุปกรณ์จะไม่สามารถยืมได้อีก`,
       confirmLabel: 'ปลดระวาง',
       danger: true,
-      onConfirm: async () => { setConfirm(null); await equipmentApi.retire(id, reason.trim()); load() },
+      onConfirm: async () => {
+        setConfirm(null)
+        await equipmentApi.retire(id, reason.trim())
+        load()
+        if (groupId) refreshExpanded(groupId)
+      },
     })
   }
 
@@ -355,12 +382,17 @@ export default function EquipmentManagePage() {
     }
   }
 
-  const deletePermanent = (id, name) => setConfirm({
+  const deletePermanent = (id, name, groupId) => setConfirm({
     title: 'ลบอุปกรณ์ถาวร',
     message: `ลบ "${name}" ออกจากระบบถาวร?\n(ทำได้เฉพาะอุปกรณ์ที่ไม่มีประวัติการยืม)`,
     confirmLabel: 'ลบถาวร',
     danger: true,
-    onConfirm: async () => { setConfirm(null); await equipmentApi.deletePermanent(id); load() },
+    onConfirm: async () => {
+      setConfirm(null)
+      await equipmentApi.deletePermanent(id)
+      load()
+      if (groupId) refreshExpanded(groupId)
+    },
   })
 
   const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-blue-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
@@ -459,36 +491,78 @@ export default function EquipmentManagePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.items.map((eq) => (
-                <tr key={eq.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">
-                    {eq.image_url
-                      ? <img src={imageSrc(eq.image_url)} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
-                      : <div title="ยังไม่มีรูป — ควรเพิ่มรูปให้ครบ"
-                             className="w-10 h-10 rounded bg-amber-50 border border-amber-300 flex items-center justify-center text-amber-400">🖼</div>}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
-                  <td className="px-4 py-2.5 font-medium text-gray-800">{eq.name}</td>
-                  <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{{ durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'สิ้นเปลือง' }[eq.item_type] ?? eq.item_type}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
-                  <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[eq.status] ?? ''}`}>
-                    {STATUS_LABEL[eq.status] ?? eq.status}
-                    {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex gap-3">
-                      <button onClick={() => setModal(eq)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
-                      {eq.status !== 'retired' && (
-                        <button onClick={() => retire(eq.id, eq.name)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
-                      )}
-                      {eq.status === 'retired' && (
-                        <button onClick={() => deletePermanent(eq.id, eq.name)} className="text-xs text-red-600 hover:underline font-medium">ลบถาวร</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {data.items.map((eq) => {
+                const grouped = eq.unit_count > 1
+                const members = expanded[eq.id]
+                return (
+                  <Fragment key={eq.id}>
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-2">
+                        {eq.image_url
+                          ? <img src={imageSrc(eq.image_url)} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
+                          : <div title="ยังไม่มีรูป — ควรเพิ่มรูปให้ครบ"
+                                 className="w-10 h-10 rounded bg-amber-50 border border-amber-300 flex items-center justify-center text-amber-400">🖼</div>}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
+                      <td className="px-4 py-2.5 font-medium text-gray-800">
+                        {eq.name}
+                        {grouped && (
+                          <button onClick={() => toggleExpand(eq.id)} className="ml-2 text-xs font-normal text-blue-600 hover:underline">
+                            {members ? 'ซ่อนรายหน่วย ▲' : `${eq.unit_count} หน่วย ▾`}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{{ durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'สิ้นเปลือง' }[eq.item_type] ?? eq.item_type}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
+                      <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[eq.status] ?? ''}`}>
+                        {STATUS_LABEL[eq.status] ?? eq.status}
+                        {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {grouped ? (
+                          <button onClick={() => toggleExpand(eq.id)} className="text-xs text-blue-600 hover:underline">
+                            {members ? 'ปิด' : 'ดูรายหน่วย'}
+                          </button>
+                        ) : (
+                          <div className="flex gap-3">
+                            <button onClick={() => setModal(eq)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
+                            {eq.status !== 'retired' && (
+                              <button onClick={() => retire(eq.id, eq.name)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
+                            )}
+                            {eq.status === 'retired' && (
+                              <button onClick={() => deletePermanent(eq.id, eq.name)} className="text-xs text-red-600 hover:underline font-medium">ลบถาวร</button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+
+                    {grouped && members && members.map((u) => (
+                      <tr key={u.id} className="bg-gray-50/60">
+                        <td className="px-4 py-1.5" />
+                        <td className="px-4 py-1.5 pl-8 font-mono text-xs text-gray-500">{u.code}</td>
+                        <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>หน่วยย่อยของ "{eq.name}"</td>
+                        <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
+                        <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[u.status] ?? ''}`}>
+                          {STATUS_LABEL[u.status] ?? u.status}
+                        </td>
+                        <td className="px-4 py-1.5">
+                          <div className="flex gap-3">
+                            <button onClick={() => editMember(u.id)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
+                            {u.status !== 'retired' && (
+                              <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
+                            )}
+                            {u.status === 'retired' && (
+                              <button onClick={() => deletePermanent(u.id, eq.name, eq.id)} className="text-xs text-red-600 hover:underline font-medium">ลบถาวร</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
           {data.items.length === 0 && <p className="text-center text-gray-400 py-10">ไม่พบอุปกรณ์</p>}
@@ -502,7 +576,7 @@ export default function EquipmentManagePage() {
           initial={modal === 'create' ? null : modal}
           categories={categories}
           onClose={() => setModal(null)}
-          onSave={() => { setModal(null); load() }}
+          onSave={() => { setModal(null); load(); Object.keys(expanded).forEach(refreshExpanded) }}
         />
       )}
 

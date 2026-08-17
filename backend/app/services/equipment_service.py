@@ -20,6 +20,7 @@ from app.schemas.equipment import (
     EquipmentGroupDetailResponse,
     EquipmentGroupResponse,
     EquipmentResponse,
+    EquipmentUnitSummary,
     EquipmentUpdate,
     HolderInfo,
     PaginatedEquipment,
@@ -49,7 +50,10 @@ async def find_group_members(db: AsyncSession, name: str, item_type: str) -> lis
     ผู้เรียกต้องเว้น consumable เอง (วัสดุสิ้นเปลืองเป็นก้อนเดียวต่อแถวอยู่แล้ว ไม่ควรยุบรวม)
     """
     result = await db.execute(
-        select(Equipment).where(Equipment.name == name, Equipment.item_type == item_type).order_by(Equipment.code)
+        select(Equipment)
+        .where(Equipment.name == name, Equipment.item_type == item_type)
+        .options(selectinload(Equipment.categories))
+        .order_by(Equipment.code)
     )
     return list(result.scalars().all())
 
@@ -194,7 +198,8 @@ async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) 
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
     group = _build_group_response(members)
     holders = await get_holders(db, [m.id for m in members])
-    return EquipmentGroupDetailResponse(**group.model_dump(), holders=holders)
+    unit_summaries = [EquipmentUnitSummary.model_validate(m, from_attributes=True) for m in members]
+    return EquipmentGroupDetailResponse(**group.model_dump(), holders=holders, members=unit_summaries)
 
 
 async def get_holders(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> list[HolderInfo]:

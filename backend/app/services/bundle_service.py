@@ -37,6 +37,11 @@ async def _replace_items(db: AsyncSession, bundle: Bundle, items: list) -> None:
     eq_ids = [i.equipment_id for i in items]
     if len(set(eq_ids)) != len(eq_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Duplicate equipment in bundle.")
+    if bundle.trigger_equipment_id in eq_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Trigger equipment cannot also be a bundle item.",
+        )
 
     found = (await db.execute(select(Equipment).where(Equipment.id.in_(eq_ids)))).scalars().all()
     found_map = {e.id: e for e in found}

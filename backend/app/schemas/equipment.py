@@ -66,8 +66,21 @@ class PaginatedEquipmentGroup(BaseModel):
     page_size: int
 
 
+class EquipmentUnitSummary(BaseModel):
+    """หน่วยเดียวในกลุ่ม — ให้หน้าจัดการอุปกรณ์กางดูและแก้ไข/ปลดระวางทีละหน่วยได้"""
+    id: uuid.UUID
+    code: str
+    status: str
+    quantity_total: int
+    quantity_available: int
+    is_borrowable: bool
+
+    model_config = {"from_attributes": True}
+
+
 class EquipmentGroupDetailResponse(EquipmentGroupResponse):
     holders: list[HolderInfo]
+    members: list[EquipmentUnitSummary] = []
 
 
 class EquipmentCreate(BaseModel):

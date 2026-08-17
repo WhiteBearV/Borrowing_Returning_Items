@@ -34,6 +34,8 @@ export function useBorrowCart() {
     const skipped = []
     // อัปเดตครั้งเดียวจบ — เรียก addItem ทีละชิ้นจะอ่าน state เก่าถ้าของในชุดซ้ำกัน
     setCart((prev) => bundle.items.reduce((acc, it) => {
+      // ponytail: กันชุดข้อมูลเก่าที่ตัวกระตุ้นดันเป็นสมาชิกในชุดด้วย (ยืมซ้ำ 2 เท่าโดยไม่ตั้งใจ)
+      if (it.equipment_id === bundle.trigger_equipment_id) return acc
       if (!isBundleItemAvailable(it)) {
         skipped.push(it.equipment_name ?? it.equipment_id)
         return acc

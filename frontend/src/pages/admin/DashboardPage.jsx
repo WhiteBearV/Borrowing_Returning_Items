@@ -4,7 +4,7 @@ import { api } from '../../api/axiosInstance.js'
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState({
-    pending_requests: 0, overdue_requests: 0, low_stock_items: 0, active_borrows: 0,
+    pending_requests: 0, overdue_requests: 0, low_stock_items: 0, active_borrows: 0, equipment_borrowed_out: 0,
     equipment_counts: { durable: 0, material: 0, consumable: 0, total: 0 },
     consumed_value_this_month: 0,
   })
@@ -18,6 +18,7 @@ export default function DashboardPage() {
     { label: 'เกินกำหนดคืน', value: summary.overdue_requests, color: 'bg-red-50 text-red-700', href: '/admin/borrows' },
     { label: 'สต็อกต่ำ', value: summary.low_stock_items, color: 'bg-orange-50 text-orange-700', href: '/admin/equipment' },
     { label: 'คำขอที่ยืมอยู่', value: summary.active_borrows, color: 'bg-blue-50 text-blue-700', href: '/admin/borrows?status=approved' },
+    { label: 'อุปกรณ์ที่ถูกยืมอยู่', value: summary.equipment_borrowed_out, color: 'bg-indigo-50 text-indigo-700', href: '/admin/equipment' },
   ]
 
   const equipmentCounts = [

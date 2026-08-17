@@ -22,6 +22,7 @@ from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.borrow import ReturnItemRequest
 from app.services import borrow_service
+from tests.conftest import auth
 
 GROUP_NAME = "อุปกรณ์ทดสอบกลุ่ม (race)"
 
@@ -187,3 +188,26 @@ async def test_group_lock_waits_for_concurrent_transaction_not_just_original_uni
     async with AsyncSessionLocal() as db:
         item = (await db.execute(select(BorrowItem).where(BorrowItem.borrow_request_id == req_id))).scalar_one()
         assert item.equipment_id in (unit_1, unit_3), "ต้องได้หน่วยที่ยังว่างจริง ไม่ใช่ unit_2 ที่ถูกกันไว้"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_group_detail_lists_every_member_unit(client, admin_token, three_unit_group):
+    """/equipment/grouped/{id} ต้องคืนรายชื่อหน่วยสมาชิกครบทุกหน่วย — หน้าจัดการอุปกรณ์ใช้กางดู/แก้ไขทีละหน่วย"""
+    unit_1, unit_2, unit_3 = three_unit_group
+    r = await client.get(f"/equipment/grouped/{unit_1}", headers=auth(admin_token))
+    assert r.status_code == 200, r.text
+    member_ids = {m["id"] for m in r.json()["members"]}
+    assert member_ids == {str(unit_1), str(unit_2), str(unit_3)}
+
+
+async def test_group_detail_works_for_non_representative_unit(client, admin_token, three_unit_group):
+    """เรียก /equipment/grouped/{id} ด้วย id ที่ไม่ใช่หน่วยรหัสต่ำสุดของกลุ่มต้องไม่ 500
+
+    บั๊กจริงที่เจอ: find_group_members ไม่ eager-load categories — ถ้า id ที่ส่งมาไม่ใช่หน่วยแรก
+    (ที่ไม่ได้ผ่าน get_equipment ซึ่ง eager-load ไว้แล้ว) จะ lazy-load นอก async context แล้ว 500
+    """
+    unit_1, unit_2, unit_3 = three_unit_group
+    r = await client.get(f"/equipment/grouped/{unit_2}", headers=auth(admin_token))
+    assert r.status_code == 200, r.text
+    r = await client.get(f"/equipment/grouped/{unit_3}", headers=auth(admin_token))
+    assert r.status_code == 200, r.text
