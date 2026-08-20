@@ -80,10 +80,10 @@ export default function EquipmentListPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">อุปกรณ์ทั้งหมด</h1>
+        <h1 className="text-2xl font-light text-gray-800">อุปกรณ์ทั้งหมด</h1>
         <button
           onClick={() => navigate('/borrow')}
-          className="relative rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          className="relative rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
         >
           ตะกร้า
           {cart.length > 0 && (
@@ -96,7 +96,7 @@ export default function EquipmentListPage() {
 
       {/* ชุดอุปกรณ์ขยายอัตโนมัติตอนกด "+ เพิ่มในตะกร้า" บนอุปกรณ์ตัวกระตุ้น (ดู handleAdd) — ข้อความผลลัพธ์ */}
       {bundleMsg && (
-        <p className="mb-4 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-gray-600">{bundleMsg}</p>
+        <p className="mb-4 rounded-lg bg-primary-50 border border-primary-100 px-3 py-2 text-xs text-gray-600">{bundleMsg}</p>
       )}
 
       {/* Filters */}
@@ -106,12 +106,12 @@ export default function EquipmentListPage() {
           placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
         <select
           value={categoryId}
           onChange={(e) => setCategoryId(e.target.value)}
-          className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">ทุกหมวดหมู่</option>
           {categories.map((c) => (
@@ -135,7 +135,7 @@ export default function EquipmentListPage() {
                   <img src={eq.image_url.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${eq.image_url}` : eq.image_url} alt={eq.name} className="w-full h-36 object-contain rounded-lg mb-1 bg-gray-50" />
                 )}
                 <div className="flex items-start justify-between gap-2">
-                  <Link to={`/equipment/${eq.id}`} className="font-semibold text-gray-800 hover:text-blue-600 leading-tight">
+                  <Link to={`/equipment/${eq.id}`} className="font-semibold text-gray-800 hover:text-primary-600 leading-tight">
                     {eq.name}
                   </Link>
                   <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -155,7 +155,7 @@ export default function EquipmentListPage() {
                   onClick={() => handleAdd(eq)}
                   className="mt-auto w-full rounded-lg py-1.5 text-sm font-medium transition-colors
                     disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed
-                    enabled:bg-blue-50 enabled:text-blue-600 enabled:hover:bg-blue-100"
+                    enabled:bg-primary-50 enabled:text-primary-600 enabled:hover:bg-primary-100"
                 >
                   {inCart ? 'อยู่ในตะกร้าแล้ว' : available ? '+ เพิ่มในตะกร้า' : 'ไม่พร้อมให้ยืม'}
                 </button>

@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric,
-    String, Table, Text, func,
+    String, Table, Text, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,6 +24,8 @@ class Equipment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    # SN จากผู้ผลิต — คนละอย่างกับ code (เลขครุภัณฑ์/รหัสวัสดุที่ระบบออกเอง) ไม่บังคับกรอก ใช้ตรวจนับของจริง
+    serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / material / consumable
     # durable = ครุภัณฑ์ (ทะเบียน), material = วัสดุใช้ซ้ำ (บอร์ด/คิต), consumable = วัสดุสิ้นเปลือง (ใช้หมด)
@@ -57,6 +59,11 @@ class Equipment(Base):
     __table_args__ = (
         Index("ix_equipment_item_type", "item_type"),
         Index("ix_equipment_status", "status"),
+        # partial unique index — กัน SN ซ้ำแต่ไม่กระทบแถวที่ยังไม่กรอก (NULL หลายแถวได้ปกติ, ดู migration 0019)
+        Index(
+            "ix_equipment_serial_number_unique", "serial_number",
+            unique=True, postgresql_where=text("serial_number IS NOT NULL"),
+        ),
         # ตาข่ายชั้นสุดท้ายของสต็อก — ถ้ามีเส้นทางไหนหักสต็อกโดยลืมล็อกแถว
         # จะได้ error ทันทีแทนที่จะเป็นสต็อกติดลบเงียบ ๆ (ดู migration 0016)
         CheckConstraint(

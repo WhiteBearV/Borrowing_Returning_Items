@@ -48,16 +48,16 @@ export default function UsersPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">จัดการผู้ใช้</h1>
+        <h1 className="text-2xl font-light text-gray-800">จัดการผู้ใช้</h1>
         <div className="flex items-center gap-3">
           <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1) }}
-            className="flex-1 sm:flex-none rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="flex-1 sm:flex-none rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
             <option value="">ทุก role</option>
             <option value="student">นักศึกษา</option>
             <option value="admin">Admin</option>
           </select>
           <button onClick={() => setShowAdd(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
             + เพิ่มผู้ใช้
           </button>
         </div>
@@ -166,10 +166,10 @@ function AddUserModal({ onClose, onCreated }) {
     }
   }
 
-  const input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500'
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center px-4 z-50">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center px-4 z-50">
       <form onSubmit={submit} className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 space-y-3">
         <h2 className="text-lg font-bold text-gray-800">เพิ่มผู้ใช้ใหม่</h2>
 
@@ -178,7 +178,7 @@ function AddUserModal({ onClose, onCreated }) {
         <div className="flex gap-2">
           {['student', 'admin'].map((r) => (
             <button type="button" key={r} onClick={() => setForm({ ...form, role: r })}
-              className={`flex-1 rounded-lg py-2 text-sm font-medium border ${form.role === r ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}>
+              className={`flex-1 rounded-lg py-2 text-sm font-medium border ${form.role === r ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}>
               {r === 'student' ? 'นักศึกษา' : 'Admin'}
             </button>
           ))}
@@ -186,7 +186,7 @@ function AddUserModal({ onClose, onCreated }) {
 
         <div className="flex gap-2">
           <select
-            className="w-28 flex-none rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-28 flex-none rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             required value={form.title} onChange={set('title')}
           >
             <option value="">คำนำหน้า</option>
@@ -214,11 +214,11 @@ function AddUserModal({ onClose, onCreated }) {
 
         <div className="flex gap-2 pt-2">
           <button type="button" onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            className="flex-1 rounded-full border border-gray-300 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             ยกเลิก
           </button>
           <button type="submit" disabled={saving}
-            className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
             {saving ? 'กำลังสร้าง…' : 'สร้างบัญชี'}
           </button>
         </div>

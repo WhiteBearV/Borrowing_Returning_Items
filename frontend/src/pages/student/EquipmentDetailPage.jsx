@@ -70,7 +70,7 @@ export default function EquipmentDetailPage() {
               <div className="flex gap-2 p-3 overflow-x-auto">
                 {images.map((url, i) => (
                   <button key={url} type="button" onClick={() => setActiveImg(i)}
-                    className={`shrink-0 rounded-lg overflow-hidden border-2 ${i === activeImg ? 'border-blue-500' : 'border-transparent'}`}>
+                    className={`shrink-0 rounded-lg overflow-hidden border-2 ${i === activeImg ? 'border-primary-500' : 'border-transparent'}`}>
                     <img src={imgSrc(url)} alt="" className="w-14 h-14 object-cover" />
                   </button>
                 ))}
@@ -80,7 +80,7 @@ export default function EquipmentDetailPage() {
         )}
         <div className="p-6 space-y-4">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="text-xl font-bold text-gray-800">{eq.name}</h1>
+            <h1 className="text-xl font-light text-gray-800">{eq.name}</h1>
             <span className={`shrink-0 text-sm px-3 py-1 rounded-full font-medium ${
               available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
             }`}>
@@ -140,9 +140,9 @@ export default function EquipmentDetailPage() {
               if (bundle) addBundle(bundle)
               navigate('/borrow')
             }}
-            className="w-full rounded-xl py-2.5 text-sm font-semibold transition-colors
+            className="w-full rounded-full py-2.5 text-sm font-semibold transition-colors
               disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed
-              enabled:bg-blue-600 enabled:text-white enabled:hover:bg-blue-700"
+              enabled:bg-primary-600 enabled:text-white enabled:hover:bg-primary-700"
           >
             {inCart ? 'อยู่ในตะกร้าแล้ว' : available ? 'เพิ่มในตะกร้าและยื่นคำขอ' : 'ไม่พร้อมให้ยืม'}
           </button>

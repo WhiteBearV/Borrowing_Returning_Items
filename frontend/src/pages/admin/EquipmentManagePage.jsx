@@ -1,12 +1,22 @@
 import { Fragment, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { bundleApi } from '../../api/bundleApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import Tooltip from '../../components/common/Tooltip.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 
-const EMPTY_FORM = { code: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
+const EMPTY_FORM = { code: '', serial_number: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
+
+// ไอคอนสถานที่ (แทนอีโมจิหมุด 📍 เดิม) — เส้นสไตล์เดียวกับไอคอนอื่นในระบบ (currentColor, stroke)
+const LocationIcon = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`inline shrink-0 ${className}`}>
+    <path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+  </svg>
+)
 
 const IMG_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const imageSrc = (url) => (url?.startsWith('/') ? `${IMG_BASE}${url}` : url)
@@ -115,6 +125,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         ...form,
         quantity_total: Number(form.quantity_total),
         description: form.description || undefined,
+        serial_number: form.serial_number || undefined,
         location: form.location || undefined,
         unit: form.unit || undefined,
         unit_value: form.unit_value === '' || form.unit_value == null ? undefined : Number(form.unit_value),
@@ -135,21 +146,26 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
       <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 className="font-bold text-gray-800 mb-4">{isEdit ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์ใหม่'}</h2>
         {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <form onSubmit={submit} className="space-y-3">
           {[
             { label: 'รหัสอุปกรณ์ *', key: 'code', required: true, disabled: isEdit },
+            { label: 'SN (Serial Number ผู้ผลิต)', key: 'serial_number', placeholder: 'เลขที่ผู้ผลิตติดมากับเครื่อง (ไม่บังคับ)',
+              tip: 'เลขประจำเครื่องจากผู้ผลิต คนละอย่างกับรหัสอุปกรณ์ด้านบน — ใช้ยืนยันว่าเป็นเครื่องจริงตอนตรวจนับอุปกรณ์' },
             { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true },
             { label: 'สถานที่เก็บ', key: 'location', placeholder: 'เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)' },
-          ].map(({ label, key, required, disabled, placeholder }) => (
+          ].map(({ label, key, required, disabled, placeholder, tip }) => (
             <div key={key}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                {label}
+                {tip && <Tooltip text={tip} />}
+              </label>
               <input type="text" required={required} disabled={disabled} value={form[key]} onChange={set(key)}
                 placeholder={placeholder}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400" />
             </div>
           ))}
 
@@ -162,7 +178,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 {form.image_urls.map((url, i) => (
                   <div key={url} className="relative group">
                     <img src={imageSrc(url)} alt="" className="w-16 h-16 rounded-lg object-cover border border-gray-200" />
-                    {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-blue-600/80 text-white text-[10px] text-center rounded-b-lg">ปก</span>}
+                    {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-primary-600/80 text-white text-[10px] text-center rounded-b-lg">ปก</span>}
                     <button type="button" onClick={() => removeImage(url)}
                       className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none flex items-center justify-center shadow hover:bg-red-600">×</button>
                   </div>
@@ -170,7 +186,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
               </div>
             )}
             <input type="file" accept="image/*" multiple onChange={uploadImage} disabled={uploading}
-              className="block w-full text-xs text-gray-500 file:mr-2 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-blue-700 hover:file:bg-blue-100" />
+              className="block w-full text-xs text-gray-500 file:mr-2 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary-700 hover:file:bg-primary-100" />
             {uploading && <p className="mt-1 text-xs text-gray-400">กำลังอัปโหลด…</p>}
           </div>
 
@@ -182,7 +198,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 return (
                   <button type="button" key={c.id} onClick={() => toggleCategory(c.id)}
                     className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                      on ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      on ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}>
                     {c.name}
                   </button>
@@ -194,7 +210,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">ประเภท *</label>
             <select value={form.item_type} onChange={set('item_type')} disabled={isEdit}
-              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50">
+              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50">
               <option value="durable">ครุภัณฑ์</option>
               <option value="material">วัสดุ</option>
               <option value="consumable">วัสดุสิ้นเปลือง</option>
@@ -214,7 +230,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">สถานะ</label>
               <select value={form.status} onChange={set('status')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
                 <option value="available">พร้อมให้ยืม</option>
                 <option value="unavailable">ไม่อนุญาตให้ยืม</option>
                 <option value="damaged">เสียหาย</option>
@@ -226,7 +242,10 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 
           {isEdit && bundles.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">ชุดอุปกรณ์</label>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                ชุดอุปกรณ์
+                <Tooltip text={'ติ๊กชื่อชุด = อุปกรณ์นี้เป็นสมาชิกของชุดนั้น\nติ๊ก "ตัวกระตุ้น" เพิ่ม = กด "+ เพิ่มในตะกร้า" บนอุปกรณ์ตัวนี้แล้วจะได้อุปกรณ์ทั้งชุดมาในตะกร้าอัตโนมัติ (เลือกตัวกระตุ้นได้ชุดละ 1 ชิ้น)'} />
+              </label>
               <div className="space-y-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
                 {bundles.map((b) => {
                   const m = bundleMembership[b.id]
@@ -257,33 +276,33 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">จำนวนทั้งหมด *</label>
               <input type="number" min={1} required value={form.quantity_total} onChange={set('quantity_total')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
             </div>
             {form.item_type === 'consumable' && (
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">หน่วย</label>
                 <input type="text" value={form.unit} onChange={set('unit')} placeholder="ชิ้น / ก้อน…"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
             )}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่า/ชิ้น (บาท)</label>
               <input type="number" min={0} step="0.01" value={form.unit_value ?? ''} onChange={set('unit_value')}
                 placeholder="เช่น 200 (เว้นว่างได้)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">คำอธิบาย</label>
             <textarea rows={2} value={form.description} onChange={set('description')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 rounded-lg border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+            <button type="button" onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
             <button type="submit" disabled={loading}
-              className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
               {loading ? 'กำลังบันทึก…' : 'บันทึก'}
             </button>
           </div>
@@ -294,11 +313,14 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 }
 
 export default function EquipmentManagePage() {
+  // เข้าถึงหน้านี้พร้อมกรองประเภทได้ทันทีผ่าน query string เช่น /admin/equipment?item_type=material
+  // (ลิงก์จาก "ภาพรวมคลังอุปกรณ์" ใน dashboard ใช้ path นี้) — อ่านแค่ตอน mount ครั้งแรกพอ ไม่ sync สองทาง
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [filterType, setFilterType] = useState('')
+  const [filterType, setFilterType] = useState(searchParams.get('item_type') || '')
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null) // null | 'create' | equipment object
   const [confirm, setConfirm] = useState(null) // { title, message, onConfirm }
@@ -382,6 +404,22 @@ export default function EquipmentManagePage() {
     }
   }
 
+  // แยกวัสดุก้อนเดียว (quantity_total>1) เป็นรายชิ้นคนละรหัส — ยืมจากรุ่นนี้จะแยกเป็นคนละรายการยืมอัตโนมัติหลังแยก
+  const splitUnits = (id, name, count) => setConfirm({
+    title: 'แยกเป็นรายชิ้น',
+    message: `แยก "${name}" (${count} ชิ้น) ให้เป็นคนละรหัสทั้งหมด ${count} รายการ?\nยืมของจากรุ่นนี้จะแยกเป็นคนละรายการยืมโดยอัตโนมัติหลังแยกแล้ว (ทำครั้งเดียว ย้อนกลับไม่ได้)`,
+    confirmLabel: 'แยกเป็นรายชิ้น',
+    onConfirm: async () => {
+      setConfirm(null)
+      try {
+        await equipmentApi.split(id)
+        load()
+      } catch (e) {
+        alert(e.response?.data?.detail || 'แยกไม่สำเร็จ')
+      }
+    },
+  })
+
   const deletePermanent = (id, name, groupId) => setConfirm({
     title: 'ลบอุปกรณ์ถาวร',
     message: `ลบ "${name}" ออกจากระบบถาวร?\n(ทำได้เฉพาะอุปกรณ์ที่ไม่มีประวัติการยืม)`,
@@ -395,28 +433,28 @@ export default function EquipmentManagePage() {
     },
   })
 
-  const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-blue-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
+  const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-primary-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
   const STATUS_LABEL = { available: 'พร้อม', borrowed: 'ถูกยืม', under_repair: 'ซ่อม', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">จัดการอุปกรณ์</h1>
+        <h1 className="text-2xl font-light text-gray-800">จัดการอุปกรณ์</h1>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowDocs((v) => !v)}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             เอกสารคลัง
           </button>
           <button onClick={() => setShowCats(true)}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             จัดการหมวดหมู่
           </button>
           <button onClick={() => setShowImport(true)}
-            className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+            className="rounded-full border border-primary-300 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50">
             นำเข้าจากไฟล์ทะเบียน
           </button>
           <button onClick={() => setModal('create')}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
             + เพิ่มอุปกรณ์
           </button>
         </div>
@@ -440,11 +478,11 @@ export default function EquipmentManagePage() {
                 className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             </label>
             <button onClick={() => downloadDoc('receipt')}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+              className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
               ใบรับเข้าคลัง (ร่างเข้า)
             </button>
             <button onClick={() => downloadDoc('disposal')}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+              className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
               ใบปลดระวาง (ร่างออก)
             </button>
           </div>
@@ -453,7 +491,7 @@ export default function EquipmentManagePage() {
               บันทึกขออนุมัติซ่อมแซมครุภัณฑ์ — ออกจากครุภัณฑ์ที่สถานะชำรุด/กำลังซ่อมทั้งหมด (ลักษณะที่ชำรุดดึงจากตอนรับคืน)
             </p>
             <button onClick={downloadRepairDoc}
-              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+              className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
               ใบขออนุมัติซ่อมแซมครุภัณฑ์
             </button>
           </div>
@@ -463,14 +501,14 @@ export default function EquipmentManagePage() {
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <input type="text" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1) }}
-          className="w-full sm:w-44 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="w-full sm:w-44 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
           <option value="">ทุกหมวดหมู่</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
-          className="w-full sm:w-40 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="w-full sm:w-40 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
           <option value="">ทุกประเภท</option>
           <option value="durable">ครุภัณฑ์</option>
           <option value="material">วัสดุ</option>
@@ -507,9 +545,15 @@ export default function EquipmentManagePage() {
                       <td className="px-4 py-2.5 font-medium text-gray-800">
                         {eq.name}
                         {grouped && (
-                          <button onClick={() => toggleExpand(eq.id)} className="ml-2 text-xs font-normal text-blue-600 hover:underline">
+                          <button onClick={() => toggleExpand(eq.id)} className="ml-2 text-xs font-normal text-primary-600 hover:underline">
                             {members ? 'ซ่อนรายหน่วย ▲' : `${eq.unit_count} หน่วย ▾`}
                           </button>
+                        )}
+                        {/* กระจายอยู่มากกว่า 1 สถานที่ (เช่นแยกเป็นรายชิ้นแล้วย้ายบางชิ้น) — โชว์สรุปแยกตามสถานที่ */}
+                        {eq.locations && eq.locations.length > 1 && (
+                          <div className="mt-0.5 text-xs font-normal text-gray-400">
+                            <LocationIcon /> {eq.locations.map((l) => `${l.location} (${l.count})`).join(' · ')}
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
@@ -521,12 +565,18 @@ export default function EquipmentManagePage() {
                       </td>
                       <td className="px-4 py-2.5">
                         {grouped ? (
-                          <button onClick={() => toggleExpand(eq.id)} className="text-xs text-blue-600 hover:underline">
+                          <button onClick={() => toggleExpand(eq.id)} className="text-xs text-primary-600 hover:underline">
                             {members ? 'ปิด' : 'ดูรายหน่วย'}
                           </button>
                         ) : (
                           <div className="flex gap-3">
-                            <button onClick={() => setModal(eq)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
+                            <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
+                            {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
+                              <span className="inline-flex items-center gap-1">
+                                <button onClick={() => splitUnits(eq.id, eq.name, eq.quantity_total)} className="text-xs text-purple-600 hover:underline">แยกเป็นรายชิ้น</button>
+                                <Tooltip text={'แยกของที่เก็บเป็นแถวเดียวจำนวนรวม ให้เป็นรายชิ้น คนละรหัส — ทำแล้วยืมหลายชิ้นพร้อมกันจะแยกรายการให้อัตโนมัติ และแก้สถานที่เก็บทีละชิ้นได้ (ย้อนกลับไม่ได้)'} />
+                              </span>
+                            )}
                             {eq.status !== 'retired' && (
                               <button onClick={() => retire(eq.id, eq.name)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
                             )}
@@ -542,14 +592,17 @@ export default function EquipmentManagePage() {
                       <tr key={u.id} className="bg-gray-50/60">
                         <td className="px-4 py-1.5" />
                         <td className="px-4 py-1.5 pl-8 font-mono text-xs text-gray-500">{u.code}</td>
-                        <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>หน่วยย่อยของ "{eq.name}"</td>
+                        <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>
+                          <LocationIcon /> {u.location || 'ไม่ระบุสถานที่'}
+                          {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
+                        </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
                         <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[u.status] ?? ''}`}>
                           {STATUS_LABEL[u.status] ?? u.status}
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
-                            <button onClick={() => editMember(u.id)} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
+                            <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
                             )}
@@ -612,11 +665,11 @@ export default function EquipmentManagePage() {
 
 const IMPORT_ACTION = {
   new: { label: 'เพิ่มใหม่', cls: 'bg-green-50 text-green-700', log: 'เพิ่มอุปกรณ์เข้าคลัง' },
-  update: { label: 'อัปเดต', cls: 'bg-blue-50 text-blue-700', log: 'แก้ไขข้อมูลอุปกรณ์' },
+  update: { label: 'อัปเดต', cls: 'bg-primary-50 text-primary-700', log: 'แก้ไขข้อมูลอุปกรณ์' },
   retire: { label: 'เสนอปลดระวาง', cls: 'bg-red-50 text-red-700', log: 'ปลดระวางอุปกรณ์' },
   unchanged: { label: 'ไม่เปลี่ยน', cls: 'bg-gray-50 text-gray-500', log: '—' },
 }
-const FIELD_LABEL = { name: 'ชื่อ', location: 'สถานที่', status: 'สถานะ', quantity_total: 'จำนวน' }
+const FIELD_LABEL = { name: 'ชื่อ', location: 'สถานที่', status: 'สถานะ', quantity_total: 'จำนวน', serial_number: 'SN' }
 const IMPORT_STATUS = { available: 'ปกติ', damaged: 'ชำรุด', unavailable: 'สูญหาย/เสื่อมสภาพ', retired: 'ปลดระวาง', borrowed: 'ถูกยืม', under_repair: 'ซ่อม' }
 const EDITABLE_STATUS = ['available', 'damaged', 'unavailable']
 const ITEM_TYPES = [['durable', 'ครุภัณฑ์'], ['material', 'วัสดุใช้ซ้ำ'], ['consumable', 'วัสดุสิ้นเปลือง']]
@@ -683,6 +736,7 @@ function ImportModal({ categories, onClose, onDone }) {
           item_type: r.item_type, quantity: Number(r.quantity) || 1, unit: r.unit || null,
           categories: r.categories, description: r.description || null,
           image_urls: r.image_urls, reason: r.reason || null,
+          serial_number: r.serial_number || null,
         })),
       })
       alert(`บันทึกเข้าระบบแล้ว — เพิ่ม ${applied.new} · แก้ไข ${applied.update} · ปลดระวาง ${applied.retire}\n`
@@ -699,7 +753,7 @@ function ImportModal({ categories, onClose, onDone }) {
   const count = (a) => selected.filter((r) => r.action === a).length
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col rounded-xl bg-white">
         <div className="border-b border-gray-200 px-6 py-4">
           <h2 className="text-lg font-bold text-gray-800">
@@ -720,7 +774,7 @@ function ImportModal({ categories, onClose, onDone }) {
               <input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="flex-1 text-sm" />
               <button onClick={upload} disabled={!file || busy}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
                 {busy ? 'กำลังอ่านไฟล์…' : 'อ่านไฟล์'}
               </button>
             </div>
@@ -729,7 +783,7 @@ function ImportModal({ categories, onClose, onDone }) {
           {step === 'summary' && (
             <>
               <div className="mb-4 grid grid-cols-4 gap-2 text-center">
-                {[['เพิ่มใหม่', s.new, 'text-green-700'], ['อัปเดต', s.update, 'text-blue-700'],
+                {[['เพิ่มใหม่', s.new, 'text-green-700'], ['อัปเดต', s.update, 'text-primary-700'],
                   ['ไม่พบในไฟล์', s.retire, 'text-red-700'], ['ไม่เปลี่ยน', s.unchanged, 'text-gray-500']].map(([label, n, cls]) => (
                   <div key={label} className="rounded-lg border border-gray-200 py-2">
                     <p className={`text-xl font-bold ${cls}`}>{n}</p>
@@ -762,7 +816,7 @@ function ImportModal({ categories, onClose, onDone }) {
                         <td className="px-3 py-2 font-mono text-gray-600">{r.code}</td>
                         <td className="px-3 py-2 text-gray-800">{r.name}</td>
                         <td className="px-3 py-2 text-gray-500">
-                          {r.action === 'new' && `สถานะ ${IMPORT_STATUS[r.status] ?? r.status}${r.location ? ` · ${r.location}` : ''}`}
+                          {r.action === 'new' && `สถานะ ${IMPORT_STATUS[r.status] ?? r.status}${r.location ? ` · ${r.location}` : ''}${r.serial_number ? ` · SN: ${r.serial_number}` : ''}`}
                           {r.action === 'retire' && 'ไม่พบในไฟล์ทะเบียนฉบับนี้'}
                           {r.action === 'update' && Object.entries(r.changes).map(([f, [oldV, newV]]) => (
                             <div key={f}>{FIELD_LABEL[f] ?? f}: <span className="line-through">{fmtVal(f, oldV)}</span> → <span className="text-gray-800">{fmtVal(f, newV)}</span></div>
@@ -859,7 +913,7 @@ function ImportModal({ categories, onClose, onDone }) {
                           <td className="px-2 py-2">
                             {!isRetire && (
                               <button onClick={() => setExpanded(open ? null : r.code)} disabled={!r.include}
-                                className="text-blue-600 hover:underline disabled:text-gray-300">
+                                className="text-primary-600 hover:underline disabled:text-gray-300">
                                 {open ? 'ปิด ▲' : 'แก้ไข ▾'}
                               </button>
                             )}
@@ -946,18 +1000,18 @@ function ImportModal({ categories, onClose, onDone }) {
 
         <div className="flex justify-between gap-2 border-t border-gray-200 px-6 py-4">
           <button onClick={step === 'draft' ? () => setStep('summary') : onClose} disabled={busy}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            className="rounded-full border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
             {step === 'draft' ? '← กลับไปแก้' : 'ปิด'}
           </button>
           {step === 'summary' && (
             <button onClick={() => setStep('draft')} disabled={rows.length === 0}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
               ตรวจร่างเอกสาร →
             </button>
           )}
           {step === 'draft' && (
             <button onClick={commit} disabled={busy || selected.length === 0}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
               {busy ? 'กำลังบันทึก…' : `ยืนยันบันทึกเข้าระบบ (${selected.length})`}
             </button>
           )}
@@ -993,16 +1047,16 @@ function CategoryModal({ categories, onClose, onChanged }) {
   const remove = (c) => run(() => equipmentApi.deleteCategory(c.id))
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 className="font-bold text-gray-800 mb-4">จัดการหมวดหมู่</h2>
         {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
 
         <form onSubmit={add} className="flex gap-2 mb-4">
           <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ชื่อหมวดหมู่ใหม่"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           <button type="submit" disabled={busy}
-            className="rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">เพิ่ม</button>
+            className="rounded-full bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">เพิ่ม</button>
         </form>
 
         <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
@@ -1011,14 +1065,14 @@ function CategoryModal({ categories, onClose, onChanged }) {
               {editing?.id === c.id ? (
                 <>
                   <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                    className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button onClick={saveEdit} disabled={busy} className="text-xs text-blue-600 hover:underline">บันทึก</button>
+                    className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                  <button onClick={saveEdit} disabled={busy} className="text-xs text-primary-600 hover:underline">บันทึก</button>
                   <button onClick={() => setEditing(null)} className="text-xs text-gray-400 hover:underline">ยกเลิก</button>
                 </>
               ) : (
                 <>
                   <span className="flex-1 text-sm text-gray-700">{c.name}</span>
-                  <button onClick={() => setEditing({ id: c.id, name: c.name })} className="text-xs text-blue-600 hover:underline">แก้ไข</button>
+                  <button onClick={() => setEditing({ id: c.id, name: c.name })} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                   <button onClick={() => remove(c)} disabled={busy} className="text-xs text-red-500 hover:underline">ลบ</button>
                 </>
               )}
@@ -1027,7 +1081,7 @@ function CategoryModal({ categories, onClose, onChanged }) {
           {categories.length === 0 && <p className="text-center text-gray-400 py-6 text-sm">ยังไม่มีหมวดหมู่</p>}
         </div>
 
-        <button onClick={onClose} className="mt-4 w-full rounded-lg border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
+        <button onClick={onClose} className="mt-4 w-full rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
       </div>
     </div>
   )

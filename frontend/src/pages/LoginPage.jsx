@@ -27,7 +27,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">เข้าสู่ระบบ</h1>
+        <h1 className="text-2xl font-light text-gray-800 mb-1">เข้าสู่ระบบ</h1>
         <p className="text-sm text-gray-500 mb-5">ระบบยืม-คืนอุปกรณ์</p>
 
         {error && (
@@ -48,7 +48,7 @@ export default function LoginPage() {
               autoComplete="username"
               value={form.identifier}
               onChange={(e) => setForm({ ...form, identifier: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="รหัสนักศึกษา หรือ ชื่อผู้ใช้งาน"
             />
           </div>
@@ -61,7 +61,7 @@ export default function LoginPage() {
                 required
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
               <button
                 type="button"
@@ -81,7 +81,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="w-full rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
           >
             {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
           </button>
@@ -89,7 +89,7 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-gray-500">
           ยังไม่มีบัญชี?{' '}
-          <Link to="/register" className="text-blue-600 hover:underline font-medium">
+          <Link to="/register" className="text-primary-600 hover:underline font-medium">
             ลงทะเบียน
           </Link>
         </p>

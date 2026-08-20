@@ -92,8 +92,8 @@ def _status_from(normal: object, broken: object, worn: object, lost: object) -> 
     return "available", 1
 
 
-def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """อ่านไฟล์ทะเบียน คืน (รายการที่มีเลขครุภัณฑ์, รายการที่ไม่มีเลข — ข้ามไป)
+def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, str]]:
+    """อ่านไฟล์ทะเบียน คืน (รายการที่มีเลขครุภัณฑ์, รายการที่ไม่มีเลข — ข้ามไป, SN จากชีตเสริม "SN")
 
     รองรับ 2 ชีตของทะเบียนคณะ: ชีตคณะ (เลขปกติ) และชีตพระราชทาน (ใช้ "รหัสครุภัณฑ์ใหม่")
     """
@@ -148,33 +148,62 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
                 "available" if qty > 0 else "unavailable", qty, "วัสดุ", str(i),
                 item_type=item_type, qty=qty, unit=_clean(r[3]) or None)
 
+    # ชีต "SN" (ทางเลือก) — SN จากผู้ผลิต ไม่มีในทะเบียนคุมทรัพย์สิน/ชีตวัสดุ จึงเสริมมาแยกต่างหาก
+    # header แถว 1: รหัส | SN — update-only จับคู่ด้วยรหัสที่มีอยู่แล้วในระบบเท่านั้น (ดู diff_rows)
+    sn_updates: dict[str, str] = {}
+    if "SN" in wb.sheetnames:
+        for r in wb["SN"].iter_rows(min_row=2, values_only=True):
+            code = _clean(r[0]) if len(r) > 0 else ""
+            sn = _clean(r[1]) if len(r) > 1 else ""
+            if not code or not sn:
+                continue
+            sn_updates[code] = sn
+
     wb.close()
-    if not rows and not skipped:
+    # ไฟล์ที่มีแต่ชีต "SN" ล้วน (แยกไฟล์จากทะเบียนหลัก) ต้องผ่านได้ ไม่ใช่แค่ไฟล์ทะเบียน/วัสดุเท่านั้น
+    if not rows and not skipped and not sn_updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ไม่พบข้อมูลในไฟล์ — ต้องมีชีต 'คณะเทคโนฯดิจิทัล' หรือ 'ครุภัณฑ์ที่ได้รับพระราชทาน'",
+            detail="ไม่พบข้อมูลในไฟล์ — ต้องมีชีต 'คณะเทคโนฯดิจิทัล', 'ครุภัณฑ์ที่ได้รับพระราชทาน', 'วัสดุ' หรือ 'SN'",
         )
-    return rows, skipped
+    return rows, skipped, sn_updates
 
 
 STATUS_LABEL = {"available": "ปกติ", "damaged": "ชำรุด", "unavailable": "สูญหาย/เสื่อมสภาพ",
                 "retired": "ปลดระวาง", "under_repair": "ซ่อม", "borrowed": "ถูกยืม"}
 
 
-def diff_rows(rows: list[dict[str, Any]], existing: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def diff_rows(
+    rows: list[dict[str, Any]],
+    existing: dict[str, dict[str, Any]],
+    sn_updates: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     """เทียบรายการในไฟล์กับของใน DB → คืนร่างการเปลี่ยนแปลงทีละรายการ
 
     action:
       new       = ยังไม่มีใน DB → จะเพิ่มเข้าคลัง
-      update    = มีอยู่แล้วแต่ชื่อ/สถานที่/สถานะไม่ตรง → จะแก้ตามไฟล์
+      update    = มีอยู่แล้วแต่ชื่อ/สถานที่/สถานะ/SN ไม่ตรง → จะแก้ตามไฟล์
       unchanged = ตรงกันทุกอย่าง → ไม่ทำอะไร
       retire    = มีใน DB (ครุภัณฑ์) แต่หายไปจากไฟล์ทะเบียน → เสนอปลดระวาง (ต้องติ๊กยืนยันแยก)
+
+    sn_updates: รหัส → SN จากชีตเสริม "SN" (update-only จับคู่กับรหัสที่มีอยู่แล้วในระบบเท่านั้น ไม่สร้างของใหม่)
+      - รหัสที่อยู่ในชีตทะเบียน/วัสดุของไฟล์นี้ด้วย → พ่วง serial_number เข้า changes เหมือนฟิลด์อื่น
+      - รหัสที่มีเฉพาะในชีต SN แต่พบใน DB → synthesize แถว action=update เฉพาะ SN (ฟิลด์อื่นคงค่าเดิม)
+      - รหัสที่ไม่พบใน DB เลย → ผู้เรียก (preview_import) เอาไปใส่ใน skipped แทน (เหตุผล "ไม่พบรหัสนี้ในระบบ")
     """
+    sn_updates = sn_updates or {}
     result: list[dict[str, Any]] = []
+    in_file = {row["code"] for row in rows}
+
     for row in rows:
         old = existing.get(row["code"])
         if old is None:
-            result.append({"action": "new", **row, "changes": {}})
+            # รหัสใหม่ที่ยังไม่มีใน DB แต่ก็มีอยู่ในชีต SN ของไฟล์เดียวกันด้วย — พ่วง SN เข้าไปให้แอดมิน
+            # เห็นในร่างตั้งแต่ตอน preview (ไม่งั้นจะถูกสร้างพร้อม SN จริงตอน commit โดยที่ไม่เคยผ่านสายตา
+            # แอดมินมาก่อนเลย ผิดหลักการของฟีเจอร์นี้ทั้งหมดที่ต้องให้แอดมินตรวจ/แก้ร่างก่อนของเข้าจริง)
+            sn = sn_updates.get(row["code"])
+            changes = {"serial_number": [None, sn]} if sn else {}
+            result.append({"action": "new", **row, "serial_number": sn, "changes": changes})
             continue
         changes: dict[str, list[Any]] = {}
         for field in ("name", "location", "status"):
@@ -183,30 +212,93 @@ def diff_rows(rows: list[dict[str, Any]], existing: dict[str, dict[str, Any]]) -
         # จำนวนเทียบเฉพาะวัสดุ — ครุภัณฑ์เป็น 1 ชิ้น/1 เลขทะเบียนเสมอ
         if row["item_type"] != "durable" and old.get("quantity_total") != row["quantity_total"]:
             changes["quantity_total"] = [old.get("quantity_total"), row["quantity_total"]]
+        sn = sn_updates.get(row["code"])
+        target_sn = sn or old.get("serial_number")
+        if sn and (old.get("serial_number") or None) != sn:
+            changes["serial_number"] = [old.get("serial_number"), sn]
         result.append({
             "action": "update" if changes else "unchanged", **row,
             "item_type": old["item_type"],  # ประเภทของเดิมใน DB ชนะ (แอดมินอาจจัดประเภทไว้แล้ว)
+            "serial_number": target_sn,
             "changes": changes,
         })
 
-    in_file = {row["code"] for row in rows}
-    for code, old in existing.items():
-        # เฉพาะครุภัณฑ์ที่ยังไม่ปลดระวาง — วัสดุ (material/consumable) ไม่ได้อยู่ในทะเบียนอยู่แล้ว
-        if code not in in_file and old["item_type"] == "durable" and old["status"] != "retired":
-            result.append({
-                "action": "retire", "code": code, "name": old["name"],
-                "location": old.get("location"), "status": "retired",
-                "quantity_available": 0, "category": None, "item_type": old["item_type"],
-                "quantity_total": old.get("quantity_total", 1), "unit": None, "changes": {},
-            })
+    # เสนอปลดระวางได้ก็ต่อเมื่อไฟล์นี้มีรายการทะเบียน/วัสดุจริง (rows ไม่ว่าง) — ไฟล์ที่มีแต่ชีต "SN" ล้วน
+    # (rows ว่าง) ไม่ใช่ทะเบียนฉบับเต็ม ถ้าไม่กันไว้ตรงนี้จะเข้าใจผิดว่าครุภัณฑ์ทุกชิ้นในระบบหายไปจากไฟล์
+    # แล้วเสนอปลดระวางทั้งดุ้น ทั้งที่ไฟล์นี้ไม่ได้พูดถึงทะเบียนเลย
+    if rows:
+        for code, old in existing.items():
+            # เฉพาะครุภัณฑ์ที่ยังไม่ปลดระวาง — วัสดุ (material/consumable) ไม่ได้อยู่ในทะเบียนอยู่แล้ว
+            if code not in in_file and old["item_type"] == "durable" and old["status"] != "retired":
+                result.append({
+                    "action": "retire", "code": code, "name": old["name"],
+                    "location": old.get("location"), "status": "retired",
+                    "quantity_available": 0, "category": None, "item_type": old["item_type"],
+                    "quantity_total": old.get("quantity_total", 1), "unit": None, "changes": {},
+                })
+
+    # รหัสที่มีเฉพาะในชีต SN (ไม่อยู่ในชีตทะเบียน/วัสดุของไฟล์นี้) แต่จับคู่กับของที่มีอยู่แล้วใน DB ได้
+    # → synthesize แถว action=update เฉพาะ SN ฟิลด์อื่นคงค่าเดิมทุกอย่าง (update-only ตามที่ตั้งใจ)
+    for code, sn in sn_updates.items():
+        if code in in_file:
+            continue
+        old = existing.get(code)
+        if old is None:
+            continue  # ไม่พบรหัสนี้ในระบบเลย — preview_import เอาไปใส่ skipped แทน
+        if (old.get("serial_number") or None) == sn:
+            continue  # ตรงกับของเดิมอยู่แล้ว ไม่มีอะไรต้องเปลี่ยน
+        result.append({
+            "action": "update", "code": code, "name": old["name"],
+            "location": old.get("location"), "status": old["status"],
+            "quantity_available": 0, "category": None, "item_type": old["item_type"],
+            "quantity_total": old.get("quantity_total", 1), "unit": None,
+            "serial_number": sn,
+            "changes": {"serial_number": [old.get("serial_number"), sn]},
+        })
     return result
+
+
+def _filter_bad_sn_updates(
+    sn_updates: dict[str, str], existing: dict[str, dict[str, Any]]
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """คัดกรอง SN ที่จะชนกันออกจาก sn_updates ก่อนส่งเข้า diff_rows/commit — กัน UniqueViolationError
+    บน partial unique index (ix_equipment_serial_number_unique) ตอน commit ซึ่งไม่มี IntegrityError
+    handler ที่ไหนใน backend เลย จึงกลายเป็น 500 ที่ยกเลิก commit ทั้งดุ้นหลังแอดมินตรวจร่างผ่านแล้ว
+
+    ตัดออก 2 กรณี (คืนไปเป็น skipped แทน ไม่ทำให้ทั้งบรรทัดที่แตะรหัสนั้นพังไปด้วย — แค่ไม่ apply ค่า SN นี้):
+      (a) SN ค่าเดียวกันถูกใช้ซ้ำโดยมากกว่า 1 รหัสในชีต SN ของไฟล์เดียวกันเอง
+      (b) SN ค่านั้นถูกใช้อยู่แล้วกับรหัสอื่นที่ไม่ใช่ตัวมันเองใน DB
+    """
+    value_counts: dict[str, int] = {}
+    for sn in sn_updates.values():
+        value_counts[sn] = value_counts.get(sn, 0) + 1
+
+    existing_sn_owner = {
+        eq["serial_number"]: code for code, eq in existing.items() if eq.get("serial_number")
+    }
+
+    clean: dict[str, str] = {}
+    bad: list[dict[str, str]] = []
+    for code, sn in sn_updates.items():
+        if value_counts[sn] > 1:
+            bad.append({"sheet": "SN", "seq": code, "name": code,
+                        "reason": "SN ซ้ำกับรายการอื่นในไฟล์เดียวกัน"})
+            continue
+        owner = existing_sn_owner.get(sn)
+        if owner is not None and owner != code:
+            bad.append({"sheet": "SN", "seq": code, "name": code,
+                        "reason": "SN นี้ถูกใช้กับรหัสอื่นในระบบแล้ว"})
+            continue
+        clean[code] = sn
+    return clean, bad
 
 
 async def _load_existing(db: AsyncSession) -> dict[str, dict[str, Any]]:
     result = await db.execute(select(Equipment))
     return {
         eq.code: {"id": eq.id, "name": eq.name, "location": eq.location, "status": eq.status,
-                  "item_type": eq.item_type, "quantity_total": eq.quantity_total}
+                  "item_type": eq.item_type, "quantity_total": eq.quantity_total,
+                  "serial_number": eq.serial_number}
         for eq in result.scalars().all()
     }
 
@@ -218,10 +310,14 @@ def _summarize(diff: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def _parse_file(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """Excel → อ่านตามชีตทะเบียน / รูป-PDF → OCR (โหมดทดลอง) — คืน rows รูปแบบเดียวกัน"""
+def _parse_file(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, str]]:
+    """Excel → อ่านตามชีตทะเบียน / รูป-PDF → OCR (โหมดทดลอง) — คืน rows รูปแบบเดียวกัน
+
+    OCR ไม่รองรับชีต SN (อ่านจากรูป/PDF เดียว ไม่มีแนวคิดหลายชีต) จึงคืน sn_updates ว่างเสมอ
+    """
     if ocr_import.is_scan(path):
-        return ocr_import.parse_scan(path)
+        rows, skipped = ocr_import.parse_scan(path)
+        return rows, skipped, {}
     return parse_workbook(path)
 
 
@@ -254,8 +350,16 @@ async def preview_import(db: AsyncSession, file: UploadFile) -> dict[str, Any]:
     with open(path, "wb") as f:
         f.write(contents)
 
-    rows, skipped = _parse_file(path)
-    diff = diff_rows(rows, await _load_existing(db))
+    rows, skipped, sn_updates = _parse_file(path)
+    existing = await _load_existing(db)
+    sn_updates, sn_bad = _filter_bad_sn_updates(sn_updates, existing)
+    skipped.extend(sn_bad)
+    diff = diff_rows(rows, existing, sn_updates)
+    # รหัสที่อยู่เฉพาะในชีต SN แต่ไม่พบใน DB เลย — update-only ไม่สร้างของใหม่ ไปโผล่เป็น "ข้าม" แทน
+    in_file = {row["code"] for row in rows}
+    for code in sn_updates:
+        if code not in in_file and code not in existing:
+            skipped.append({"sheet": "SN", "seq": code, "name": code, "reason": "ไม่พบรหัสนี้ในระบบ"})
     return {
         "import_id": import_id,
         "filename": file.filename,
@@ -279,6 +383,23 @@ async def _get_or_create_category(db: AsyncSession, name: str, cache: dict[str, 
     return cat
 
 
+async def _assert_no_sn_conflict(db: AsyncSession, sn: str, exclude_id: uuid.UUID | None) -> None:
+    """เช็คก่อนเขียน SN ว่าไม่ชนกับรหัสอื่นใน DB — defense-in-depth เผื่อ DB เปลี่ยนระหว่าง preview→commit
+    (เช่นมีคนแก้ไข SN ผ่านช่องทางอื่นแทรกมา) หรือ client เลี่ยง validation ตอน preview แล้วยัด SN มาตรง ๆ
+    ใน body — กัน asyncpg.UniqueViolationError บน ix_equipment_serial_number_unique กลายเป็น 500 ที่ไม่มี
+    IntegrityError handler ไหนใน backend ดักไว้เลย ให้เป็น 409 อ่านง่ายแทน
+    """
+    query = select(Equipment.code).where(Equipment.serial_number == sn)
+    if exclude_id is not None:
+        query = query.where(Equipment.id != exclude_id)
+    dup_code = (await db.execute(query)).scalar_one_or_none()
+    if dup_code is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"SN '{sn}' ถูกใช้กับรหัส {dup_code} อยู่แล้ว",
+        )
+
+
 async def commit_import(
     db: AsyncSession, admin: User, import_id: str, body: ImportCommitRequest
 ) -> dict[str, int]:
@@ -296,9 +417,10 @@ async def commit_import(
     if not path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ไม่พบไฟล์นำเข้า กรุณาอัปโหลดใหม่")
 
-    rows, _ = _parse_file(path)
+    rows, _, sn_updates = _parse_file(path)
     existing = await _load_existing(db)
-    allowed = {d["code"]: d for d in diff_rows(rows, existing)}
+    sn_updates, _sn_bad = _filter_bad_sn_updates(sn_updates, existing)
+    allowed = {d["code"]: d for d in diff_rows(rows, existing, sn_updates)}
 
     applied = {"new": 0, "update": 0, "retire": 0}
     cat_cache: dict[str, EquipmentCategory] = {}
@@ -315,10 +437,16 @@ async def commit_import(
         cat_names = row.categories or [ref.get("category") or FALLBACK_CAT]
 
         if row.action == "new":
+            # SN ของรหัสใหม่ตอนนี้มาจาก diff_rows แล้ว (พ่วงเข้า row ตั้งแต่ตอน preview — ดู comment ใน
+            # diff_rows) ดังนั้น row.serial_number ที่แอดมินเห็น/แก้ในร่างคือค่าที่ใช้ apply จริงตรง ๆ
+            # ไม่ fallback ไป sn_updates เองอีกชั้น เพื่อให้ค่าที่บันทึกตรงกับที่แอดมินตรวจแล้วเป๊ะ
+            sn = row.serial_number
+            if sn:
+                await _assert_no_sn_conflict(db, sn, None)
             eq = Equipment(
                 code=row.code, name=row.name, item_type=row.item_type,
                 location=row.location, status=row.status,
-                unit=row.unit, description=row.description,
+                unit=row.unit, description=row.description, serial_number=sn,
                 quantity_total=row.quantity,
                 quantity_available=row.quantity if row.status == "available" else 0,
                 image_urls=row.image_urls, image_url=row.image_urls[0] if row.image_urls else None,
@@ -358,6 +486,11 @@ async def commit_import(
             eq.unit = row.unit
         if row.description is not None:
             eq.description = row.description
+        # แตะเฉพาะแถวที่ร่างมีค่า SN ให้ — กันแถวที่ไม่ได้แตะ SN ไปเขียนทับ SN เดิมเป็น null
+        if row.serial_number is not None:
+            if row.serial_number != eq.serial_number:
+                await _assert_no_sn_conflict(db, row.serial_number, eq.id)
+            eq.serial_number = row.serial_number
         if row.image_urls:
             eq.image_urls = row.image_urls
             eq.image_url = row.image_urls[0]

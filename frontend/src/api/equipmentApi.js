@@ -9,6 +9,8 @@ export const equipmentApi = {
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
   retire: (id, reason) => api.delete(`/equipment/${id}`, { params: reason ? { reason } : {} }),
+  // แยกวัสดุ (material) ก้อนเดียวที่ quantity_total > 1 เป็นรายชิ้นคนละรหัส — คืนหน่วยใหม่ทั้งหมด
+  split: (id) => api.post(`/equipment/${id}/split`).then((r) => r.data),
   // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
   stockDocument: (kind, date_from, date_to) =>
     api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),

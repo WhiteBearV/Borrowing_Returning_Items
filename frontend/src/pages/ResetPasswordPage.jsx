@@ -40,9 +40,9 @@ export default function ResetPasswordPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8 text-center">
           <div className="text-4xl mb-4">❌</div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">ลิงก์ไม่ถูกต้อง</h2>
+          <h2 className="text-xl font-light text-gray-800 mb-2">ลิงก์ไม่ถูกต้อง</h2>
           <p className="text-sm text-gray-500 mb-6">ไม่พบ token ในลิงก์ กรุณาขอลิงก์ใหม่</p>
-          <Link to="/forgot-password" className="text-blue-600 hover:underline text-sm font-medium">
+          <Link to="/forgot-password" className="text-primary-600 hover:underline text-sm font-medium">
             ขอลิงก์ตั้งรหัสผ่านใหม่
           </Link>
         </div>
@@ -53,7 +53,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">ตั้งรหัสผ่านใหม่</h1>
+        <h1 className="text-2xl font-light text-gray-800 mb-1">ตั้งรหัสผ่านใหม่</h1>
         <p className="text-sm text-gray-500 mb-5">กรอกรหัสผ่านใหม่ของคุณ</p>
 
         {done ? (
@@ -75,7 +75,7 @@ export default function ResetPasswordPage() {
                 autoFocus
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
             <div>
@@ -85,13 +85,13 @@ export default function ResetPasswordPage() {
                 required
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="w-full rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
             >
               {loading ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่านใหม่'}
             </button>

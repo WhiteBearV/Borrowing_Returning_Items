@@ -3,7 +3,6 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { useCart } from '../../context/CartContext.jsx'
 import ConfirmModal from '../common/ConfirmModal.jsx'
-import NotificationBell from './NotificationBell.jsx'
 
 const STUDENT_NAV = [
   { to: '/dashboard',  label: 'หน้าหลัก' },
@@ -31,7 +30,7 @@ const ADMIN_NAV = [
 const linkClass = ({ isActive }) =>
   `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
     isActive
-      ? 'bg-blue-50 text-blue-700'
+      ? 'bg-primary-50 text-primary-700'
       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
   }`
 
@@ -49,30 +48,26 @@ export default function Sidebar({ open, onClose }) {
 
   return (
     <>
-      {/* Backdrop มือถือ — แตะเพื่อปิด drawer */}
+      {/* Backdrop — แตะเพื่อปิด drawer (เมนูเป็น overlay เสมอ ทุกขนาดจอ) */}
       {open && (
         <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
           onClick={onClose}
           aria-hidden="true"
         />
       )}
 
       <aside
-        className={`flex flex-col w-64 md:w-56 shrink-0 border-r border-gray-200 bg-white overflow-y-auto
+        className={`flex flex-col w-64 shrink-0 border-r border-gray-200 bg-white overflow-y-auto
         fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out
-        ${open ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:sticky md:top-0 md:z-auto md:h-screen`}
+        ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         {/* Logo */}
-        <div className="px-4 py-5 border-b border-gray-100 flex items-start justify-between gap-2">
-          <div>
-            <p className="font-bold text-gray-800 text-sm leading-tight">ระบบยืม-คืนอุปกรณ์</p>
-            {user?.role === 'admin' && (
-              <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded mt-1 inline-block">Admin</span>
-            )}
-          </div>
-          <NotificationBell />
+        <div className="px-4 py-5 border-b border-gray-100">
+          <p className="font-bold text-gray-800 text-sm leading-tight">ระบบยืม-คืนอุปกรณ์</p>
+          {user?.role === 'admin' && (
+            <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded mt-1 inline-block">Admin</span>
+          )}
         </div>
 
         {/* Nav links */}
@@ -81,7 +76,7 @@ export default function Sidebar({ open, onClose }) {
             <NavLink key={to} to={to} className={linkClass} onClick={onClose}>
               {label}
               {showCart && cart.length > 0 && (
-                <span className="ml-auto bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                <span className="ml-auto bg-primary-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                   {cart.length}
                 </span>
               )}

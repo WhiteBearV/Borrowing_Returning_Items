@@ -11,6 +11,7 @@ const ACTION_LABEL = {
   update_equipment: 'แก้ไขอุปกรณ์',
   retire_equipment: 'ปลดระวางอุปกรณ์',
   delete_equipment: 'ลบอุปกรณ์',
+  split_equipment: 'แยกอุปกรณ์เป็นรายชิ้น',
 }
 const actionLabel = (a) => ACTION_LABEL[a] ?? a
 
@@ -23,7 +24,7 @@ function DetailModal({ log, onClose }) {
     ['Target ID', log.target_id],
   ]
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl space-y-4" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-bold text-gray-800">รายละเอียด Log</h2>
         <div className="space-y-2 text-sm">
@@ -42,7 +43,7 @@ function DetailModal({ log, onClose }) {
             </pre>
           </div>
         )}
-        <button onClick={onClose} className="w-full rounded-lg border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
+        <button onClick={onClose} className="w-full rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
       </div>
     </div>
   )
@@ -61,7 +62,7 @@ export default function AuditLogPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Audit Log</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">Audit Log</h1>
 
       {loading ? (
         <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
@@ -89,7 +90,7 @@ export default function AuditLogPage() {
                   <td className="px-4 py-2.5 text-xs text-gray-500 truncate max-w-[220px]">
                     {log.detail ? JSON.stringify(log.detail) : '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-blue-600 whitespace-nowrap">ดูรายละเอียด →</td>
+                  <td className="px-4 py-2.5 text-xs text-primary-600 whitespace-nowrap">ดูรายละเอียด →</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { notificationApi } from '../../api/notificationApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+
+// พาไปหน้าที่เกี่ยวข้องกับคำขอที่แจ้งเตือนถึง — new_request_admin เป็นแอดมินเห็น ที่เหลือนักศึกษาเห็นทั้งหมด
+const notificationTarget = (n) => {
+  if (!n.borrow_request_id) return null
+  return n.type === 'new_request_admin'
+    ? `/admin/borrow-requests?request=${n.borrow_request_id}`
+    : `/my-borrows?request=${n.borrow_request_id}`
+}
 
 function timeAgo(iso) {
   const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -20,6 +29,7 @@ function beep() {
 
 export default function NotificationBell() {
   const { user } = useAuthContext()
+  const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
@@ -60,10 +70,15 @@ export default function NotificationBell() {
   // dropdown ต้อง portal ออกไปที่ document.body เพราะ sidebar ที่ครอบอยู่มี
   // overflow-y-auto + transform (drawer มือถือ) ซึ่งตัดขอบ/เลื่อนตำแหน่ง absolute ผิดที่
   // ตำแหน่งจึงต้องคำนวณเองจาก bounding rect ของปุ่มกระดิ่งแทนการอิง relative wrapper
+  const DROPDOWN_WIDTH = 288 // w-72
   const reposition = () => {
     if (!boxRef.current) return
     const r = boxRef.current.getBoundingClientRect()
-    setPos({ top: r.bottom + 8, left: r.left })
+    // ปุ่มอยู่มุมขวาบน header เสมอ — ชิดขวาปุ่มไว้ก่อน แล้ว clamp กันล้นขอบซ้าย/ขวาของจอ
+    // (เดิมอิง left ของปุ่มตรงๆ ใช้ได้ตอนกระดิ่งอยู่ใน sidebar ฝั่งซ้าย พอย้ายมาไว้ขวา header
+    // dropdown กว้าง 288px เลยทะลุขอบจอขวาไปเกือบหมด อ่านไม่ออก)
+    const left = Math.max(8, Math.min(r.right - DROPDOWN_WIDTH, window.innerWidth - DROPDOWN_WIDTH - 8))
+    setPos({ top: r.bottom + 8, left })
   }
 
   useEffect(() => {
@@ -76,9 +91,15 @@ export default function NotificationBell() {
   const unread = items.filter((n) => !n.is_read).length
 
   const handleClick = async (n) => {
-    if (n.is_read) return
-    await notificationApi.markRead(n.id)
-    setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
+    if (!n.is_read) {
+      await notificationApi.markRead(n.id)
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
+    }
+    const target = notificationTarget(n)
+    if (target) {
+      setOpen(false)
+      navigate(target)
+    }
   }
 
   return (
@@ -111,7 +132,7 @@ export default function NotificationBell() {
                 key={n.id}
                 onClick={() => handleClick(n)}
                 className={`block w-full text-left px-3 py-2 text-xs border-b border-gray-50 hover:bg-gray-50 ${
-                  n.is_read ? 'text-gray-400' : 'text-gray-800 bg-blue-50/40'
+                  n.is_read ? 'text-gray-400' : 'text-gray-800 bg-primary-50/40'
                 }`}
               >
                 <p>{n.message}</p>

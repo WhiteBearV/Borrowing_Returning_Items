@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import { openPdf } from '../../utils/openPdf.js'
+import Tooltip from '../../components/common/Tooltip.jsx'
 
 const tomorrow = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10)
 
@@ -50,7 +51,7 @@ export default function BorrowRequestPage() {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
         <p className="text-gray-400 mb-4">ตะกร้าว่างเปล่า</p>
-        <Link to="/equipment" className="text-blue-600 hover:underline text-sm font-medium">
+        <Link to="/equipment" className="text-primary-600 hover:underline text-sm font-medium">
           ← เลือกอุปกรณ์
         </Link>
       </div>
@@ -59,7 +60,7 @@ export default function BorrowRequestPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">ยื่นคำขอยืมอุปกรณ์</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">ยื่นคำขอยืมอุปกรณ์</h1>
 
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -112,14 +113,15 @@ export default function BorrowRequestPage() {
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
             placeholder="ระบุวัตถุประสงค์ (ไม่บังคับ)"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
           />
         </div>
 
         {/* วันที่คาดว่าจะคืน — นักศึกษาระบุเอง แอดมินพิจารณาอนุมัติ/ปฏิเสธตามวันนี้ */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
             วันที่คาดว่าจะคืน <span className="text-red-500">*</span>
+            <Tooltip text={'วันที่นี้จะกลายเป็นวันครบกำหนดคืนจริงทันทีที่แอดมินอนุมัติคำขอ — เลือกให้ตรงกับที่ตั้งใจใช้งานจริง'} side="top" />
           </label>
           <input
             type="date"
@@ -127,28 +129,28 @@ export default function BorrowRequestPage() {
             min={tomorrow()}
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
         <div className="flex gap-3">
           <Link
             to="/equipment"
-            className="flex-1 text-center rounded-lg border border-gray-300 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            className="flex-1 text-center rounded-full border border-gray-300 py-2 text-sm text-gray-600 hover:bg-gray-50"
           >
             + เพิ่มอุปกรณ์
           </Link>
           <button
             type="button"
             onClick={previewDraft}
-            className="flex-1 rounded-lg border border-blue-300 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+            className="flex-1 rounded-full border border-primary-300 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
           >
             ดูตัวอย่างใบยืม
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
           >
             {loading ? 'กำลังส่ง…' : 'ยื่นคำขอ'}
           </button>

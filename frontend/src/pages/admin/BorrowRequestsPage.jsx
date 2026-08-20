@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
 
 export default function BorrowRequestsPage() {
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightId = searchParams.get('request')
   const [data, setData] = useState({ items: [], total: 0 })
   const [page, setPage] = useState(1)
-  const [expanded, setExpanded] = useState(null)
+  const [expanded, setExpanded] = useState(highlightId)
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionError, setActionError] = useState('')
+  const highlightRef = useRef(null)
 
   const load = () => {
     setLoading(true)
@@ -19,6 +24,27 @@ export default function BorrowRequestsPage() {
   }
 
   useEffect(() => { load() }, [page])
+
+  // มาจากลิงก์แจ้งเตือน "คำขอใหม่" — ปกติยังเป็น pending อยู่แล้วตอนแจ้งเตือน แต่ถ้าแอดมินคนอื่น
+  // อนุมัติ/ปฏิเสธไปก่อนแล้ว หน้านี้ (แสดงเฉพาะ pending) จะไม่มีให้ดู ส่งไปหน้าประวัติทั้งหมดแทน
+  useEffect(() => {
+    if (!highlightId) return
+    borrowApi.get(highlightId).then((req) => {
+      if (req.status !== 'pending') {
+        navigate(`/admin/borrows?request=${highlightId}`, { replace: true })
+        return
+      }
+      setData((d) => (d.items.some((i) => i.id === req.id) ? d : { ...d, items: [req, ...d.items] }))
+      setExpanded(req.id)
+    }).catch(() => {})
+  }, [highlightId])
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [highlightId, data.items])
 
   const approve = async (id) => {
     setActionError('')
@@ -49,7 +75,7 @@ export default function BorrowRequestsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">คำขอรออนุมัติ</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">คำขอรออนุมัติ</h1>
 
       {actionError && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-600 flex justify-between gap-3">
@@ -65,7 +91,8 @@ export default function BorrowRequestsPage() {
       ) : (
         <div className="space-y-3">
           {data.items.map((req) => (
-            <div key={req.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div key={req.id} ref={req.id === highlightId ? highlightRef : null}
+              className={`bg-white rounded-xl border shadow-sm overflow-hidden ${req.id === highlightId ? 'border-primary-400 ring-2 ring-primary-100' : 'border-gray-200'}`}>
               <button
                 onClick={() => setExpanded(expanded === req.id ? null : req.id)}
                 className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
@@ -101,19 +128,19 @@ export default function BorrowRequestsPage() {
                   <div className="flex gap-3 pt-1">
                     <button
                       onClick={() => viewDraft(req.id)}
-                      className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                      className="rounded-full border border-gray-300 px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
                     >
                       ดูใบร่าง PDF
                     </button>
                     <button
                       onClick={() => approve(req.id)}
-                      className="rounded-lg bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
+                      className="rounded-full bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
                     >
                       อนุมัติ
                     </button>
                     <button
                       onClick={() => { setRejectId(req.id); setRejectReason('') }}
-                      className="rounded-lg border border-red-300 px-4 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+                      className="rounded-full border border-red-300 px-4 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
                       ปฏิเสธ
                     </button>
@@ -129,7 +156,7 @@ export default function BorrowRequestsPage() {
 
       {/* Reject modal */}
       {rejectId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
             <h2 className="font-bold text-gray-800 mb-3">ระบุเหตุผลที่ปฏิเสธ</h2>
             <textarea
@@ -141,11 +168,11 @@ export default function BorrowRequestsPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
             />
             <div className="flex gap-3 mt-4">
-              <button onClick={() => setRejectId(null)} className="flex-1 rounded-lg border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button onClick={() => setRejectId(null)} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
               <button
                 disabled={!rejectReason.trim()}
                 onClick={reject}
-                className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                className="flex-1 rounded-full bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
                 ยืนยันปฏิเสธ
               </button>

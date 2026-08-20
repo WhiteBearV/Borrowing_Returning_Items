@@ -58,7 +58,7 @@ function BundleForm({ initial, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
       <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 className="font-bold text-gray-800 mb-4">{isEdit ? 'แก้ไขชุดอุปกรณ์' : 'สร้างชุดอุปกรณ์'}</h2>
         <form onSubmit={submit} className="space-y-3">
@@ -121,9 +121,9 @@ function BundleForm({ initial, onClose, onSave }) {
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
-                    className="flex-1 rounded-lg border border-gray-300 py-2 text-sm">ยกเลิก</button>
+                    className="flex-1 rounded-full border border-gray-300 py-2 text-sm">ยกเลิก</button>
             <button type="submit" disabled={loading}
-                    className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white disabled:opacity-50">
               {loading ? 'กำลังบันทึก…' : 'บันทึก'}
             </button>
           </div>
@@ -155,11 +155,11 @@ export default function BundleManagePage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">ชุดอุปกรณ์</h1>
+          <h1 className="text-2xl font-light text-gray-800">ชุดอุปกรณ์</h1>
           <p className="text-sm text-gray-500 mt-0.5">ชุดเป็นทางลัดหยิบของใส่ตะกร้า นักศึกษาถอดของออกจากชุดได้เอง</p>
         </div>
         <button onClick={() => setEditing(null)}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
           + สร้างชุด
         </button>
       </div>
@@ -184,7 +184,7 @@ export default function BundleManagePage() {
                   <button onClick={() => toggleActive(b)} className="text-gray-500 hover:text-gray-800">
                     {b.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                   </button>
-                  <button onClick={() => setEditing(b)} className="text-blue-600 hover:underline">แก้ไข</button>
+                  <button onClick={() => setEditing(b)} className="text-primary-600 hover:underline">แก้ไข</button>
                   <button onClick={() => setConfirmDelete(b)} className="text-red-500 hover:underline">ลบ</button>
                 </div>
               </div>

@@ -31,7 +31,7 @@ REGISTER = os.path.join(
 
 
 async def main() -> None:
-    rows, _ = parse_workbook(REGISTER)
+    rows, _, _ = parse_workbook(REGISTER)
     register = {r["code"]: r for r in rows}
 
     async with AsyncSessionLocal() as db:

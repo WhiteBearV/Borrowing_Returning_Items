@@ -22,7 +22,7 @@ export default function Pagination({ page, total, pageSize, onChange }) {
         <select
           value={page}
           onChange={(e) => go(Number(e.target.value))}
-          className="rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
             <option key={p} value={p}>{p}</option>

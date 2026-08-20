@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import date, datetime, time
 
@@ -23,6 +24,7 @@ from app.schemas.equipment import (
     EquipmentUnitSummary,
     EquipmentUpdate,
     HolderInfo,
+    LocationCount,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
 )
@@ -124,6 +126,19 @@ def _group_key(eq: Equipment) -> tuple:
     return (eq.id,) if eq.item_type == "consumable" else (eq.name, eq.item_type)
 
 
+def _location_breakdown(rows: list[Equipment]) -> list[LocationCount]:
+    """สรุปจำนวนหน่วยแยกตามค่า location จริงของทุกแถวในกลุ่ม (ค่าว่าง/None รวมเป็น "ไม่ระบุสถานที่")
+
+    ใช้ตอนแยกวัสดุเป็นรายชิ้นแล้วแอดมินย้ายบางชิ้นไปเก็บคนละที่ — การ์ดกลุ่มที่โชว์ location เดียว
+    จากหน่วยรหัสต่ำสุดไม่พอ ต้องเห็นภาพรวมว่ากระจายอยู่ที่ไหนบ้าง
+    """
+    counts: dict[str, int] = {}
+    for r in rows:
+        key = r.location or "ไม่ระบุสถานที่"
+        counts[key] = counts.get(key, 0) + 1
+    return [LocationCount(location=loc, count=n) for loc, n in counts.items()]
+
+
 def _build_group_response(rows: list[Equipment]) -> EquipmentGroupResponse:
     """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)"""
     rep = rows[0]
@@ -135,7 +150,7 @@ def _build_group_response(rows: list[Equipment]) -> EquipmentGroupResponse:
     if eligible:
         base["is_borrowable"] = True
         base["status"] = "available"
-    return EquipmentGroupResponse(**base, unit_count=len(rows))
+    return EquipmentGroupResponse(**base, unit_count=len(rows), locations=_location_breakdown(rows))
 
 
 async def list_equipment_grouped(
@@ -237,6 +252,10 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     existing = await db.execute(select(Equipment).where(Equipment.code == body.code))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
+    if body.serial_number:
+        dup_sn = await db.execute(select(Equipment).where(Equipment.serial_number == body.serial_number))
+        if dup_sn.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
     data = body.model_dump(exclude={"category_ids"})
     data["name"] = _normalize_name(data["name"])
     data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
@@ -258,6 +277,12 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
+    if "serial_number" in changed and changed["serial_number"] != eq.serial_number:
+        dup_sn = await db.execute(
+            select(Equipment).where(Equipment.serial_number == changed["serial_number"], Equipment.id != equipment_id)
+        )
+        if dup_sn.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
     for field, value in changed.items():
         setattr(eq, field, value)
     # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
@@ -285,6 +310,120 @@ async def retire_equipment(
                                     "quantity": eq.quantity_total, "item_type": eq.item_type,
                                     "reason": (reason or "").strip() or None})
     await db.commit()
+
+
+def _generate_split_codes(base_code: str, count: int, existing_codes: set[str]) -> list[str]:
+    """สร้างรหัสใหม่ `count` รหัส ต่อจาก `base_code` — ตัดเลขท้ายรัน (trailing digits) มาบวกทีละ 1 คง zero-pad เดิม
+    (`234001` → `234002`, `234003`, ...) ถ้ารหัสไม่มีเลขท้ายเลยให้ต่อท้ายด้วย `-2`, `-3`, ...
+
+    ข้ามรหัสที่ชนกับที่มีอยู่แล้วในระบบ — คลัง ≤100 รายการ (CLAUDE.md) โหลด code ทั้งหมดมาเช็คในหน่วยความจำ
+    พอ ไม่ต้อง query ทีละรหัสเหมือนคลังขนาดใหญ่
+    """
+    m = re.search(r"\d+$", base_code)
+    if m:
+        prefix, width, n = base_code[: m.start()], len(m.group()), int(m.group())
+    else:
+        prefix, width, n = f"{base_code}-", 0, 1
+
+    taken = set(existing_codes) | {base_code}
+    codes: list[str] = []
+    while len(codes) < count:
+        n += 1
+        candidate = f"{prefix}{n:0{width}d}" if width else f"{prefix}{n}"
+        if candidate in taken:
+            continue
+        codes.append(candidate)
+        taken.add(candidate)
+    return codes
+
+
+async def split_equipment_into_units(
+    db: AsyncSession, admin: User, equipment_id: uuid.UUID, dry: bool = False
+) -> list[Equipment]:
+    """แปลงแถวรวมของวัสดุ (`item_type=material`, `quantity_total=N`) เป็น N แถวเดี่ยว (`quantity_total=1`
+    ทุกแถว) คนละรหัส — แก้บั๊กที่วัสดุนำเข้าเป็นก้อนเดียวจากชีต "วัสดุ" ทำให้ borrow_service.create_request
+    (ซึ่งแยก BorrowItem อัตโนมัติเมื่อรุ่นเดียวกันมีหลายแถวใน DB อยู่แล้ว — ดู find_group_members) ไม่มีอะไรให้แยก
+
+    เฉพาะ material เท่านั้น — durable แยกเป็นรายหน่วยจากทะเบียนคุมทรัพย์สินอยู่แล้ว (1 แถวต่อ 1 เลขครุภัณฑ์),
+    consumable ต้องคงเป็นก้อนเดียวตามกฎธุรกิจ (CLAUDE.md ข้อ 5) ห้ามแยก
+
+    dry=True ทำถึง flush() แล้วข้าม commit() — ใช้เฉพาะสคริปต์ dry-run ครั้งเดียว (scripts/split_material_equipment.py)
+    endpoint จริง (POST /equipment/{id}/split) ต้องไม่ส่ง dry=True เด็ดขาด
+    """
+    # populate_existing บังคับให้ค่าที่อาจถูกโหลด/แคชไว้ในเซสชันนี้ก่อนหน้า (เช่นสคริปต์ที่ preload
+    # ทุกแถวมาเช็คก่อนวนเรียก split ทีละแถว) ถูกเขียนทับด้วยค่าที่เพิ่งล็อกจริงจาก DB — ไม่งั้นเพราะ
+    # AsyncSessionLocal ตั้ง expire_on_commit=False ค่าเดิมที่ค้างใน identity map จะเป็นค่า stale
+    # แล้วเช็ค quantity_available != quantity_total (มีของยืมอยู่ไหม) จะพลาดได้ถ้ามีการอนุมัติคำขออื่น
+    # แทรกมาระหว่างนั้น (แพทเทิร์นเดียวกับ borrow_service.approve_request)
+    eq = (await db.execute(
+        select(Equipment).where(Equipment.id == equipment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if not eq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment not found.")
+    if eq.item_type != "material":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="แยกเป็นรายชิ้นได้เฉพาะวัสดุใช้ซ้ำ (material) เท่านั้น")
+    if eq.quantity_total <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="มีจำนวนแค่ 1 ชิ้น ไม่มีอะไรให้แยก")
+    if eq.quantity_available != eq.quantity_total:
+        borrowed = eq.quantity_total - eq.quantity_available
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"มีของถูกยืมอยู่ {borrowed} ชิ้น ต้องรอคืนครบทุกชิ้นก่อนจึงแยกเป็นรายชิ้นได้",
+        )
+
+    # with_for_update() ไม่พ่วง selectinload มาด้วย — ต้องโหลด categories ก่อนใช้ ไม่งั้น lazy-load
+    # นอก async context แล้ว 500 (บั๊กแบบเดียวกับที่เจอใน find_group_members มาก่อน)
+    await db.refresh(eq, attribute_names=["categories"])
+
+    count = eq.quantity_total
+    existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
+    new_codes = _generate_split_codes(eq.code, count - 1, existing_codes)
+
+    new_rows = [eq]
+    for code in new_codes:
+        clone = Equipment(
+            id=uuid.uuid4(),
+            code=code,
+            name=eq.name,
+            item_type=eq.item_type,
+            description=eq.description,
+            image_url=eq.image_url,
+            image_urls=list(eq.image_urls),
+            location=eq.location,
+            unit=eq.unit,
+            unit_value=eq.unit_value,
+            quantity_total=1,
+            quantity_available=1,
+            low_stock_threshold=eq.low_stock_threshold,
+            status=eq.status,
+            is_borrowable=eq.is_borrowable,
+        )
+        clone.categories = list(eq.categories)
+        db.add(clone)
+        new_rows.append(clone)
+
+    # แถวต้นฉบับหดเหลือ quantity_total=1 กลายเป็นหน่วยที่ 1 ของชุด — รหัสเดิมไม่เปลี่ยน ไม่มีแถวทิ้งขว้าง
+    eq.quantity_total = 1
+    eq.quantity_available = 1
+
+    await audit_service.log_action(
+        db, admin, "split_equipment", "equipment", eq.id,
+        {"code": eq.code, "name": eq.name, "quantity": count, "split_into": [r.code for r in new_rows]},
+    )
+    await db.flush()
+    if dry:
+        return new_rows
+
+    await db.commit()
+    ids = [r.id for r in new_rows]
+    result = await db.execute(
+        select(Equipment).where(Equipment.id.in_(ids))
+        .options(selectinload(Equipment.categories)).order_by(Equipment.code)
+    )
+    return list(result.scalars().all())
 
 
 async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID) -> None:

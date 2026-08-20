@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
@@ -6,7 +7,7 @@ import Pagination from '../../components/common/Pagination.jsx'
 
 const STATUS_STYLE = {
   pending:   'bg-yellow-100 text-yellow-700',
-  approved:  'bg-blue-100 text-blue-700',
+  approved:  'bg-primary-100 text-primary-700',
   rejected:  'bg-red-100 text-red-700',
   cancelled: 'bg-gray-100 text-gray-500',
   completed: 'bg-green-100 text-green-700',
@@ -21,11 +22,14 @@ const ITEM_CONDITION_LABEL = {
 }
 
 export default function MyBorrowsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightId = searchParams.get('request')
   const [data, setData] = useState({ items: [], total: 0 })
   const [page, setPage] = useState(1)
-  const [expanded, setExpanded] = useState(null)
+  const [expanded, setExpanded] = useState(highlightId)
   const [loading, setLoading] = useState(true)
   const [selectedItems, setSelectedItems] = useState(new Set())
+  const highlightRef = useRef(null)
 
   const load = () => {
     setLoading(true)
@@ -33,6 +37,23 @@ export default function MyBorrowsPage() {
   }
 
   useEffect(() => { load() }, [page])
+
+  // มาจากลิงก์แจ้งเตือน — คำขอที่ต้องการอาจไม่อยู่ในหน้าปัจจุบันที่โหลดมา (มีแบ่งหน้า)
+  // ดึงมาแสดงแยกต่างหากแล้ว scroll ไปหาเลย ไม่ต้องเดาว่าอยู่หน้าไหน
+  useEffect(() => {
+    if (!highlightId) return
+    borrowApi.get(highlightId).then((req) => {
+      setData((d) => (d.items.some((i) => i.id === req.id) ? d : { ...d, items: [req, ...d.items] }))
+      setExpanded(req.id)
+    }).catch(() => {})
+  }, [highlightId])
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setSearchParams({}, { replace: true }) // เคลียร์ query กันค้างตอน refresh/แชร์ลิงก์ซ้ำ
+    }
+  }, [highlightId, data.items])
 
   const toggleExpand = (id) => {
     setExpanded(expanded === id ? null : id)
@@ -71,7 +92,7 @@ export default function MyBorrowsPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">คำขอยืมของฉัน</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">คำขอยืมของฉัน</h1>
 
       {loading ? (
         <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
@@ -85,7 +106,8 @@ export default function MyBorrowsPage() {
             : []
           const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedItems.has(id))
           return (
-            <div key={req.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div key={req.id} ref={req.id === highlightId ? highlightRef : null}
+              className={`bg-white rounded-xl border shadow-sm overflow-hidden ${req.id === highlightId ? 'border-primary-400 ring-2 ring-primary-100' : 'border-gray-200'}`}>
               {/* Header row */}
               <button
                 onClick={() => toggleExpand(req.id)}
@@ -140,17 +162,17 @@ export default function MyBorrowsPage() {
                               <span className="ml-2 text-xs text-purple-600">รอ Admin ยืนยันคืน</span>
                             ) : (
                               req.status === 'approved' && item.item_type_snapshot === 'consumable' &&
-                              <span className="ml-2 text-xs text-blue-500">เบิกแล้ว (รอสรุป)</span>
+                              <span className="ml-2 text-xs text-primary-500">เบิกแล้ว (รอสรุป)</span>
                             )}
                             {item.renewed_count > 0 && (
-                              <span className="ml-2 text-xs text-blue-500">ต่อเวลา {item.renewed_count}×</span>
+                              <span className="ml-2 text-xs text-primary-500">ต่อเวลา {item.renewed_count}×</span>
                             )}
                           </div>
                         </div>
                         {req.status === 'approved' && !item.returned && item.item_type_snapshot === 'durable' && (
                           <button
                             onClick={() => renew(req.id, item.id)}
-                            className="text-xs text-blue-600 hover:underline"
+                            className="text-xs text-primary-600 hover:underline"
                           >
                             ต่อเวลา
                           </button>
@@ -194,7 +216,7 @@ export default function MyBorrowsPage() {
                     {/* ดูใบคำขอได้ทุกสถานะ — ที่ยังไม่อนุมัติออกเป็น "ใบร่าง" (ฉบับเดียวกับที่แอดมินตรวจ) */}
                     <button
                       onClick={() => viewPdf(req.id)}
-                      className="text-sm text-blue-600 hover:underline"
+                      className="text-sm text-primary-600 hover:underline"
                     >
                       {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
                     </button>

@@ -36,11 +36,11 @@ export default function VerifyEmailPage() {
         {state === 'success' ? (
           <>
             <div className="text-4xl mb-4">✅</div>
-            <h2 className="text-xl font-bold text-gray-800 mb-2">ยืนยันอีเมลสำเร็จ</h2>
+            <h2 className="text-xl font-light text-gray-800 mb-2">ยืนยันอีเมลสำเร็จ</h2>
             <p className="text-sm text-gray-500 mb-6">คุณสามารถเข้าสู่ระบบได้แล้ว</p>
             <Link
               to="/login"
-              className="inline-block rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+              className="inline-block rounded-full bg-primary-600 px-6 py-2 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
             >
               เข้าสู่ระบบ
             </Link>
@@ -48,9 +48,9 @@ export default function VerifyEmailPage() {
         ) : (
           <>
             <div className="text-4xl mb-4">❌</div>
-            <h2 className="text-xl font-bold text-gray-800 mb-2">ยืนยันอีเมลไม่สำเร็จ</h2>
+            <h2 className="text-xl font-light text-gray-800 mb-2">ยืนยันอีเมลไม่สำเร็จ</h2>
             <p className="text-sm text-red-600 mb-6">{errorMsg}</p>
-            <Link to="/login" className="text-blue-600 hover:underline text-sm font-medium">
+            <Link to="/login" className="text-primary-600 hover:underline text-sm font-medium">
               กลับไปหน้าเข้าสู่ระบบ
             </Link>
           </>

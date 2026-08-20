@@ -1,0 +1,94 @@
+# รายงานความคืบหน้า — วันที่ 18 สิงหาคม 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา)
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### เนื้อหาวันนี้: แก้ 4 feedback จากผู้ใช้จริง + QA ครบวงจรทั้งระบบ
+
+รับ feedback จากการทดลองใช้จริง 4 ข้อ: (1) dashboard อุปกรณ์ไม่ลดลงหลังอนุมัติ + อยากเห็นจำนวนที่ถูกยืมอยู่ (2) อยากให้หน้าจัดการอุปกรณ์ยุบครุภัณฑ์รุ่นเดียวกันเหมือนหน้ายืมของนักศึกษา (3) ยืม "ชุด UnoR3" ได้ Uno ซ้ำ 2 ชิ้นแทนที่จะได้ Uno+สาย USB-C (4) ช่องสถานที่เก็บใส่รายละเอียดเพิ่ม (เช่น "15312 ตู้A ชั้น3") ไม่ได้ หลังแก้เสร็จทำ QA ครบวงจรทั้งระบบ (backend pytest + browser จริง) พบบั๊กเพิ่มอีก 2 ข้อระหว่างทดสอบ และพบว่าปัญหาชุดอุปกรณ์ยืมซ้ำเป็นปัญหาเชิงระบบ ไม่ใช่แค่ชุดเดียว — แก้ครบทั้งหมดแล้ว
+
+### Backend
+
+**Dashboard — สถิติ "อุปกรณ์ที่ถูกยืมอยู่"**
+- `backend/app/schemas/dashboard.py` — เพิ่ม field `equipment_borrowed_out: int` ใน `DashboardSummaryResponse`
+- `backend/app/services/dashboard_service.py::get_summary` — เพิ่ม query นับจำนวนอุปกรณ์ที่ถูกยืมอยู่จริง
+  - **รอบแรกใช้สูตรผิด** (`quantity_total - quantity_available`) ซึ่งรวมของชำรุด/ซ่อมอยู่/แอดมินปิดใช้งานเองด้วย ไม่ใช่แค่ของที่ถูกยืมจริง — เจอตอน QA จริง (เลขขึ้น 55 ทั้งที่คำขอ approved = 0) แก้เป็น join `BorrowItem`+`BorrowRequest` นับเฉพาะ `status=approved AND returned=false` แทน ยืนยันผ่าน browser จริงว่าอนุมัติ→เลขขึ้น, คืนแล้ว→เลขกลับ 0
+
+**หน้าจัดการอุปกรณ์ — ยุบครุภัณฑ์รุ่นเดียวกัน**
+- `backend/app/schemas/equipment.py` — เพิ่ม `EquipmentUnitSummary` (id/code/status/quantity/is_borrowable ต่อหน่วย), เพิ่ม field `members` ใน `EquipmentGroupDetailResponse`
+- `backend/app/services/equipment_service.py::get_equipment_group_detail` — คืนรายชื่อหน่วยสมาชิกทุกหน่วยในกลุ่ม (ให้หน้าเว็บกางดู/แก้ไข/ปลดระวางรายหน่วยได้) — endpoint `/equipment/grouped` เดิมมีอยู่แล้วจากงาน 17 ส.ค. แค่ต้องเติม `members` list
+- `backend/app/services/equipment_service.py::find_group_members` — **บั๊กที่เจอตอน QA:** ไม่ eager-load `categories` → ถ้าเรียกกลุ่มด้วย id ที่ไม่ใช่หน่วยรหัสต่ำสุด จะพัง 500 (`MissingGreenlet` — lazy-load นอก async context) แก้เพิ่ม `.options(selectinload(Equipment.categories))`
+
+**บั๊กชุดอุปกรณ์ยืมซ้ำ (Bundle) — แก้ทั้ง code guard และ ข้อมูลจริง**
+- `backend/app/services/bundle_service.py::_replace_items` — เพิ่ม guard: ถ้า `equipment_id` ของ item ตรงกับ `trigger_equipment_id` ของชุดตัวเอง คืน 400 ทันที กันไม่ให้ตั้งค่าผิดซ้ำได้อีก
+- **ตรวจ DB จริงพบว่าทุกชุดที่มีอยู่ (3 ชุด: ชุดUnoR3, Pi 4, Dell Optiplex 7040) มีบั๊กแบบเดียวกันหมด** — ตัวกระตุ้นถูกใส่ซ้ำเป็นสมาชิกชุดตัวเอง และชุด UnoR3 ยังตั้งตัวกระตุ้นผิดตัว (เป็น Arduino Mega แทน Uno) แก้ข้อมูลจริงผ่านหน้าเว็บครบทั้ง 3 ชุดแล้ว (ชุดUnoR3 → เปลี่ยนตัวกระตุ้นเป็น Arduino-UNO-R3 ตัวจริง; Pi4/Dell → ลบตัวเองออกจากรายการของพ่วงตัวเอง)
+
+### Frontend
+
+- `frontend/src/pages/admin/DashboardPage.jsx` — เพิ่ม stat card "อุปกรณ์ที่ถูกยืมอยู่" ต่อจาก "คำขอที่ยืมอยู่"
+- `frontend/src/pages/admin/EquipmentManagePage.jsx` (ไฟล์ที่แก้เยอะสุดวันนี้)
+  - เปลี่ยน `load()` จาก `equipmentApi.list` → `equipmentApi.listGrouped` — ตารางยุบครุภัณฑ์รุ่นเดียวกันเป็นแถวเดียวพร้อม badge จำนวนหน่วย
+  - เพิ่ม state `expanded` + `toggleExpand`/`refreshExpanded`/`editMember` — กางดูรายหน่วยในกลุ่ม แก้ไข/ปลดระวางทีละหน่วยได้โดยไม่กระทบหน่วยอื่น
+  - แก้ `toggleBundleTrigger` ให้เคลียร์ "รวมในชุด" อัตโนมัติเมื่อติ๊ก "ตัวกระตุ้น" (เดิมทำได้แค่ทางเดียว — ติ๊ก "รวมในชุด" เคลียร์ตัวกระตุ้น แต่ทางกลับไม่เคลียร์)
+  - เพิ่ม placeholder ช่องสถานที่เก็บ: "เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)" — field เดิมเป็น free-text อยู่แล้วทั้ง backend/schema ไม่ต้องแก้อะไรนอกจาก UI hint
+- `frontend/src/hooks/useBorrowCart.js::addBundle` — เพิ่ม defensive filter กัน equipment ที่เป็นตัวกระตุ้นถูกเพิ่มซ้ำเข้าตะกร้าอีกรอบ เผื่อข้อมูลชุดเก่าที่ยังพังอยู่ในฐาน (ชั้นป้องกันที่ 2 นอกจาก backend guard)
+
+### เทส
+
+- เพิ่มเทสใหม่ 4 ตัว: `test_dashboard_equipment_borrowed_out_tracks_approve_and_return`, `test_bundle` (guard กันตัวกระตุ้นซ้ำ), `test_group_detail_lists_every_member_unit`, `test_group_detail_works_for_non_representative_unit` (ยืนยันด้วย `git stash` ว่า fail จริงก่อนแก้ ผ่านหลังแก้)
+- `pytest` backend: **119/119 ผ่าน**
+
+### QA ครบวงจร (browser จริงผ่าน admin@cdti.ac.th + บัญชี QA throwaway)
+
+- ยืนยัน flow เต็ม: สมัคร → ยืม → อนุมัติ (dashboard ขึ้น) → คืน (dashboard กลับ 0)
+- ยืนยันยุบกลุ่ม 42 หน่วย (Arduino-UNO-R3) กางดู/แก้ไขรายหน่วยได้จริง
+- ยืนยันตะกร้าได้ของถูกต้องไม่ซ้ำแม้ทดสอบกับข้อมูลชุดที่ยังพังอยู่ ณ ขณะนั้น (ก่อนแก้ข้อมูล)
+- ข้อมูลทดสอบ (บัญชี QA Tester, คำขอยืม REQ-2026-6699990099-0001) ลบ/คืนสภาพผ่านหน้าเว็บจริงเรียบร้อย ไม่ทิ้งค้าง
+
+### เอกสาร
+
+- `DEPLOY-PLAN.md` — เพิ่มข้อ 13 ในเช็คลิสต์ "ยังต้องทำบน VM จริง": ต้องตั้งค่าชุดอุปกรณ์ (bundles) ใหม่ทั้งหมดตอน deploy จริง เพราะข้อมูลชุดอยู่ในข้อมูล ไม่ใช่ schema/migration — DB จริงจะว่างเปล่า พร้อมระบุรายละเอียดตัวกระตุ้น/items ที่ถูกต้องของทั้ง 3 ชุด กันตั้งผิดซ้ำแบบเดิม
+
+### Git
+
+- Commit `d53d645` — โค้ดหลัก (4 ฟีเจอร์/บั๊กฟิกซ์ + เทส)
+- Commit `fe1b60d` — อัปเดต DEPLOY-PLAN.md
+- Push ขึ้น `origin/main` ทั้งสอง commit เรียบร้อย
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| Dashboard formula นับผิด (เจอเองระหว่าง QA) | `quantity_total - quantity_available` รวมของชำรุด/ปิดใช้งานด้วย ไม่ใช่แค่ของที่ยืมจริง | แก้แล้ว — join กับ `BorrowItem`+`BorrowRequest` นับเฉพาะ approved+ยังไม่คืน |
+| `get_equipment_group_detail` 500 (เจอเองระหว่าง QA) | `find_group_members` ไม่ eager-load `categories` → lazy-load นอก async context | แก้แล้ว — เพิ่ม `selectinload` |
+| ชุดอุปกรณ์ทั้ง 3 ชุดในระบบยืมซ้ำ | ตัวกระตุ้นถูกติ๊ก "รวมในชุด" พร้อมกันตอนสร้างชุด (checkbox ไม่ mutual-exclusive) | แก้ทั้ง 2 ชั้น: code guard (backend 400 + UI mutual-exclusive) และแก้ข้อมูลจริงบน dev ครบแล้ว — **DB จริงตอน deploy ต้องตั้งใหม่เอง (ดู DEPLOY-PLAN.md ข้อ 13)** |
+| หน้าลงทะเบียนขึ้น "ตรวจสอบอีเมลของคุณ" หลอก แม้ auto-verify ทำให้ login ได้ทันที | ข้อความ hardcode ไม่เช็คว่า auto-verify เปิดอยู่ | ยังไม่แก้ — เป็นเรื่อง UX/copy ที่รอเจ้าของโปรเจกต์ตัดสินใจเอง (พบมาตั้งแต่ QA รอบ 13 ส.ค. ยังไม่แก้) |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ถ้าเริ่ม deploy จริงบน Proxmox VM — ตั้งค่าชุดอุปกรณ์ 3 ชุด (ชุดUnoR3/Pi4/Dell Optiplex) ใหม่ผ่านหน้าเว็บตาม `DEPLOY-PLAN.md` ข้อ 13 (DB จริงว่างเปล่า ไม่มีข้อมูลติดมาจาก dev)
+2. [ ] ตัดสินใจเรื่องข้อความ "ตรวจสอบอีเมลของคุณ" ตอนสมัคร — จะแก้ copy ให้ตรงกับ auto-verify หรือปล่อยไว้
+3. [ ] ทำ end-to-end บนเบราว์เซอร์จริง**บน VM** (ไม่ใช่เครื่อง dev) ตามเช็คลิสต์ข้อ 10 ใน `DEPLOY-PLAN.md` เพื่อตัดปัจจัย network/LAN ออก
+4. [ ] ซ้อม backup/restore จริง 1 รอบตามเช็คลิสต์ข้อ 11
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~100% ฟีเจอร์ครบตาม design doc, business rules ครบ, มี guard กันข้อมูลชุดอุปกรณ์ผิดพลาดซ้ำแล้ว
+**Frontend:** ~100% ฟีเจอร์ครบ รวมหน้าจัดการอุปกรณ์แบบยุบกลุ่มแล้ว
+**ระยะรวม:** โค้ดพร้อมใช้งานจริงแล้วในแง่ฟีเจอร์ เหลือเฉพาะขั้นตอน deploy จริงบน VM (ตั้งค่าเริ่มต้น เช่น admin คนแรก, ชุดอุปกรณ์, backup/restore, SMTP) ตามเช็คลิสต์ใน `DEPLOY-PLAN.md`
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending Items จาก CLAUDE.md หัวข้อ 10** — ยังไม่มีความเปลี่ยนแปลงวันนี้: (1) รอไฟล์ Excel คลังอุปกรณ์เดิมจากทีมอื่นเพื่อทำ import script, (2) ยังไม่ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง, (3) LINE OA รอ Channel Access Token
+- ข้อมูลชุดอุปกรณ์ (bundle) ที่แก้วันนี้อยู่บน **DB dev เท่านั้น** — ไม่ติดไปกับ git/migration ต้องตั้งใหม่มือตอน deploy จริง (บันทึกละเอียดไว้ใน `DEPLOY-PLAN.md` แล้ว)

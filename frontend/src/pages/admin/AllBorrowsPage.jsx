@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
@@ -7,7 +8,7 @@ import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
 
 const STATUS_STYLE = {
-  pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-blue-100 text-blue-700',
+  pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-primary-100 text-primary-700',
   rejected: 'bg-red-100 text-red-700', cancelled: 'bg-gray-100 text-gray-500',
   completed: 'bg-green-100 text-green-700',
 }
@@ -71,14 +72,14 @@ function ReturnModal({ item, requestId, onClose, onDone }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
         <h2 className="font-bold text-gray-800">{isConsumable ? 'สรุปผลวัสดุ' : 'ยืนยันรับคืนอุปกรณ์'}</h2>
         <p className="text-sm text-gray-500">{item.equipment_name} ×{item.quantity}</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">{isConsumable ? 'ผลการใช้งาน' : 'สภาพอุปกรณ์'}</label>
           <select value={condition} onChange={(e) => setCondition(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
             {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
@@ -89,7 +90,7 @@ function ReturnModal({ item, requestId, onClose, onDone }) {
                 รูปหลักฐานความเสียหาย <span className="text-red-500">*</span>
               </label>
               <input type="file" accept="image/*" capture="environment" multiple onChange={uploadPhotos} disabled={uploading}
-                className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-blue-600" />
+                className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-primary-600" />
               {uploading && <p className="mt-1 text-xs text-gray-400">กำลังอัปโหลด…</p>}
               {photos.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -106,16 +107,16 @@ function ReturnModal({ item, requestId, onClose, onDone }) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">บันทึกความเสียหาย</label>
               <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="อธิบายความเสียหาย…" />
             </div>
           </>
         )}
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 rounded-lg border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+          <button onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
           <button onClick={submit} disabled={loading || uploading}
-            className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
             {loading ? 'กำลังบันทึก…' : 'ยืนยัน'}
           </button>
         </div>
@@ -125,13 +126,16 @@ function ReturnModal({ item, requestId, onClose, onDone }) {
 }
 
 export default function AllBorrowsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightId = searchParams.get('request')
   const [data, setData] = useState({ items: [], total: 0 })
   const [filterStatus, setFilterStatus] = useState('')
   const [page, setPage] = useState(1)
-  const [expanded, setExpanded] = useState(null)
+  const [expanded, setExpanded] = useState(highlightId)
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, itemId }
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, code }
   const [loading, setLoading] = useState(true)
+  const highlightRef = useRef(null)
 
   const load = () => {
     setLoading(true)
@@ -140,12 +144,28 @@ export default function AllBorrowsPage() {
 
   useEffect(() => { load() }, [filterStatus, page])
 
+  // มาจากลิงก์แจ้งเตือน — คำขออาจไม่อยู่ในหน้า/ตัวกรองสถานะปัจจุบัน ดึงมาแสดงแยกแล้ว scroll ไปหา
+  useEffect(() => {
+    if (!highlightId) return
+    borrowApi.get(highlightId).then((req) => {
+      setData((d) => (d.items.some((i) => i.id === req.id) ? d : { ...d, items: [req, ...d.items] }))
+      setExpanded(req.id)
+    }).catch(() => {})
+  }, [highlightId])
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [highlightId, data.items])
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">ประวัติการยืมทั้งหมด</h1>
+        <h1 className="text-2xl font-light text-gray-800">ประวัติการยืมทั้งหมด</h1>
         <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
-          className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -158,7 +178,8 @@ export default function AllBorrowsPage() {
       ) : (
         <div className="space-y-3">
           {data.items.map((req) => (
-            <div key={req.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div key={req.id} ref={req.id === highlightId ? highlightRef : null}
+              className={`bg-white rounded-xl border shadow-sm overflow-hidden ${req.id === highlightId ? 'border-primary-400 ring-2 ring-primary-100' : 'border-gray-200'}`}>
               <button
                 onClick={() => setExpanded(expanded === req.id ? null : req.id)}
                 className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
@@ -198,7 +219,7 @@ export default function AllBorrowsPage() {
                                 {CONDITION_LABEL[item.condition_on_return] ?? 'สรุปแล้ว'}
                               </span>
                             ) : (
-                              req.status === 'approved' && <span className="text-xs text-blue-500">{isConsumable ? 'เบิกแล้ว (รอสรุป)' : 'ยังไม่คืน'}</span>
+                              req.status === 'approved' && <span className="text-xs text-primary-500">{isConsumable ? 'เบิกแล้ว (รอสรุป)' : 'ยังไม่คืน'}</span>
                             )}
                             {!item.returned && item.return_requested && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
@@ -220,7 +241,7 @@ export default function AllBorrowsPage() {
                         {req.status === 'approved' && !item.returned && (
                           <button
                             onClick={() => setReturnTarget({ requestId: req.id, item })}
-                            className="shrink-0 text-xs rounded-lg bg-blue-50 text-blue-600 px-3 py-1 hover:bg-blue-100 font-medium"
+                            className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
                           >
                             {isConsumable ? 'สรุปผล' : 'รับคืน'}
                           </button>
@@ -240,7 +261,7 @@ export default function AllBorrowsPage() {
                     )}
                     <button
                       onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
-                      className="text-sm text-blue-600 hover:underline"
+                      className="text-sm text-primary-600 hover:underline"
                     >
                       {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
                     </button>

@@ -31,7 +31,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">การตั้งค่าระบบ</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">การตั้งค่าระบบ</h1>
 
       <div className="bg-white rounded-xl border border-gray-200 divide-y">
         {settings.map((s) => {
@@ -48,13 +48,13 @@ export default function SettingsPage() {
                   min={0}
                   value={editing[s.key] ?? s.value}
                   onChange={(e) => setEditing({ ...editing, [s.key]: e.target.value })}
-                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 {isDirty && (
                   <button
                     onClick={() => save(s.key)}
                     disabled={saving[s.key]}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="rounded-full bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
                   >
                     {saving[s.key] ? '…' : 'บันทึก'}
                   </button>

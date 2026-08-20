@@ -6,7 +6,7 @@
 import openpyxl
 import pytest
 
-from app.services.import_service import diff_rows, parse_workbook
+from app.services.import_service import _filter_bad_sn_updates, diff_rows, parse_workbook
 
 
 def _make_register(tmp_path, rows):
@@ -32,7 +32,7 @@ def test_parse_and_diff(tmp_path):
         ("63-001-0003", "จอแสดงผล 27 นิ้ว", "P", None, "15311"),           # ยังไม่มีใน DB
         ("", "โต๊ะไม่มีเลข", "P", None, "5303"),                            # ไม่มีเลข → ข้าม
     ])
-    rows, skipped = parse_workbook(path)
+    rows, skipped, _sn = parse_workbook(path)
     assert len(rows) == 3
     assert len(skipped) == 1
 
@@ -70,7 +70,7 @@ def test_parse_material_sheet(tmp_path):
     path = tmp_path / "materials.xlsx"
     wb.save(path)
 
-    rows, skipped = parse_workbook(str(path))
+    rows, skipped, _sn = parse_workbook(str(path))
     assert len(skipped) == 1  # แถวไม่มีรหัสต้องถูกข้าม ไม่ใช่สร้างของไร้รหัส
     by_code = {r["code"]: r for r in rows}
     assert by_code["MAT-ARD-001"]["item_type"] == "material"
@@ -84,6 +84,94 @@ def test_parse_material_sheet(tmp_path):
     diff = {d["code"]: d for d in diff_rows(rows, existing)}
     assert diff["MAT-ARD-001"]["action"] == "update"
     assert diff["MAT-ARD-001"]["changes"]["quantity_total"] == [20, 25]
+
+
+def test_parse_sn_sheet(tmp_path):
+    """ชีต 'SN' เสริม (2 คอลัมน์: รหัส, SN) — parse_workbook คืน sn_updates เป็น dict[code, sn]"""
+    wb = openpyxl.Workbook()
+    wb.active.title = "SN"
+    ws = wb.active
+    ws.append(["รหัส", "SN"])
+    ws.append(["63-001-0001", "SN-AAA-111"])
+    ws.append(["63-001-0002", "SN-BBB-222"])
+    ws.append([None, "SN-ไม่มีรหัส"])  # แถวไม่มีรหัส — ต้องไม่ถูกเก็บ
+    ws.append(["63-001-0003", None])   # แถวไม่มี SN — ต้องไม่ถูกเก็บ
+    path = tmp_path / "sn_only.xlsx"
+    wb.save(path)
+
+    rows, skipped, sn_updates = parse_workbook(str(path))
+    assert rows == []
+    assert sn_updates == {"63-001-0001": "SN-AAA-111", "63-001-0002": "SN-BBB-222"}
+
+
+def test_diff_rows_applies_sn_updates(tmp_path):
+    """diff_rows: รหัสในชีตทะเบียนพ่วง SN เข้า changes / รหัสที่มีแต่ในชีต SN synthesize เป็น update เฉพาะ SN"""
+    path = _make_register(tmp_path, [
+        ("63-001-0001", "คอมพิวเตอร์ตั้งโต๊ะ Dell", "P", None, "15310"),
+    ])
+    rows, skipped, _sn = parse_workbook(path)
+
+    existing = {
+        "63-001-0001": {"id": 1, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
+                        "status": "available", "item_type": "durable", "quantity_total": 1,
+                        "serial_number": None},
+        "63-999-9999": {"id": 2, "name": "เครื่องที่ไม่อยู่ในไฟล์นี้", "location": None,
+                        "status": "available", "item_type": "durable", "quantity_total": 1,
+                        "serial_number": "SN-OLD"},
+    }
+    sn_updates = {"63-001-0001": "SN-NEW-001", "63-999-9999": "SN-NEW-999", "63-777-7777": "SN-ไม่รู้จัก"}
+
+    diff = {d["code"]: d for d in diff_rows(rows, existing, sn_updates)}
+    # รหัสที่อยู่ในชีตทะเบียนด้วย → พ่วง serial_number เข้า changes
+    assert diff["63-001-0001"]["action"] == "update"
+    assert diff["63-001-0001"]["changes"]["serial_number"] == [None, "SN-NEW-001"]
+    # รหัสที่มีเฉพาะในชีต SN แต่พบใน DB → synthesize แถว update เฉพาะ SN
+    assert diff["63-999-9999"]["action"] == "update"
+    assert diff["63-999-9999"]["changes"] == {"serial_number": ["SN-OLD", "SN-NEW-999"]}
+    # รหัสที่ไม่พบใน DB เลย → diff_rows ไม่สร้างแถวให้ (ผู้เรียก/preview_import ไปใส่ skipped แทน)
+    assert "63-777-7777" not in diff
+
+
+def test_filter_bad_sn_updates_rejects_duplicate_within_file():
+    """สองรหัสในไฟล์เดียวกันอ้าง SN เดียวกัน — ต้องถูกตัดออกจาก clean ทั้งคู่ ไปที่ skipped แทน"""
+    existing = {
+        "A-001": {"id": 1, "name": "A", "location": None, "status": "available",
+                  "item_type": "durable", "quantity_total": 1, "serial_number": None},
+        "A-002": {"id": 2, "name": "B", "location": None, "status": "available",
+                  "item_type": "durable", "quantity_total": 1, "serial_number": None},
+    }
+    sn_updates = {"A-001": "SN-DUP", "A-002": "SN-DUP"}
+    clean, bad = _filter_bad_sn_updates(sn_updates, existing)
+    assert clean == {}
+    assert {b["seq"] for b in bad} == {"A-001", "A-002"}
+    assert all("ซ้ำกับรายการอื่นในไฟล์เดียวกัน" in b["reason"] for b in bad)
+
+
+def test_filter_bad_sn_updates_rejects_conflict_with_different_existing_code():
+    """SN นั้นถูกใช้อยู่แล้วกับรหัสอื่นใน DB (ไม่ใช่ตัวเอง) — ต้องถูกตัดออก"""
+    existing = {
+        "A-001": {"id": 1, "name": "A", "location": None, "status": "available",
+                  "item_type": "durable", "quantity_total": 1, "serial_number": "SN-OLD-OWNER"},
+        "A-002": {"id": 2, "name": "B", "location": None, "status": "available",
+                  "item_type": "durable", "quantity_total": 1, "serial_number": None},
+    }
+    sn_updates = {"A-002": "SN-OLD-OWNER"}
+    clean, bad = _filter_bad_sn_updates(sn_updates, existing)
+    assert clean == {}
+    assert bad == [{"sheet": "SN", "seq": "A-002", "name": "A-002",
+                    "reason": "SN นี้ถูกใช้กับรหัสอื่นในระบบแล้ว"}]
+
+
+def test_filter_bad_sn_updates_allows_reassigning_same_code_its_own_sn():
+    """รหัสที่แก้ SN ของตัวเองไม่ถือว่าชนกับตัวเอง (owner == code)"""
+    existing = {
+        "A-001": {"id": 1, "name": "A", "location": None, "status": "available",
+                  "item_type": "durable", "quantity_total": 1, "serial_number": "SN-SAME"},
+    }
+    sn_updates = {"A-001": "SN-SAME"}
+    clean, bad = _filter_bad_sn_updates(sn_updates, existing)
+    assert clean == {"A-001": "SN-SAME"}
+    assert bad == []
 
 
 def test_reject_non_register_file(tmp_path):

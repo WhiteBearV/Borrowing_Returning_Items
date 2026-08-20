@@ -50,12 +50,12 @@ export default function RegisterPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8 text-center">
           <div className="text-4xl mb-4">📧</div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">ตรวจสอบอีเมลของคุณ</h2>
+          <h2 className="text-xl font-light text-gray-800 mb-2">ตรวจสอบอีเมลของคุณ</h2>
           <p className="text-sm text-gray-500 mb-6">
             เราส่งลิงก์ยืนยันไปที่ <span className="font-medium text-gray-700">{form.email}</span> แล้ว
             กรุณากดลิงก์ในอีเมลก่อนเข้าสู่ระบบ
           </p>
-          <Link to="/login" className="text-blue-600 hover:underline text-sm font-medium">
+          <Link to="/login" className="text-primary-600 hover:underline text-sm font-medium">
             กลับไปหน้าเข้าสู่ระบบ
           </Link>
         </div>
@@ -66,7 +66,7 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">ลงทะเบียน</h1>
+        <h1 className="text-2xl font-light text-gray-800 mb-1">ลงทะเบียน</h1>
         <p className="text-sm text-gray-500 mb-6">ระบบยืม-คืนอุปกรณ์</p>
 
         {error && (
@@ -85,7 +85,7 @@ export default function RegisterPage() {
                 required
                 value={form.title}
                 onChange={set('title')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
               >
                 <option value="">—</option>
                 {TITLES.map((t) => (
@@ -103,7 +103,7 @@ export default function RegisterPage() {
                 autoFocus
                 value={form.first_name}
                 onChange={set('first_name')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="ชื่อจริง"
               />
             </div>
@@ -116,7 +116,7 @@ export default function RegisterPage() {
                 required
                 value={form.last_name}
                 onChange={set('last_name')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="นามสกุล"
               />
             </div>
@@ -132,7 +132,7 @@ export default function RegisterPage() {
               pattern="\d{10}"
               value={form.student_id}
               onChange={set('student_id')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="65XXXXXXXX"
             />
           </div>
@@ -146,7 +146,7 @@ export default function RegisterPage() {
               required
               value={form.email}
               onChange={set('email')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="email@cdti.ac.th"
             />
           </div>
@@ -161,7 +161,7 @@ export default function RegisterPage() {
               minLength={8}
               value={form.password}
               onChange={set('password')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="อย่างน้อย 8 ตัวอักษร"
             />
           </div>
@@ -174,7 +174,7 @@ export default function RegisterPage() {
               required
               value={form.major}
               onChange={set('major')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
             >
               <option value="">— เลือกสาขา —</option>
               {MAJORS.map((m) => (
@@ -186,7 +186,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="w-full rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
           >
             {loading ? 'กำลังลงทะเบียน…' : 'ลงทะเบียน'}
           </button>
@@ -194,7 +194,7 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-gray-500">
           มีบัญชีแล้ว?{' '}
-          <Link to="/login" className="text-blue-600 hover:underline font-medium">
+          <Link to="/login" className="text-primary-600 hover:underline font-medium">
             เข้าสู่ระบบ
           </Link>
         </p>

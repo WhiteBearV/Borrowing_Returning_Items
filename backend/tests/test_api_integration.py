@@ -4,10 +4,11 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment, equipment_category_links
@@ -113,6 +114,106 @@ async def test_equipment_multiple_categories(client: AsyncClient, admin_token: s
         await db.execute(delete(Equipment).where(Equipment.code == f"MULTI-{suffix}"))
         await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id.in_([c1["id"], c2["id"]])))
         await db.commit()
+
+
+async def test_create_and_update_equipment_reject_duplicate_serial_number(client: AsyncClient, admin_token: str):
+    # cleanup ต้องรันเสมอแม้ assertion กลางเทสต์ล้มเหลว ไม่งั้นแถว SNDUP-* ค้างใน DB จริง
+    # (เคยเกิดขึ้นมาแล้วรอบก่อน ต้องมาตามลบมือทีหลัง) — ครอบทั้งเทสต์ด้วย try/finally แทนวางไว้ท้ายฟังก์ชันเฉย ๆ
+    h = auth(admin_token)
+    suffix = uuid.uuid4().hex[:6]
+    code_a, code_b = f"SNDUP-A-{suffix}", f"SNDUP-B-{suffix}"
+    sn = f"SN-DUP-{suffix}"
+
+    try:
+        r = await client.post("/equipment", json={
+            "code": code_a, "name": "อุปกรณ์ทดสอบ SN ซ้ำ A", "serial_number": sn,
+            "category_ids": [], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"],
+        }, headers=h)
+        assert r.status_code == 201, r.text
+
+        # สร้างชิ้นที่สองด้วย SN ซ้ำ — ต้อง 409 ไม่ใช่ 500 (IntegrityError ดิบจาก DB)
+        r = await client.post("/equipment", json={
+            "code": code_b, "name": "อุปกรณ์ทดสอบ SN ซ้ำ B", "serial_number": sn,
+            "category_ids": [], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"],
+        }, headers=h)
+        assert r.status_code == 409, r.text
+
+        # สร้างชิ้นที่สองด้วย SN อื่น แล้วค่อยแก้ทีหลังให้ซ้ำกับ A — ก็ต้อง 409 เหมือนกัน
+        r = await client.post("/equipment", json={
+            "code": code_b, "name": "อุปกรณ์ทดสอบ SN ซ้ำ B", "serial_number": f"{sn}-B",
+            "category_ids": [], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"],
+        }, headers=h)
+        assert r.status_code == 201, r.text
+        eq_b_id = r.json()["id"]
+        r = await client.patch(f"/equipment/{eq_b_id}", json={"serial_number": sn}, headers=h)
+        assert r.status_code == 409, r.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            ids = (await db.execute(select(Equipment.id).where(Equipment.code.in_([code_a, code_b])))).scalars().all()
+            for eid in ids:
+                await db.execute(delete(AuditLog).where(AuditLog.target_id == eid))
+            await db.execute(delete(Equipment).where(Equipment.code.in_([code_a, code_b])))
+            await db.commit()
+
+
+async def test_create_equipment_blank_serial_number_does_not_collide(client: AsyncClient, admin_token: str):
+    """SN ว่าง ('' หรือเว้นวรรคล้วน — ทางที่ฟอร์มแอดมินเลี่ยงไว้แล้วด้วย `form.serial_number || undefined`
+    แต่ยังเรียกตรงผ่าน API/Swagger ได้) ต้อง normalize เป็น None ที่ schema ก่อนถึง service/DB เสมอ —
+    ไม่งั้น '' ตัวแรกจะ "จอง" ค่าไว้ในคอลัมน์ที่ unique index กันซ้ำเฉพาะ IS NOT NULL แล้วตัวถัดไปที่ SN ว่าง
+    เหมือนกันจะชน UniqueViolationError กลายเป็น 500 (ไม่ใช่ 409 ที่จับไว้)"""
+    h = auth(admin_token)
+    suffix = uuid.uuid4().hex[:6]
+    code_a, code_b = f"SNBLANK-A-{suffix}", f"SNBLANK-B-{suffix}"
+
+    try:
+        r = await client.post("/equipment", json={
+            "code": code_a, "name": "อุปกรณ์ทดสอบ SN ว่าง A", "serial_number": "",
+            "category_ids": [], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"],
+        }, headers=h)
+        assert r.status_code == 201, r.text
+        assert r.json()["serial_number"] is None
+
+        # ชิ้นที่สองก็ส่ง SN ว่าง (เว้นวรรคล้วน) เหมือนกัน — ต้องสร้างได้ปกติ ไม่ 500
+        r = await client.post("/equipment", json={
+            "code": code_b, "name": "อุปกรณ์ทดสอบ SN ว่าง B", "serial_number": "   ",
+            "category_ids": [], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"],
+        }, headers=h)
+        assert r.status_code == 201, r.text
+        assert r.json()["serial_number"] is None
+    finally:
+        async with AsyncSessionLocal() as db:
+            ids = (await db.execute(select(Equipment.id).where(Equipment.code.in_([code_a, code_b])))).scalars().all()
+            for eid in ids:
+                await db.execute(delete(AuditLog).where(AuditLog.target_id == eid))
+            await db.execute(delete(Equipment).where(Equipment.code.in_([code_a, code_b])))
+            await db.commit()
+
+
+async def test_create_equipment_non_string_serial_number_returns_422(client: AsyncClient, admin_token: str):
+    """_blank_sn_to_none เป็น mode="before" validator รันก่อน pydantic แปลงชนิดให้ — ถ้าไม่เช็คชนิดก่อน
+    เรียก .strip() แล้วส่ง serial_number เป็น int/list มาจะเจอ AttributeError ที่ pydantic ไม่จับ กลายเป็น 500
+    ดิบ ๆ แทนที่จะเป็น 422 string_type ตามปกติ ต้อง guard ด้วย isinstance ก่อนเสมอ"""
+    h = auth(admin_token)
+    suffix = uuid.uuid4().hex[:6]
+
+    r = await client.post("/equipment", json={
+        "code": f"SNTYPE-{suffix}", "name": "อุปกรณ์ทดสอบ SN ชนิดผิด", "serial_number": 123456,
+        "category_ids": [], "item_type": "durable", "quantity_total": 1,
+        "image_urls": ["/uploads/test.jpg"],
+    }, headers=h)
+    assert r.status_code == 422, r.text
+
+    r = await client.post("/equipment", json={
+        "code": f"SNTYPE2-{suffix}", "name": "อุปกรณ์ทดสอบ SN ชนิดผิด 2", "serial_number": ["a"],
+        "category_ids": [], "item_type": "durable", "quantity_total": 1,
+        "image_urls": ["/uploads/test.jpg"],
+    }, headers=h)
+    assert r.status_code == 422, r.text
 
 
 async def test_unauthorized_without_token(client: AsyncClient):

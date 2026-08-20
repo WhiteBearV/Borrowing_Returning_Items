@@ -52,7 +52,7 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">โปรไฟล์</h1>
+      <h1 className="text-2xl font-light text-gray-800 mb-6">โปรไฟล์</h1>
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
         {/* Avatar */}
@@ -61,11 +61,11 @@ export default function ProfilePage() {
             <img src={imgSrc(user.avatar_url)} alt="avatar"
               className="w-24 h-24 rounded-full object-cover border border-gray-200" />
           ) : (
-            <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center text-3xl font-bold text-blue-600">
+            <div className="w-24 h-24 rounded-full bg-primary-100 flex items-center justify-center text-3xl font-bold text-primary-600">
               {(user?.full_name ?? '?').trim().charAt(0)}
             </div>
           )}
-          <label className="text-sm text-blue-600 hover:underline cursor-pointer">
+          <label className="text-sm text-primary-600 hover:underline cursor-pointer">
             {uploading ? 'กำลังอัปโหลด…' : 'เปลี่ยนรูปโปรไฟล์'}
             <input type="file" accept="image/*" onChange={uploadAvatar} disabled={uploading} className="hidden" />
           </label>
@@ -96,7 +96,7 @@ export default function ProfilePage() {
               required
               value={form.full_name}
               onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
           <div>
@@ -104,7 +104,7 @@ export default function ProfilePage() {
             <select
               value={form.major}
               onChange={(e) => setForm({ ...form, major: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="">— ไม่ระบุ —</option>
               {MAJORS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -113,7 +113,7 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={saving}
-            className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
           >
             {saving ? 'กำลังบันทึก…' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
           </button>

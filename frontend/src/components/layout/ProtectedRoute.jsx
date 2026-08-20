@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Link, Navigate, Outlet } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import Sidebar from './Sidebar.jsx'
+import NotificationBell from './NotificationBell.jsx'
 
 export default function ProtectedRoute({ role }) {
   const { user, loading } = useAuthContext()
@@ -14,11 +15,11 @@ export default function ProtectedRoute({ role }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Topbar มือถือ — sidebar เป็น drawer ที่ซ่อนไว้ ต้องมีปุ่มเปิด */}
-        <header className="md:hidden sticky top-0 z-30 flex items-center gap-3 bg-white border-b border-gray-200 px-4 py-3">
+      <div className="flex flex-col min-w-0">
+        {/* เมนูเป็น drawer ที่ซ่อนไว้เสมอ (ทุกขนาดจอ) ต้องมีปุ่มแฮมเบอร์เกอร์เปิด */}
+        <header className="sticky top-0 z-30 flex items-center gap-3 bg-white border-b border-gray-200 px-4 py-3">
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="เปิดเมนู"
@@ -28,7 +29,10 @@ export default function ProtectedRoute({ role }) {
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <p className="font-bold text-gray-800 text-sm">ระบบยืม-คืนอุปกรณ์</p>
+          <Link to={user.role === 'admin' ? '/admin/dashboard' : '/dashboard'} className="font-bold text-gray-800 text-sm flex-1 hover:text-primary-700">
+            ระบบยืม-คืนอุปกรณ์
+          </Link>
+          <NotificationBell />
         </header>
         <main className="flex-1 overflow-y-auto min-w-0">
           <Outlet />

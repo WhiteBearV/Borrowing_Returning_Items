@@ -157,6 +157,16 @@ async def retire_equipment(
     return Response(status_code=204)
 
 
+@router.post("/equipment/{equipment_id}/split", response_model=list[EquipmentResponse])
+async def split_equipment(
+    equipment_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[EquipmentResponse]:
+    """แยกวัสดุ (material) ก้อนเดียวที่ quantity_total > 1 เป็นรายชิ้นคนละรหัส — เฉพาะที่ไม่มีของยืมอยู่"""
+    return await equipment_service.split_equipment_into_units(db, admin, equipment_id)
+
+
 @router.delete("/equipment/{equipment_id}/permanent", status_code=204)
 async def delete_equipment_permanent(
     equipment_id: uuid.UUID,
