@@ -6,6 +6,12 @@ import { openPdf } from '../../utils/openPdf.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
 
 const tomorrow = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+// กันพิมพ์วันที่เพี้ยน (เช่น อีก 100 ปี) — ต้องตรงกับ MAX_REQUESTED_DUE_DATE_YEARS ฝั่ง backend
+const maxDueDate = () => {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() + 3)
+  return d.toISOString().slice(0, 10)
+}
 
 export default function BorrowRequestPage() {
   const navigate = useNavigate()
@@ -127,6 +133,7 @@ export default function BorrowRequestPage() {
             type="date"
             required
             min={tomorrow()}
+            max={maxDueDate()}
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"

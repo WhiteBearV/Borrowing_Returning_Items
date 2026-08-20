@@ -25,7 +25,8 @@ class BorrowRequest(Base):
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # วันที่นักศึกษาขอคืนเอง ระบุตอนยื่นคำขอ — ไม่มีเพดานสูงสุด แอดมินใช้ดุลพินิจตอนอนุมัติ/ปฏิเสธ
+    # วันที่นักศึกษาขอคืนเอง ระบุตอนยื่นคำขอ — เพดานสูงสุด MAX_REQUESTED_DUE_DATE_YEARS
+    # (ดู borrow_service.py) กันพิมพ์ผิดหลุดเข้าระบบ แอดมินยังใช้ดุลพินิจตอนอนุมัติ/ปฏิเสธได้ตามปกติ
     requested_due_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     is_overdue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -60,6 +61,10 @@ class BorrowRequest(Base):
     @property
     def student_number(self) -> str | None:
         return self.student.student_id if self.student else None
+
+    @property
+    def student_major(self) -> str | None:
+        return self.student.major if self.student else None
 
     @property
     def approver_name(self) -> str | None:

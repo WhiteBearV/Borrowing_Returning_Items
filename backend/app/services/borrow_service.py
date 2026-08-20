@@ -23,6 +23,10 @@ from app.schemas.borrow import (
 from app.services import audit_service, equipment_service
 from app.utils.email import send_email
 
+# กันนักศึกษาพิมพ์วันที่คาดว่าจะคืนเพี้ยน (เช่น อีก 100 ปี) — ไม่ใช่ business rule ที่ต้องปรับตาม
+# settings เป็นแค่ sanity cap กันค่าพิมพ์ผิดหลุดเข้าระบบ
+MAX_REQUESTED_DUE_DATE_YEARS = 3
+
 # สถานะตอนสรุปผลอุปกรณ์ แยกตามชนิด
 DURABLE_CONDITIONS = {"ok", "damaged", "lost"}
 CONSUMABLE_CONDITIONS = {"returned_full", "used_up", "discarded"}  # คืนครบ / ใช้หมด / เสียหายทิ้ง
@@ -122,6 +126,13 @@ async def create_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Requested return date must be in the future.",
+        )
+    # timedelta แทน .replace(year=...) กัน ValueError ตอนวันนี้เป็น 29 ก.พ. ปีอธิกสุรทิน
+    max_due_date = date.today() + timedelta(days=365 * MAX_REQUESTED_DUE_DATE_YEARS)
+    if body.requested_due_date > max_due_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Requested return date is too far in the future (max {MAX_REQUESTED_DUE_DATE_YEARS} years).",
         )
 
     if len(body.items) == 0:
@@ -712,6 +723,7 @@ async def generate_preview_pdf(
         student_name=current_user.full_name,
         student_email=current_user.email,
         student_number=current_user.student_id,
+        student_major=current_user.major,
         purpose=body.purpose,
         status="pending",
         requested_at=now,

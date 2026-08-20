@@ -236,7 +236,7 @@ async def test_borrow_after_split_creates_distinct_borrow_items(
     unit_ids = {u["id"] for u in units}
 
     res = await client.post("/borrow-requests", headers=auth(student_token), json={
-        "purpose": "ทดสอบยืมหลังแยกวัสดุ", "requested_due_date": "2099-01-01",
+        "purpose": "ทดสอบยืมหลังแยกวัสดุ", "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": units[0]["id"], "quantity": 3}],
     })
     assert res.status_code == 201, res.text

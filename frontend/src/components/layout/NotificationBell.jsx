@@ -4,12 +4,17 @@ import { useNavigate } from 'react-router-dom'
 import { notificationApi } from '../../api/notificationApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 
-// พาไปหน้าที่เกี่ยวข้องกับคำขอที่แจ้งเตือนถึง — new_request_admin เป็นแอดมินเห็น ที่เหลือนักศึกษาเห็นทั้งหมด
-const notificationTarget = (n) => {
+// พาไปหน้าที่เกี่ยวข้องกับคำขอที่แจ้งเตือนถึง
+// new_request_admin / return_requested_admin ส่งให้แอดมินเท่านั้น (ดู borrow_service.py _notify)
+// จึงพาไปหน้าที่ต้อง "ทำอะไรสักอย่าง" ตรงจุด ไม่ใช่หน้ารายการของตัวเอง
+// overdue ส่งทั้งนักศึกษา (เรื่องคำขอตัวเอง) และแอดมิน (เรื่องคำขอของคนอื่น) ด้วย type เดียวกัน
+// จึงต้องแยกตาม role ของคนที่กำลังดูอยู่ ไม่ใช่แยกตาม type อย่างเดียว
+const notificationTarget = (n, role) => {
   if (!n.borrow_request_id) return null
-  return n.type === 'new_request_admin'
-    ? `/admin/borrow-requests?request=${n.borrow_request_id}`
-    : `/my-borrows?request=${n.borrow_request_id}`
+  if (n.type === 'new_request_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
+  if (n.type === 'return_requested_admin') return `/admin/borrows?request=${n.borrow_request_id}`
+  if (n.type === 'overdue' && role === 'admin') return `/admin/borrows?request=${n.borrow_request_id}`
+  return `/my-borrows?request=${n.borrow_request_id}`
 }
 
 function timeAgo(iso) {
@@ -52,7 +57,9 @@ export default function NotificationBell() {
       setItems(list)
     })
     load()
-    const id = setInterval(load, 10000) // ponytail: poll ทุก 10s แทน websocket
+    // ponytail: poll แทน websocket — เดิม 10s รู้สึกหน่วงตอนรอแจ้งเตือนคืนของ/ขอคืน ลดเหลือ 4s
+    // (backend เขียน notification ทันทีเมื่อ action เกิด ไม่มี lag ฝั่ง backend เลย เช็คแล้ว)
+    const id = setInterval(load, 4000)
     return () => clearInterval(id)
   }, [user])
 
@@ -95,7 +102,7 @@ export default function NotificationBell() {
       await notificationApi.markRead(n.id)
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
     }
-    const target = notificationTarget(n)
+    const target = notificationTarget(n, user?.role)
     if (target) {
       setOpen(false)
       navigate(target)

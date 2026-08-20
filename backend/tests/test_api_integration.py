@@ -227,7 +227,7 @@ async def test_unauthorized_without_token(client: AsyncClient):
 async def borrow_request_id(client: AsyncClient, student_token: str, test_equipment: Equipment):
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ integration",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201, r.text
     req_id = r.json()["id"]
@@ -245,6 +245,19 @@ async def borrow_request_id(client: AsyncClient, student_token: str, test_equipm
 
 async def test_create_borrow_request(borrow_request_id: str):
     assert borrow_request_id is not None
+
+
+async def test_borrow_request_rejects_far_future_due_date(
+    client: AsyncClient, student_token: str, test_equipment: Equipment
+):
+    """กันพิมพ์วันคืนเพี้ยน (เช่น อีก 100 ปี) — เกิน MAX_REQUESTED_DUE_DATE_YEARS ต้องโดนปฏิเสธ"""
+    r = await client.post("/borrow-requests", headers=auth(student_token), json={
+        "purpose": "ทดสอบวันคืนเกินเพดาน",
+        "requested_due_date": "2099-01-01",
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+    })
+    assert r.status_code == 400
+    assert "far in the future" in r.json()["detail"]
 
 
 async def test_borrow_response_has_equipment_name(
@@ -268,6 +281,7 @@ async def test_borrow_response_has_student_info(
     body = r.json()
     assert body.get("student_name") is not None
     assert body.get("student_email") is not None
+    assert "student_major" in body  # ใบยืม/คืน PDF ต้องมีสาขา — เช็คว่า field ถูก wire มาถึง response
 
 
 async def test_student_cannot_approve(
@@ -318,7 +332,7 @@ async def test_quota_limit(client: AsyncClient, student_token: str, test_equipme
         for i in range(3):
             r = await client.post("/borrow-requests", headers=auth(student_token), json={
                 "purpose": f"ทดสอบ quota {i}",
-                "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+                "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
             })
             if r.status_code == 201:
                 created_ids.append(r.json()["id"])
@@ -364,7 +378,7 @@ async def test_dashboard_equipment_borrowed_out_tracks_approve_and_return(
 
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ dashboard borrowed_out",
-        "requested_due_date": "2099-01-01",
+        "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201, r.text

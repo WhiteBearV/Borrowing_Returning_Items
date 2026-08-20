@@ -27,7 +27,7 @@ async def test_pdf_available_for_pending_and_cancelled(
 ):
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบดูใบร่าง",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201
     req_id = r.json()["id"]

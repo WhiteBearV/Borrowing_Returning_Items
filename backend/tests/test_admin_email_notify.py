@@ -23,7 +23,7 @@ from tests.conftest import auth
 async def _create_request(client: AsyncClient, student_token: str, equipment: Equipment, purpose: str) -> dict:
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": purpose,
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201
     return r.json()
@@ -47,7 +47,7 @@ async def test_new_request_emails_every_active_admin(
 ):
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบแจ้งเตือน admin ทางอีเมล",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201
     req = r.json()
@@ -69,7 +69,7 @@ async def test_admin_borrowing_for_self_does_not_self_notify(
     """
     r = await client.post("/borrow-requests", headers=auth(admin_token), json={
         "purpose": "admin ยืมของตัวเอง",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201
     req = r.json()
@@ -99,7 +99,7 @@ async def test_overdue_job_sends_admin_digest_email(
 
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ overdue digest",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     req = r.json()
     assert (await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))).status_code == 200

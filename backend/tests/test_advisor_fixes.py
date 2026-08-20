@@ -46,7 +46,7 @@ async def test_reject_non_positive_quantity(
     for bad in (-5, 0):
         r = await client.post("/borrow-requests", headers=auth(student_token), json={
             "purpose": f"จำนวนไม่ถูกต้อง {bad}",
-            "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": bad}],
+            "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": bad}],
         })
         assert r.status_code == 422, f"quantity={bad} ต้องถูกปฏิเสธ แต่ได้ {r.status_code}"
 
@@ -63,7 +63,7 @@ async def test_request_code_contains_student_id_and_is_running_number(
     (นับต่อเนื่อง atomic ผ่าน UPDATE...RETURNING) — อ่านง่ายและยังกัน race ได้"""
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบเลขคำขอ",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     assert r.status_code == 201, r.text
     body = r.json()
@@ -88,7 +88,7 @@ async def test_two_requests_get_distinct_codes(
         for i in range(2):
             r = await client.post("/borrow-requests", headers=auth(student_token), json={
                 "purpose": f"distinct {i}",
-                "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+                "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
             })
             assert r.status_code == 201, r.text
             ids.append(r.json()["id"])
@@ -109,7 +109,7 @@ async def test_approved_request_exposes_approver_name(
     ต้อง eager-load relationship approver ไม่งั้น lazy-load ใต้ async จะพัง"""
     req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบชื่อผู้อนุมัติ",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })).json()["id"]
     try:
         assert (await client.patch(f"/borrow-requests/{req_id}/approve",
@@ -129,7 +129,7 @@ async def test_list_approved_requests_does_not_crash(
     ที่อ่าน relationship ตรงๆ พอมีคำขอ approved_by ไม่ null lazy-load ใต้ async จะ MissingGreenlet"""
     req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ list ไม่พังหลังอนุมัติ",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })).json()["id"]
     try:
         assert (await client.patch(f"/borrow-requests/{req_id}/approve",
@@ -150,7 +150,7 @@ async def test_returned_request_exposes_receiver_name(
     ต้องรู้ว่า admin คนไหนเป็นคนรับของกลับมา ไม่ใช่แค่คนอนุมัติ"""
     req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบชื่อผู้รับคืน",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })).json()["id"]
     try:
         assert (await client.patch(f"/borrow-requests/{req_id}/approve",
@@ -173,7 +173,7 @@ async def test_approve_writes_audit_log(
     """อนุมัติคำขอต้องบันทึก audit log ระบุ admin ผู้อนุมัติ"""
     req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ audit approve",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })).json()["id"]
     try:
         r = await client.patch(f"/borrow-requests/{req_id}/approve", headers=auth(admin_token))
@@ -200,7 +200,7 @@ async def test_audit_log_visible_via_api_and_admin_only(
     """audit log ที่เขียนแล้วต้องดึงผ่าน API ได้ (ไม่ใช่ตารางว่างเหมือนเดิม) และ student เข้าไม่ได้"""
     req_id = (await client.post("/borrow-requests", headers=auth(student_token), json={
         "purpose": "ทดสอบ audit api",
-        "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })).json()["id"]
     try:
         await client.patch(f"/borrow-requests/{req_id}/approve", headers=auth(admin_token))

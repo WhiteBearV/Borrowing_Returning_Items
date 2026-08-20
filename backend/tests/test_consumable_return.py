@@ -35,7 +35,7 @@ async def consumable_eq():
 async def _make_approved(client, student_token, admin_token, eq_id, qty=2):
     """สร้างคำขอวัสดุ + อนุมัติ คืน (req_id, item_id)"""
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
-        "purpose": "ทดสอบวัสดุ", "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(eq_id), "quantity": qty}],
+        "purpose": "ทดสอบวัสดุ", "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(eq_id), "quantity": qty}],
     })
     req = r.json()
     await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))
@@ -141,7 +141,7 @@ async def test_durable_damaged_requires_photo(
 ):
     """ครุภัณฑ์เสียหายต้องแนบรูป (#1)"""
     r = await client.post("/borrow-requests", headers=auth(student_token), json={
-        "purpose": "ทดสอบรูปเสียหาย", "requested_due_date": "2099-01-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
+        "purpose": "ทดสอบรูปเสียหาย", "requested_due_date": "2028-06-01", "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}],
     })
     req_id = r.json()["id"]
     item_id = r.json()["items"][0]["id"]

@@ -45,6 +45,7 @@ class BorrowRequestResponse(BaseModel):
     student_name: str | None = None
     student_email: str | None = None
     student_number: str | None = None
+    student_major: str | None = None
     purpose: str | None
     status: str
     requested_at: datetime

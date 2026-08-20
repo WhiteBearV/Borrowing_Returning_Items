@@ -17,6 +17,9 @@ from app.core.config import TZ
 _FONT_DIR = Path(__file__).parent / "fonts"
 _REGISTERED = False
 
+# ต้องตรงกับ label ฝั่ง frontend (RegisterPage.jsx / ProfilePage.jsx / UsersPage.jsx)
+_MAJOR_LABEL = {"comp_eng": "วิศวกรรมคอมพิวเตอร์", "digital_design": "ออกแบบดิจิทัล"}
+
 
 def _register_fonts() -> None:
     global _REGISTERED
@@ -178,7 +181,9 @@ def _build_form(req: object, kind: str) -> bytes:
     who = f"{name} ({number})" if number else name
     elems.append(Paragraph(
         f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{_position_th(req)}</u>", body))
-    elems.append(Paragraph("ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))
+    major = _MAJOR_LABEL.get(getattr(req, "student_major", None))
+    major_part = f"สาขา <u>{major}</u> &nbsp;&nbsp;&nbsp; " if major else ""
+    elems.append(Paragraph(f"{major_part}ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))
     contact = getattr(req, "student_email", None)
     if contact:
         elems.append(Paragraph(f"ช่องทางติดต่อ <u>{contact}</u>", body))
