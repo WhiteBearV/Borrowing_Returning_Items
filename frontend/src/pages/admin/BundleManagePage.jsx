@@ -13,6 +13,9 @@ function BundleForm({ initial, onClose, onSave }) {
     initial?.items.map((i) => ({ equipment_id: i.equipment_id, quantity: i.quantity, name: i.equipment_name })) ?? [],
   )
   const [triggerEquipmentId, setTriggerEquipmentId] = useState(initial?.trigger_equipment_id ?? '')
+  const [triggerName, setTriggerName] = useState(initial?.trigger_equipment_name ?? '')
+  const [triggerSearch, setTriggerSearch] = useState('')
+  const [triggerResults, setTriggerResults] = useState([])
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
@@ -27,10 +30,27 @@ function BundleForm({ initial, onClose, onSave }) {
     return () => clearTimeout(t)
   }, [search])
 
+  // ค้นหาตัวกระตุ้นแยกต่างหาก — ต้อง "ไม่" อยู่ในรายการสมาชิกของชุด (backend บังคับ)
+  useEffect(() => {
+    if (!triggerSearch) { setTriggerResults([]); return }
+    const t = setTimeout(() => {
+      equipmentApi.list({ search: triggerSearch, page_size: 8 }).then((d) => setTriggerResults(d.items)).catch(() => {})
+    }, 300)
+    return () => clearTimeout(t)
+  }, [triggerSearch])
+
   const add = (eq) => {
     if (items.some((i) => i.equipment_id === eq.id)) return
+    if (eq.id === triggerEquipmentId) return // ชนกับตัวกระตุ้นไม่ได้
     setItems((prev) => [...prev, { equipment_id: eq.id, quantity: 1, name: eq.name }])
     setSearch('')
+  }
+
+  const pickTrigger = (eq) => {
+    setTriggerEquipmentId(eq.id)
+    setTriggerName(eq.name)
+    setTriggerSearch('')
+    setItems((prev) => prev.filter((i) => i.equipment_id !== eq.id)) // ถอดออกจากสมาชิกถ้าเคยเพิ่มไว้
   }
 
   const submit = async (e) => {
@@ -39,12 +59,10 @@ function BundleForm({ initial, onClose, onSave }) {
     setError('')
     setLoading(true)
     try {
-      // ตัวกระตุ้นต้องเป็นของในชุด — ถ้าถูกถอดออกไปแล้วให้ล้างเป็น null
-      const trigger = items.some((i) => i.equipment_id === triggerEquipmentId) ? triggerEquipmentId : null
       const body = {
         name,
         description: description || undefined,
-        trigger_equipment_id: trigger,
+        trigger_equipment_id: triggerEquipmentId || null,
         items: items.map(({ equipment_id, quantity }) => ({ equipment_id, quantity: Number(quantity) })),
       }
       if (isEdit) await bundleApi.update(initial.id, body)
@@ -107,15 +125,31 @@ function BundleForm({ initial, onClose, onSave }) {
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              อุปกรณ์ตัวกระตุ้น <span className="text-gray-400">(กดเพิ่มตัวนี้ลงตะกร้าแล้วได้ทั้งชุด)</span>
+              อุปกรณ์ตัวกระตุ้น <span className="text-gray-400">(กดเพิ่มตัวนี้ลงตะกร้าแล้วได้ทั้งชุด — ต้องไม่ใช่ของในรายการด้านบน)</span>
             </label>
-            <select value={triggerEquipmentId ?? ''} onChange={(e) => setTriggerEquipmentId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
-              <option value="">— ไม่ขยายอัตโนมัติ —</option>
-              {items.map((it) => (
-                <option key={it.equipment_id} value={it.equipment_id}>{it.name}</option>
-              ))}
-            </select>
+            {triggerEquipmentId ? (
+              <div className="flex items-center gap-2 text-sm rounded-lg border border-gray-300 px-3 py-2">
+                <span className="flex-1 truncate text-gray-700">{triggerName}</span>
+                <button type="button" onClick={() => { setTriggerEquipmentId(''); setTriggerName('') }}
+                        className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+              </div>
+            ) : (
+              <>
+                <input value={triggerSearch} onChange={(e) => setTriggerSearch(e.target.value)}
+                       placeholder="ค้นหาอุปกรณ์ตัวกระตุ้น…"
+                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                {triggerResults.length > 0 && (
+                  <div className="mt-1 rounded-lg border border-gray-200 divide-y max-h-40 overflow-y-auto">
+                    {triggerResults.map((eq) => (
+                      <button key={eq.id} type="button" onClick={() => pickTrigger(eq)}
+                              className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">
+                        {eq.name} <span className="text-xs text-gray-400">{eq.code}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
