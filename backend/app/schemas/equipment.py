@@ -112,7 +112,9 @@ class EquipmentGroupDetailResponse(EquipmentGroupResponse):
 
 
 class EquipmentCreate(BaseModel):
-    code: str
+    # เว้นว่างได้เฉพาะวัสดุสิ้นเปลือง (consumable) — สร้าง.equipment_service.create_equipment จะออกรหัสให้อัตโนมัติ
+    # จากชื่อ+เลขลำดับ เพราะรหัสไม่มีความหมายจริงสำหรับของแบบนี้ (เช่น เซ็นเซอร์หลายแบบจำนวนมาก)
+    code: str | None = None
     serial_number: str | None = None
     name: str
     category_ids: list[uuid.UUID]
@@ -129,9 +131,12 @@ class EquipmentCreate(BaseModel):
     is_borrowable: bool = True
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
+    _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)  # ชื่อ generic ใช้กับ code ได้เหมือนกัน
 
 
 class EquipmentUpdate(BaseModel):
+    code: str | None = None
+    item_type: str | None = None
     serial_number: str | None = None
     name: str | None = None
     category_ids: list[uuid.UUID] | None = None
@@ -146,6 +151,7 @@ class EquipmentUpdate(BaseModel):
     is_borrowable: bool | None = None
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
+    _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
 
 
 class ImportRowIn(BaseModel):
@@ -181,3 +187,40 @@ class PaginatedEquipment(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class BulkDeleteRequest(BaseModel):
+    equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
+
+
+class BulkDeleteFailure(BaseModel):
+    equipment_id: uuid.UUID
+    reason: str
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: list[uuid.UUID]
+    failed: list[BulkDeleteFailure]
+
+
+class EquipmentBulkUpdate(BaseModel):
+    """ฟิลด์ที่แก้พร้อมกันหลายหน่วยได้อย่างปลอดภัยเท่านั้น — ไม่รวม code/serial_number (unique ต่อหน่วย),
+    name/item_type (นิยามตัวกลุ่มเอง), quantity_total/quantity_available (ตัวนับสต็อกต่อหน่วย)
+    """
+    location: str | None = None
+    description: str | None = None
+    image_urls: list[str] | None = None
+    unit: str | None = None
+    unit_value: float | None = None
+    low_stock_threshold: int | None = None
+    status: str | None = None
+    is_borrowable: bool | None = None
+
+
+class BulkUpdateRequest(BaseModel):
+    equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
+    update: EquipmentBulkUpdate
+
+
+class BulkUpdateResult(BaseModel):
+    updated: list[EquipmentResponse]

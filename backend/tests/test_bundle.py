@@ -103,3 +103,51 @@ async def test_bundle_permissions_and_active_filter(
         assert (await client.delete(f"/bundles/{bundle_id}", headers=auth(student_token))).status_code == 403
     finally:
         await _cleanup(bundle_id)
+
+
+async def test_bundle_item_unit_count_reflects_group_size(
+    client: AsyncClient, admin_token: str, test_equipment: Equipment
+):
+    """item.unit_count ต้องบอกจำนวนหน่วยจริงในรุ่นเดียวกัน (name+item_type ตรงกัน) — ไม่ใช่ 1 เสมอ
+
+    บั๊กจริงที่เจอ: ของที่ถูกดึงเข้าตะกร้าผ่านชุดอุปกรณ์ (bundle) ไม่มี unit_count ติดมาด้วยเลย
+    ทำให้หน้าตะกร้า/ใบยืมโชว์รหัสหน่วยที่ยังไม่นิ่ง (จะเปลี่ยนได้ตอนอนุมัติ) เหมือนรหัสมันนิ่งแล้ว
+    """
+    h = auth(admin_token)
+    tag = uuid.uuid4().hex[:6].upper()
+    group_name = f"กลุ่มทดสอบ bundle unit_count {tag}"
+    eq_ids: list[uuid.UUID] = []
+    async with AsyncSessionLocal() as db:
+        for i in range(1, 4):  # 3 หน่วยรุ่นเดียวกัน
+            r_id = uuid.uuid4()
+            db.add(Equipment(
+                id=r_id, code=f"BUNDGRP-{tag}-{i:03d}", name=group_name,
+                item_type="durable", quantity_total=1, quantity_available=1, status="available",
+            ))
+            eq_ids.append(r_id)
+        await db.commit()
+
+    r = await client.post("/bundles", headers=h, json={
+        "name": f"ชุดทดสอบ unit_count {tag}",
+        "items": [
+            {"equipment_id": str(eq_ids[0]), "quantity": 1},
+            {"equipment_id": str(test_equipment.id), "quantity": 1},  # เทียบกับของที่มีหน่วยเดียว (unit_count=1)
+        ],
+    })
+    assert r.status_code == 201, r.text
+    bundle_id = r.json()["id"]
+    try:
+        items_by_id = {i["equipment_id"]: i for i in r.json()["items"]}
+        assert items_by_id[str(eq_ids[0])]["unit_count"] == 3, "รุ่นที่มี 3 หน่วย ต้องได้ unit_count = 3"
+        assert items_by_id[str(test_equipment.id)]["unit_count"] == 1, "รุ่นที่มีหน่วยเดียว ต้องได้ unit_count = 1"
+
+        # list_bundles (GET /bundles) ก็ต้องเติม unit_count ให้เหมือนกัน ไม่ใช่แค่ตอน create
+        r = await client.get("/bundles", headers=h)
+        listed = next(b for b in r.json() if b["id"] == bundle_id)
+        listed_by_id = {i["equipment_id"]: i for i in listed["items"]}
+        assert listed_by_id[str(eq_ids[0])]["unit_count"] == 3
+    finally:
+        await _cleanup(bundle_id)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Equipment).where(Equipment.id.in_(eq_ids)))
+            await db.commit()

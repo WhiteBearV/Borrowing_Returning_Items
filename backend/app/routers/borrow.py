@@ -34,10 +34,13 @@ async def list_borrow_requests(
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = Query(None),
     overdue_only: bool = Query(False),
+    needs_attention: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedBorrowRequests:
-    return await borrow_service.list_requests(db, current_user, page, page_size, status, overdue_only)
+    return await borrow_service.list_requests(
+        db, current_user, page, page_size, status, overdue_only, needs_attention
+    )
 
 
 @router.get("/{request_id}", response_model=BorrowRequestResponse)

@@ -18,6 +18,10 @@ export const equipmentApi = {
   repairDocument: () =>
     api.get('/equipment/repair-document', { responseType: 'blob' }).then((r) => r.data),
   deletePermanent: (id) => api.delete(`/equipment/${id}/permanent`),
+  // ลบถาวรหลายรายการพร้อมกันแบบ best-effort — คืน { deleted: [id], failed: [{equipment_id, reason}] }
+  bulkDelete: (equipment_ids) => api.post('/equipment/bulk-delete', { equipment_ids }).then((r) => r.data),
+  // แก้ไขฟิลด์ปลอดภัยของหลายหน่วยพร้อมกัน (all-or-nothing) — คืน { updated: [...] }
+  bulkUpdate: (equipment_ids, update) => api.patch('/equipment/bulk-update', { equipment_ids, update }).then((r) => r.data),
   // นำเข้าจากไฟล์ทะเบียน (Excel): อ่านไฟล์ → ดูร่าง → ยืนยัน
   importPreview: (file) => {
     const fd = new FormData()

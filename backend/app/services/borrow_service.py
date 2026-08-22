@@ -207,6 +207,9 @@ async def create_request(
             equipment_id=eq.id,
             item_type_snapshot=eq.item_type,
             quantity=quantity,
+            equipment_name=eq.name,
+            equipment_code=eq.code,
+            equipment_unit=eq.unit,
         ))
 
     # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
@@ -250,8 +253,13 @@ async def list_requests(
     page_size: int,
     filter_status: str | None,
     overdue_only: bool,
+    needs_attention: bool = False,
 ) -> PaginatedBorrowRequests:
-    """นักศึกษาเห็นแค่ของตัวเอง / admin เห็นทั้งหมด"""
+    """นักศึกษาเห็นแค่ของตัวเอง / admin เห็นทั้งหมด
+
+    needs_attention=True: รวมคำขอที่ admin ต้อง "ทำอะไรสักอย่าง" ในหน้าเดียว — pending (รออนุมัติ) +
+    approved ที่มี item แจ้งขอคืนแล้ว (return_requested) ไม่ต้องสลับไปหน้า "ประวัติทั้งหมด" แยกต่างหาก
+    """
     query = select(BorrowRequest).options(
         selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
         selectinload(BorrowRequest.student),
@@ -263,7 +271,18 @@ async def list_requests(
 
     if current_user.role != "admin":
         query = query.where(BorrowRequest.student_id == current_user.id)
-    if filter_status:
+    if needs_attention:
+        has_return_requested = (
+            select(BorrowItem.id)
+            .where(
+                BorrowItem.borrow_request_id == BorrowRequest.id,
+                BorrowItem.return_requested == True,  # noqa: E712
+                BorrowItem.returned == False,  # noqa: E712
+            )
+            .exists()
+        )
+        query = query.where(or_(BorrowRequest.status == "pending", has_return_requested))
+    elif filter_status:
         query = query.where(BorrowRequest.status == filter_status)
     if overdue_only:
         query = query.where(BorrowRequest.is_overdue == True)
@@ -382,8 +401,12 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
         # หักสต็อกทั้ง durable และ consumable — ของออกจากคลังแล้ว
         # consumable ไม่ auto-คืนอีกต่อไป: admin ต้องสรุปผลภายหลัง (คืนครบ/ใช้หมด/เสียหาย)
         chosen.quantity_available -= item.quantity
-        # ล็อกราคาต่อหน่วย ณ วันอนุมัติ ใช้คิดต้นทุนวัสดุที่ถูกใช้ไป
+        # ล็อกราคาต่อหน่วย + ชื่อ/รหัส/หน่วยนับ ณ วันอนุมัติ — ต้องเป็นค่าของ chosen (หน่วยที่จัดสรรจริง)
+        # ไม่ใช่ eq ตัวที่ยื่นไว้ตอนแรก และต้องล็อกไว้เพราะหลังจากนี้แถว equipment อาจถูกแก้ชื่อ/ปลดระวาง/ลบถาวรได้
         item.unit_value_snapshot = chosen.unit_value
+        item.equipment_name = chosen.name
+        item.equipment_code = chosen.code
+        item.equipment_unit = chosen.unit
 
     req.status = "approved"
     req.approved_by = admin.id

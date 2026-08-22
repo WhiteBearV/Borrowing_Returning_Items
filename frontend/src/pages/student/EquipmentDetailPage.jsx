@@ -91,7 +91,8 @@ export default function EquipmentDetailPage() {
           <table className="w-full text-sm text-gray-600">
             <tbody className="divide-y divide-gray-100">
               {[
-                ['รหัสอุปกรณ์', eq.code],
+                // ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — spread แบบมีเงื่อนไข เพราะ ['label', undefined] ไม่ falsy
+                ...(eq.unit_count === 1 ? [['รหัสอุปกรณ์', eq.code]] : []),
                 ['ประเภท', TYPE_LABEL[eq.item_type]],
                 ['หมวดหมู่', (eq.categories ?? []).map((c) => c.name).join(', ') || '—'],
                 ['ที่เก็บ', eq.location ?? '—'],

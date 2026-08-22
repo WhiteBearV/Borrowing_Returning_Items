@@ -11,12 +11,18 @@ from sqlalchemy.orm import selectinload
 from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
+from app.models.bundle import BundleItem
 from app.models.equipment import Equipment, equipment_category_links
 from app.models.equipment_category import EquipmentCategory
+from app.models.setting import Setting
 from app.models.user import User
 from app.schemas.equipment import (
+    BulkDeleteFailure,
+    BulkDeleteResult,
+    BulkUpdateResult,
     CategoryCreate,
     CategoryResponse,
+    EquipmentBulkUpdate,
     EquipmentCreate,
     EquipmentGroupDetailResponse,
     EquipmentGroupResponse,
@@ -79,6 +85,42 @@ async def save_image(file: UploadFile) -> str:
     return f"/uploads/{filename}"
 
 
+async def _borrowed_equipment_ids(db: AsyncSession) -> set[uuid.UUID]:
+    """id ของอุปกรณ์ที่มีหน่วยกำลังถูกยืมอยู่จริง (approved + ยังไม่คืน)"""
+    result = await db.execute(
+        select(BorrowItem.equipment_id)
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
+    )
+    return set(result.scalars().all())
+
+
+async def _apply_status_filter(db: AsyncSession, query, filter_status: str | None):
+    """status ปกติ (available/damaged/...) filter ตรงคอลัมน์เดิม + เพิ่ม 2 filter พิเศษที่ derive จากตาราง/
+    เกณฑ์อื่น ไม่ใช่ค่าจริงใน equipment.status — ใช้ในหน้าจัดการอุปกรณ์แทนการต้องกดเข้ามาจาก dashboard:
+    - low_stock: เฉพาะ consumable ที่ต่ำกว่าเกณฑ์ (mirror สูตรเดียวกับ dashboard_service.get_summary)
+    - borrowed: มีของออกไปจริงผ่าน BorrowItem ที่ยังไม่คืน (คนละอย่างกับ status="available" ที่กดลบไม่ได้
+      สื่อว่า "ยืมได้" ไม่ใช่ "กำลังถูกยืม")
+
+    ใช้กับ list_equipment (ไม่ยุบกลุ่ม) เท่านั้น — list_equipment_grouped ต้อง filter "borrowed" ที่ระดับกลุ่ม
+    แยกต่างหาก (ดู comment ใน list_equipment_grouped) ไม่งั้นยอดรวมของการ์ดจะผิด เพราะกรองตัดหน่วยพี่น้อง
+    ในกลุ่มเดียวกันที่ไม่ได้ถูกยืมออกไปจาก query ตั้งแต่ต้น
+    """
+    if filter_status == "low_stock":
+        default_threshold = int((await db.execute(
+            select(Setting.value).where(Setting.key == "low_stock_threshold_default")
+        )).scalar_one())
+        return query.where(
+            Equipment.item_type == "consumable",
+            Equipment.quantity_available <= func.coalesce(Equipment.low_stock_threshold, default_threshold),
+        )
+    if filter_status == "borrowed":
+        return query.where(Equipment.id.in_(await _borrowed_equipment_ids(db)))
+    if filter_status:
+        return query.where(Equipment.status == filter_status)
+    return query
+
+
 async def list_equipment(
     db: AsyncSession,
     page: int,
@@ -93,8 +135,7 @@ async def list_equipment(
         query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
         query = query.where(Equipment.item_type == item_type)
-    if filter_status:
-        query = query.where(Equipment.status == filter_status)
+    query = await _apply_status_filter(db, query, filter_status)
     if search:
         # ค้นได้ทั้งชื่อและรหัส (รหัสวัสดุ/เลขครุภัณฑ์) — พิมพ์บางส่วนก็เจอ
         kw = f"%{search.strip()}%"
@@ -172,8 +213,12 @@ async def list_equipment_grouped(
         query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
         query = query.where(Equipment.item_type == item_type)
-    if filter_status:
-        query = query.where(Equipment.status == filter_status)
+    # "borrowed" ต้อง filter ที่ "กลุ่มไหนมีหน่วยถูกยืมอยู่บ้าง" ไม่ใช่กรองที่ query แถวก่อน group —
+    # ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่ถูกยืม แล้วเอาไปรวมยอด quantity_total/available เป็นยอดของกลุ่ม
+    # ทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
+    # ต้องดึงทุกหน่วยของกลุ่มมาคำนวณยอดก่อน แล้วค่อยกรองว่าจะโชว์การ์ดไหนทีหลัง
+    filter_borrowed_group = filter_status == "borrowed"
+    query = await _apply_status_filter(db, query, None if filter_borrowed_group else filter_status)
     if search:
         kw = f"%{search.strip()}%"
         query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
@@ -184,6 +229,10 @@ async def list_equipment_grouped(
     groups: dict[tuple, list[Equipment]] = {}
     for eq in rows:
         groups.setdefault(_group_key(eq), []).append(eq)
+
+    if filter_borrowed_group:
+        borrowed_ids = await _borrowed_equipment_ids(db)
+        groups = {key: members for key, members in groups.items() if any(m.id in borrowed_ids for m in members)}
 
     cards = [_build_group_response(members) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
@@ -248,8 +297,32 @@ async def _resolve_categories(db: AsyncSession, category_ids: list[uuid.UUID]) -
     return cats
 
 
+def _generate_consumable_code(name: str, existing_codes: set[str]) -> str:
+    """สร้างรหัสจากชื่ออุปกรณ์ + เลขลำดับ เช่น "ตัวต้านทาน 220 โอห์ม" -> "ตัวต้านทาน 220 โอห์ม-001"
+
+    ใช้เมื่อแอดมินไม่กรอกรหัสมาสำหรับวัสดุสิ้นเปลือง (รหัสไม่มีความหมายจริงสำหรับของแบบนี้ เช่น เซ็นเซอร์
+    หลายแบบจำนวนมาก) — อ่านง่ายกว่ารหัสสุ่มล้วน ๆ เห็นชื่อในรหัสได้เลยไม่ต้องเปิดดูชื่อแยก
+    ตัดชื่อให้เหลือพอสำหรับคอลัมน์ String(50) เผื่อเลขลำดับต่อท้าย (-001 = 4 ตัวอักษร)
+    """
+    slug = name.strip()[:44]
+    n = 1
+    while True:
+        candidate = f"{slug}-{n:03d}"
+        if candidate not in existing_codes:
+            return candidate
+        n += 1
+
+
 async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate) -> Equipment:
-    existing = await db.execute(select(Equipment).where(Equipment.code == body.code))
+    code = body.code
+    if not code:
+        if body.item_type != "consumable":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="จำเป็นต้องระบุรหัสอุปกรณ์ (เว้นว่างได้เฉพาะวัสดุสิ้นเปลือง)")
+        existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
+        code = _generate_consumable_code(body.name, existing_codes)
+
+    existing = await db.execute(select(Equipment).where(Equipment.code == code))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
     if body.serial_number:
@@ -257,6 +330,7 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
     data = body.model_dump(exclude={"category_ids"})
+    data["code"] = code
     data["name"] = _normalize_name(data["name"])
     data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
     eq = Equipment(**data)
@@ -273,16 +347,31 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
 
 
 async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID, body: EquipmentUpdate) -> Equipment:
+    """แก้ไขอุปกรณ์ — แก้ code/item_type ได้แม้เคยมีประวัติการยืม เพราะ BorrowItem เก็บ snapshot
+
+    equipment_name/code/unit/item_type_snapshot เป็นคอลัมน์จริงบน BorrowItem ไม่ใช่ live join
+    (ดู borrow_service.py create_request/approve_request) แก้ตรงนี้จึงไม่กระทบใบยืมเก่าเลย
+    """
     eq = await get_equipment(db, equipment_id)
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
+    if "code" in changed and changed["code"] != eq.code:
+        dup_code = await db.execute(
+            select(Equipment).where(Equipment.code == changed["code"], Equipment.id != equipment_id)
+        )
+        if dup_code.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
     if "serial_number" in changed and changed["serial_number"] != eq.serial_number:
         dup_sn = await db.execute(
             select(Equipment).where(Equipment.serial_number == changed["serial_number"], Equipment.id != equipment_id)
         )
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
+
+    # เก็บค่าก่อนแก้ไว้ทำ audit — setattr loop ด้านล่างเขียนทับแล้วย้อนดูค่าเดิมไม่ได้
+    old_code, old_item_type = eq.code, eq.item_type
+
     for field, value in changed.items():
         setattr(eq, field, value)
     # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
@@ -293,8 +382,13 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
     if body.category_ids is not None:
         eq.categories = await _resolve_categories(db, body.category_ids)
-    await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id,
-                                   {"code": eq.code, "fields": sorted(changed.keys())})
+
+    detail = {"code": eq.code, "fields": sorted(changed.keys())}
+    if "code" in changed and old_code != eq.code:
+        detail["code_from"], detail["code_to"] = old_code, eq.code
+    if "item_type" in changed and old_item_type != eq.item_type:
+        detail["item_type_from"], detail["item_type_to"] = old_item_type, eq.item_type
+    await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id, detail)
     await db.commit()
     return await get_equipment(db, equipment_id)
 
@@ -427,20 +521,100 @@ async def split_equipment_into_units(
 
 
 async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID) -> None:
-    """ลบอุปกรณ์ออกจาก DB ถาวร — อนุญาตเฉพาะ retired และไม่มีประวัติการยืม"""
+    """ลบอุปกรณ์ออกจาก DB ถาวร — อนุญาตเฉพาะ retired และไม่มีการยืมที่ยังไม่คืน (pending/approved)
+
+    ประวัติที่จบแล้ว (completed/rejected/cancelled) ไม่กันการลบอีกต่อไป — BorrowItem เก็บ
+    equipment_name/code/unit เป็น snapshot คอลัมน์จริงแล้ว (ดู borrow_item.py) ไม่ต้องพึ่ง live join
+    กับแถว equipment ที่กำลังจะถูกลบ ประวัติจึงไม่พังแม้ FK equipment_id จะถูก SET NULL (ดู migration 0020)
+
+    เช็คด้วย returned==False เฉยๆ ไม่พอ: rejected/cancelled ไม่เคยเซ็ต returned=True เลย (ไม่มี flow
+    คืนของสำหรับสถานะเหล่านี้) ต้อง join ไป BorrowRequest.status ด้วย ไม่งั้นของที่เคยอยู่ในคำขอที่ถูกปฏิเสธ/ยกเลิก
+    จะติดล็อกลบไม่ได้ตลอดกาลเหมือนบั๊กเดิม
+    """
     eq = await get_equipment(db, equipment_id)
     if eq.status != "retired":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ต้องปลดระวางก่อนลบ")
-    has_history = (await db.execute(
-        select(func.count(BorrowItem.id)).where(BorrowItem.equipment_id == equipment_id)
+
+    active_count = (await db.execute(
+        select(func.count(BorrowItem.id))
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(
+            BorrowItem.equipment_id == equipment_id,
+            BorrowItem.returned == False,  # noqa: E712
+            BorrowRequest.status.in_(("pending", "approved")),
+        )
     )).scalar() or 0
-    if has_history:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่สามารถลบได้ เนื่องจากมีประวัติการยืม")
+    if active_count:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ไม่สามารถลบได้ เนื่องจากยังมีรายการยืมที่ยังไม่คืน",
+        )
+
+    # อุปกรณ์ที่เป็นสมาชิกชุดอุปกรณ์ (bundle) ลบไม่ได้ — BundleItem.equipment_id ไม่มี ON DELETE SET NULL
+    # ถ้าไม่เช็คก่อนจะโยน IntegrityError ดิบๆ กลายเป็น 500 แทนที่จะเป็น 400 อ่านเข้าใจ
+    bundle_ref = (await db.execute(
+        select(func.count(BundleItem.id)).where(BundleItem.equipment_id == equipment_id)
+    )).scalar() or 0
+    if bundle_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ไม่สามารถลบได้ เนื่องจากเป็นสมาชิกของชุดอุปกรณ์อยู่",
+        )
+
     # log ก่อนลบ เพราะหลัง delete จะอ้าง target_id ไม่ได้แล้ว
     await audit_service.log_action(db, admin, "delete_equipment", "equipment", eq.id,
                                    {"code": eq.code, "name": eq.name})
     await db.delete(eq)
     await db.commit()
+
+
+async def bulk_delete_equipment(
+    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID]
+) -> BulkDeleteResult:
+    """ลบถาวรหลายรายการพร้อมกันแบบ best-effort — เรียก delete_equipment เดิมซ้ำทีละชิ้น (ใช้ guard/audit
+    เดิมทุกอย่าง ไม่เขียนเงื่อนไขซ้ำ) ชิ้นที่ guard ปฏิเสธได้อย่างชอบธรรม (เช่นยังไม่ปลดระวาง หรือผูกกับ
+    ชุดอุปกรณ์อยู่) ไม่บล็อกชิ้นอื่นที่เหลือ — เก็บผลลัพธ์แยกสำเร็จ/ไม่สำเร็จพร้อมเหตุผล
+    """
+    deleted: list[uuid.UUID] = []
+    failed: list[BulkDeleteFailure] = []
+    for eq_id in equipment_ids:
+        try:
+            await delete_equipment(db, admin, eq_id)
+            deleted.append(eq_id)
+        except HTTPException as e:
+            failed.append(BulkDeleteFailure(equipment_id=eq_id, reason=str(e.detail)))
+    return BulkDeleteResult(deleted=deleted, failed=failed)
+
+
+async def bulk_update_equipment(
+    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], body: EquipmentBulkUpdate
+) -> BulkUpdateResult:
+    """แก้ไขหลายหน่วยพร้อมกัน (เช่น ย้ายสถานที่ทั้ง 12 หน่วยของรุ่นเดียวกัน) — all-or-nothing ต่างจาก
+    bulk_delete_equipment เพราะการแก้ location/status ไม่มีเหตุผลที่ควร "แก้ได้บางชิ้น" เซสชันเดียว
+    commit ครั้งเดียว, audit เป็น 1 entry รวม (ไม่ log ทีละแถว)
+    """
+    changed = body.model_dump(exclude_none=True)
+    if not changed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่มีอะไรจะแก้ไข")
+
+    rows = [await get_equipment(db, eq_id) for eq_id in equipment_ids]  # 404 ถ้ามี id ที่ไม่มีจริง
+
+    for eq in rows:
+        for field, value in changed.items():
+            setattr(eq, field, value)
+        if "image_urls" in changed:
+            eq.image_url = changed["image_urls"][0] if changed["image_urls"] else None  # sync cover
+
+    await audit_service.log_action(
+        db, admin, "bulk_update_equipment", "equipment", rows[0].id,
+        {"count": len(rows), "fields": sorted(changed.keys()), "equipment_ids": [str(e.id) for e in rows]},
+    )
+    await db.commit()
+    ids = [e.id for e in rows]
+    result = await db.execute(
+        select(Equipment).where(Equipment.id.in_(ids)).options(selectinload(Equipment.categories))
+    )
+    return BulkUpdateResult(updated=list(result.scalars().all()))
 
 
 _STOCK_ACTIONS = {"receipt": "create_equipment", "disposal": "retire_equipment"}

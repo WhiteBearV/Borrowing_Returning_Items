@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
 from app.schemas.equipment import (
+    BulkDeleteRequest,
+    BulkDeleteResult,
+    BulkUpdateRequest,
+    BulkUpdateResult,
     CategoryCreate,
     CategoryResponse,
     EquipmentCreate,
@@ -104,6 +108,26 @@ async def import_commit(
 ) -> dict:
     """บันทึกร่างที่แอดมินตรวจ/แก้แล้วเข้าระบบจริง (เฉพาะบรรทัดที่ส่งมา)"""
     return await import_service.commit_import(db, admin, import_id, body)
+
+
+@router.post("/equipment/bulk-delete", response_model=BulkDeleteResult)
+async def bulk_delete_equipment(
+    body: BulkDeleteRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BulkDeleteResult:
+    """ลบถาวรหลายรายการพร้อมกันแบบ best-effort — ชิ้นที่ลบไม่ได้ (เช่นยังไม่ปลดระวาง) ไม่บล็อกชิ้นอื่น"""
+    return await equipment_service.bulk_delete_equipment(db, admin, body.equipment_ids)
+
+
+@router.patch("/equipment/bulk-update", response_model=BulkUpdateResult)
+async def bulk_update_equipment(
+    body: BulkUpdateRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BulkUpdateResult:
+    """แก้ไขฟิลด์ปลอดภัย (location/description/status ฯลฯ) ของหลายหน่วยพร้อมกัน — all-or-nothing"""
+    return await equipment_service.bulk_update_equipment(db, admin, body.equipment_ids, body.update)
 
 
 @router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)

@@ -34,6 +34,9 @@ class BundleItemResponse(BaseModel):
     unit: str | None = None
     quantity_available: int | None = None
     is_borrowable: bool | None = None
+    # จำนวนหน่วยในรุ่นเดียวกัน (name+item_type ตรงกัน) — ไม่ได้มาจาก ORM ตรง ๆ ต้องคำนวณแล้วเติมทีหลัง
+    # (ดู bundle_service._annotate_unit_counts) ใช้บอกฝั่งตะกร้าว่าต้องซ่อนรหัสเจาะจงไหม (>1 หน่วย = ซ่อน)
+    unit_count: int | None = None
 
     model_config = {"from_attributes": True}
 

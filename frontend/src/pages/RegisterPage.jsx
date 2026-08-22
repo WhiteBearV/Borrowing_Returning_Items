@@ -32,14 +32,16 @@ export default function RegisterPage() {
     try {
       await authApi.register({
         full_name: `${form.title}${form.first_name.trim()} ${form.last_name.trim()}`,
-        student_id: form.student_id,
-        email: form.email,
+        student_id: form.student_id.trim(),
+        email: form.email.trim(),
         password: form.password,
         major: form.major,
       })
       setSuccess(true)
     } catch (err) {
-      setError(err.response?.data?.detail ?? 'ลงทะเบียนไม่สำเร็จ')
+      // detail อาจเป็น string (HTTPException) หรือ array ของ Pydantic error object (validation error)
+      const detail = err.response?.data?.detail
+      setError(Array.isArray(detail) ? detail.map((d) => d.msg).join(', ') : (detail ?? 'ลงทะเบียนไม่สำเร็จ'))
     } finally {
       setLoading(false)
     }

@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,6 +10,31 @@ from app.models.equipment import Equipment
 from app.models.user import User
 from app.schemas.bundle import BundleCreate, BundleResponse, BundleUpdate
 from app.services import audit_service
+
+
+async def _annotate_unit_counts(db: AsyncSession, responses: list[BundleResponse]) -> None:
+    """เติม unit_count ให้แต่ละ item — บอกฝั่งตะกร้าว่าต้องซ่อนรหัสเจาะจงไหม (รุ่นที่มีหลายหน่วย)
+
+    เหมือน logic ยุบกลุ่มใน equipment_service._group_key: consumable ไม่ยุบรวม นับเป็น 1 เสมอ
+    ที่เหลือกลุ่มตาม name+item_type — ไม่ query ผ่าน equipment_id ตรง ๆ เพราะ BundleItemResponse
+    ไม่มี relationship object ให้ใช้ (เป็น Pydantic response ที่ประกอบมาแล้ว)
+    """
+    pairs = {
+        (i.equipment_name, i.item_type)
+        for r in responses for i in r.items
+        if i.equipment_name and i.item_type and i.item_type != "consumable"
+    }
+    group_size: dict[tuple, int] = {}
+    if pairs:
+        conditions = [(Equipment.name == n) & (Equipment.item_type == t) for n, t in pairs]
+        rows = (await db.execute(
+            select(Equipment.name, Equipment.item_type, func.count(Equipment.id))
+            .where(or_(*conditions)).group_by(Equipment.name, Equipment.item_type)
+        )).all()
+        group_size = {(name, item_type): count for name, item_type, count in rows}
+    for r in responses:
+        for i in r.items:
+            i.unit_count = 1 if i.item_type == "consumable" else group_size.get((i.equipment_name, i.item_type), 1)
 
 
 async def _load(db: AsyncSession, bundle_id: uuid.UUID) -> Bundle:
@@ -69,7 +94,9 @@ async def list_bundles(db: AsyncSession, active_only: bool) -> list[BundleRespon
     if active_only:
         query = query.where(Bundle.is_active == True)  # noqa: E712
     result = await db.execute(query.order_by(Bundle.name))
-    return [BundleResponse.model_validate(b) for b in result.scalars().all()]
+    responses = [BundleResponse.model_validate(b) for b in result.scalars().all()]
+    await _annotate_unit_counts(db, responses)
+    return responses
 
 
 async def create_bundle(db: AsyncSession, admin: User, body: BundleCreate) -> BundleResponse:
@@ -82,7 +109,9 @@ async def create_bundle(db: AsyncSession, admin: User, body: BundleCreate) -> Bu
     await audit_service.log_action(db, admin, "create_bundle", "bundles", bundle.id,
                                    {"name": bundle.name, "items": len(body.items)})
     await db.commit()
-    return BundleResponse.model_validate(await _load(db, bundle.id))
+    response = BundleResponse.model_validate(await _load(db, bundle.id))
+    await _annotate_unit_counts(db, [response])
+    return response
 
 
 async def update_bundle(
@@ -103,7 +132,9 @@ async def update_bundle(
 
     await audit_service.log_action(db, admin, "update_bundle", "bundles", bundle.id, {"name": bundle.name})
     await db.commit()
-    return BundleResponse.model_validate(await _load(db, bundle_id))
+    response = BundleResponse.model_validate(await _load(db, bundle_id))
+    await _annotate_unit_counts(db, [response])
+    return response
 
 
 async def delete_bundle(db: AsyncSession, admin: User, bundle_id: uuid.UUID) -> None:

@@ -3,7 +3,7 @@ import uuid
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -38,14 +38,18 @@ def auth(token: str) -> dict:
 async def _delete_user_cascade(uid: uuid.UUID) -> None:
     """ลบ user พร้อม cascade ทั้งหมดด้วย SQL ตรงๆ เพื่อเลี่ยง ORM cascade issue"""
     async with AsyncSessionLocal() as db:
-        # ลบ FK ที่ชี้มาที่ user ก่อน
+        # ลบ FK ที่ชี้มาที่ user ก่อน — ต้องลบ BorrowItem/Notification ที่ชี้มาที่คำขอก่อน ค่อยลบตัวคำขอ (FK order)
         borrow_reqs = (await db.execute(
-            delete(BorrowRequest).where(BorrowRequest.student_id == uid).returning(BorrowRequest.id)
+            select(BorrowRequest.id).where(BorrowRequest.student_id == uid)
         )).scalars().all()
         for req_id in borrow_reqs:
             await db.execute(delete(Notification).where(Notification.borrow_request_id == req_id))
             await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == req_id))
+        await db.execute(delete(BorrowRequest).where(BorrowRequest.student_id == uid))
         await db.execute(delete(Notification).where(Notification.user_id == uid))
+        # user นี้อาจเป็น admin ที่ approve/รับคืนคำขอของ student คนอื่น (ไม่ใช่แค่ของตัวเอง) — เคลียร์ FK ก่อนลบ
+        await db.execute(update(BorrowRequest).where(BorrowRequest.approved_by == uid).values(approved_by=None))
+        await db.execute(update(BorrowRequest).where(BorrowRequest.returned_by == uid).values(returned_by=None))
         # audit_logs อ้าง actor_id → ต้องลบก่อนลบ user (FK)
         await db.execute(delete(AuditLog).where(AuditLog.actor_id == uid))
         await db.execute(delete(User).where(User.id == uid))

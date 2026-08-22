@@ -160,7 +160,9 @@ function AddUserModal({ onClose, onCreated }) {
       await usersApi.create(payload)
       onCreated()
     } catch (err) {
-      setError(err.response?.data?.detail ?? 'สร้างบัญชีไม่สำเร็จ')
+      // detail อาจเป็น string (HTTPException) หรือ array ของ Pydantic error object (validation error)
+      const detail = err.response?.data?.detail
+      setError(Array.isArray(detail) ? detail.map((d) => d.msg).join(', ') : (detail ?? 'สร้างบัญชีไม่สำเร็จ'))
     } finally {
       setSaving(false)
     }
@@ -202,7 +204,7 @@ function AddUserModal({ onClose, onCreated }) {
 
         {form.role === 'student' ? (
           <>
-            <input className={input} placeholder="รหัสนักศึกษา" value={form.student_id} onChange={set('student_id')} />
+            <input className={input} placeholder="รหัสนักศึกษา" pattern="\d{10}" value={form.student_id} onChange={set('student_id')} />
             <select className={input} value={form.major} onChange={set('major')}>
               <option value="comp_eng">วิศวกรรมคอมพิวเตอร์</option>
               <option value="digital_design">ออกแบบดิจิทัล</option>

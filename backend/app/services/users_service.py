@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import equipment_service
@@ -93,6 +93,10 @@ async def delete_user(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(delete(BorrowRequest).where(BorrowRequest.student_id == user_id))
     await db.execute(delete(Notification).where(Notification.user_id == user_id))
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user_id))
+    # user นี้อาจเป็น admin ที่เคย approve/รับคืนคำขอของ student คนอื่น (ไม่ใช่แค่ของตัวเอง) — เคลียร์ FK
+    # ก่อนลบ ไม่งั้นชน borrow_requests_approved_by_fkey/returned_by_fkey กลายเป็น 500 แทนที่จะลบสำเร็จ
+    await db.execute(update(BorrowRequest).where(BorrowRequest.approved_by == user_id).values(approved_by=None))
+    await db.execute(update(BorrowRequest).where(BorrowRequest.returned_by == user_id).values(returned_by=None))
     # ไม่ลบ audit_logs — ต้องเก็บประวัติไว้ (ห้ามลบ audit trail ด้วยการลบบัญชี)
     # FK เป็น ON DELETE SET NULL: actor_id กลายเป็น null แต่ actor_name/identifier snapshot ยังอยู่
     await db.execute(delete(User).where(User.id == user_id))

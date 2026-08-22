@@ -1,12 +1,14 @@
 """Unit tests for PDF generation — ไม่ต้องการ DB"""
+import io
 import uuid
 from datetime import date, datetime
 
 import pytest
+from pypdf import PdfReader
 
 import app.utils.pdf as pdf_mod
 from app.utils.pdf import (
-    generate_borrow_pdf, generate_stock_document_pdf,
+    generate_borrow_pdf, generate_preview_pdf, generate_return_pdf, generate_stock_document_pdf,
     _condition_th, _status_th, _fmt_date,
 )
 
@@ -14,13 +16,15 @@ from app.utils.pdf import (
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 class _Item:
-    def __init__(self, name, item_type="durable", qty=1, condition="ok"):
+    def __init__(self, name, item_type="durable", qty=1, condition="ok", equipment_code=None):
         self.id = uuid.uuid4()
         self.equipment_id = uuid.uuid4()
         self.equipment_name = name
+        self.equipment_code = equipment_code
         self.item_type_snapshot = item_type
         self.quantity = qty
         self.returned = True
+        self.returned_at = datetime(2026, 7, 1, 10, 0)
         self.condition_on_return = condition
         self.damage_note = None
         self.renewed_count = 0
@@ -97,6 +101,48 @@ def test_pdf_font_registered_once():
     pdf_mod._REGISTERED = False
     _fresh_pdf(_Req())  # ลงทะเบียนครั้งแรก
     _fresh_pdf(_Req())  # ใช้ cache — ต้องไม่ crash
+
+
+# ── A2: ร่าง/พรีวิว ต้องไม่โชว์รหัสหน่วยเจาะจง ────────────────────────────────
+# ระบบเลือก "หน่วยว่างรหัสต่ำสุด" อิสระกันคนละจุด/เวลา (ตะกร้า/สร้างคำขอ/อนุมัติ) ไม่ sync กัน
+# รหัสที่เห็นตอนร่างจึงอาจไม่ตรงของจริงตอนอนุมัติ — ทางแก้คือซ่อนไว้จนกว่าจะอนุมัติแล้ว (แน่นอนแล้ว)
+
+_UNIQUE_CODE = "65-214-999"  # สั้นพอไม่ตัดบรรทัดในคอลัมน์รหัส (30mm) ไม่งั้น pypdf จะแยกข้อความเป็นคนละบรรทัด
+
+
+def _extract_text(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    return "".join(page.extract_text() for page in reader.pages)
+
+
+def test_draft_pdf_hides_specific_equipment_code():
+    """generate_preview_pdf (kind="draft") — ใช้ทั้งพรีวิวก่อนส่งคำขอ และดูคำขอที่ยัง pending อยู่"""
+    pdf_mod._REGISTERED = False
+    item_name = "บอร์ด Arduino Uno R3"
+    items = [_Item(item_name, "durable", 1, "ok", equipment_code=_UNIQUE_CODE)]
+    req = _Req(items=items, status="pending")
+    text = _extract_text(generate_preview_pdf(req))
+    assert _UNIQUE_CODE not in text
+    # เช็คว่า "รออนุมัติ" อยู่ในเซลล์รหัส (ติดกับชื่ออุปกรณ์ในแถวตาราง) — บอกตรง ๆ แทน "-" เฉย ๆ
+    assert f"รออนุมัติ\n{item_name}" in text
+
+
+def test_borrow_pdf_still_shows_equipment_code():
+    """generate_borrow_pdf (คำขอที่อนุมัติแล้ว) — รหัสหน่วยนิ่งแล้ว ต้องยังโชว์ตามเดิม ห้าม A2 กระทบ"""
+    pdf_mod._REGISTERED = False
+    items = [_Item("บอร์ด Arduino Uno R3", "durable", 1, "ok", equipment_code=_UNIQUE_CODE)]
+    req = _Req(items=items, status="approved")
+    text = _extract_text(generate_borrow_pdf(req))
+    assert _UNIQUE_CODE in text
+
+
+def test_return_pdf_still_shows_equipment_code():
+    """generate_return_pdf (ใบคืน) — ของคืนแล้วจริง รหัสหน่วยยิ่งต้องชัดเจน ห้าม A2 กระทบ"""
+    pdf_mod._REGISTERED = False
+    items = [_Item("บอร์ด Arduino Uno R3", "durable", 1, "ok", equipment_code=_UNIQUE_CODE)]
+    req = _Req(items=items, status="completed")
+    text = _extract_text(generate_return_pdf(req))
+    assert _UNIQUE_CODE in text
 
 
 # ── stock document (ร่างเข้า/ร่างออก) tests ────────────────────────────────────

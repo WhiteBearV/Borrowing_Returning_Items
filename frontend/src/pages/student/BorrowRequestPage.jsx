@@ -53,9 +53,49 @@ export default function BorrowRequestPage() {
     }
   }
 
+  const renderRow = ({ equipment: eq, quantity }) => (
+    <div key={eq.id} className="flex items-center gap-3 p-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{eq.name}</p>
+        {/* ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — รวมของที่มาจากชุดอุปกรณ์ด้วย (backend เติม
+            unit_count ให้แล้ว) ไม่รู้ค่าแน่ชัด (undefined) ถือว่าไม่ปลอดภัย ไม่โชว์ไว้ก่อน */}
+        {eq.unit_count === 1 && (
+          <p className="text-xs text-gray-400">{eq.code}</p>
+        )}
+      </div>
+      {/* การ์ดที่ยุบรวมหลายหน่วยรุ่นเดียวกันขอเกิน 1 ได้ ไม่ได้ล็อกตาม item_type อีกต่อไป */}
+      {eq.quantity_available > 1 ? (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={1}
+            max={eq.quantity_available}
+            value={quantity}
+            onChange={(e) => updateQuantity(eq.id, Number(e.target.value))}
+            className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-center"
+          />
+          {/* หน่วยฐาน เช่น "ซม." — วัสดุที่ตัดแบ่งได้ตั้งหน่วยเล็กสุดไว้ ต้องเห็นตอนกรอกจำนวน */}
+          <span className="text-sm text-gray-500 w-10">{eq.unit ?? 'ชิ้น'}</span>
+        </div>
+      ) : (
+        <span className="text-sm text-gray-500">1 ชิ้น</span>
+      )}
+      <button
+        type="button"
+        onClick={() => removeItem(eq.id)}
+        className="text-gray-300 hover:text-red-500 text-lg leading-none"
+      >
+        ×
+      </button>
+    </div>
+  )
+
   if (cart.length === 0) {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
+        <button onClick={() => navigate(-1)} className="mb-6 text-sm text-gray-500 hover:text-gray-700 hover:underline">
+          ← ย้อนกลับ
+        </button>
         <p className="text-gray-400 mb-4">ตะกร้าว่างเปล่า</p>
         <Link to="/equipment" className="text-primary-600 hover:underline text-sm font-medium">
           ← เลือกอุปกรณ์
@@ -66,6 +106,9 @@ export default function BorrowRequestPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
+      <button onClick={() => navigate(-1)} className="mb-3 text-sm text-gray-500 hover:text-gray-700 hover:underline">
+        ← ย้อนกลับ
+      </button>
       <h1 className="text-2xl font-light text-gray-800 mb-6">ยื่นคำขอยืมอุปกรณ์</h1>
 
       {error && (
@@ -77,38 +120,7 @@ export default function BorrowRequestPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Cart items */}
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
-          {cart.map(({ equipment: eq, quantity }) => (
-            <div key={eq.id} className="flex items-center gap-3 p-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{eq.name}</p>
-                <p className="text-xs text-gray-400">{eq.code}</p>
-              </div>
-              {/* การ์ดที่ยุบรวมหลายหน่วยรุ่นเดียวกันขอเกิน 1 ได้ ไม่ได้ล็อกตาม item_type อีกต่อไป */}
-              {eq.quantity_available > 1 ? (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={1}
-                    max={eq.quantity_available}
-                    value={quantity}
-                    onChange={(e) => updateQuantity(eq.id, Number(e.target.value))}
-                    className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-center"
-                  />
-                  {/* หน่วยฐาน เช่น "ซม." — วัสดุที่ตัดแบ่งได้ตั้งหน่วยเล็กสุดไว้ ต้องเห็นตอนกรอกจำนวน */}
-                  <span className="text-sm text-gray-500 w-10">{eq.unit ?? 'ชิ้น'}</span>
-                </div>
-              ) : (
-                <span className="text-sm text-gray-500">1 ชิ้น</span>
-              )}
-              <button
-                type="button"
-                onClick={() => removeItem(eq.id)}
-                className="text-gray-300 hover:text-red-500 text-lg leading-none"
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {cart.map(renderRow)}
         </div>
 
         {/* Purpose */}

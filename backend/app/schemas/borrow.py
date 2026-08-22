@@ -18,7 +18,9 @@ class BorrowRequestCreate(BaseModel):
 
 class BorrowItemResponse(BaseModel):
     id: uuid.UUID
-    equipment_id: uuid.UUID
+    # อุปกรณ์ที่ปลดระวาง+ไม่มีการยืมค้าง ลบถาวรได้แล้ว (ดู equipment_service.delete_equipment) —
+    # FK เป็น ON DELETE SET NULL ประวัติเก่าจึงมี equipment_id เป็น None ได้ ต้อง Optional ตาม
+    equipment_id: uuid.UUID | None
     equipment_name: str | None = None
     equipment_code: str | None = None
     equipment_unit: str | None = None

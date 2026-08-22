@@ -43,6 +43,7 @@ export function useBorrowCart() {
       return mergeCartItem(acc, {
         id: it.equipment_id, name: it.equipment_name, code: it.equipment_code,
         item_type: it.item_type, unit: it.unit, quantity_available: it.quantity_available,
+        unit_count: it.unit_count,
       }, it.quantity)
     }, prev))
     return skipped

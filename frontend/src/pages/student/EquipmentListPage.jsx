@@ -144,7 +144,8 @@ export default function EquipmentListPage() {
                     {available ? 'พร้อมให้ยืม' : unavailableReason(eq)}
                   </span>
                 </div>
-                <p className="text-xs text-gray-400">{TYPE_LABEL[eq.item_type]} · {eq.code}</p>
+                {/* ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — ระบบยังไม่การันตีว่าจะได้หน่วยรหัสนี้จริงตอนอนุมัติ */}
+                <p className="text-xs text-gray-400">{TYPE_LABEL[eq.item_type]}{eq.unit_count === 1 ? ` · ${eq.code}` : ''}</p>
                 {available ? (
                   <p className="text-xs text-gray-500">เหลือให้ยืม: {eq.quantity_available} {eq.unit ?? 'ชิ้น'}</p>
                 ) : (

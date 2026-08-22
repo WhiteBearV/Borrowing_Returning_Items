@@ -12,7 +12,8 @@ import { useAuthContext } from '../../context/AuthContext.jsx'
 const notificationTarget = (n, role) => {
   if (!n.borrow_request_id) return null
   if (n.type === 'new_request_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
-  if (n.type === 'return_requested_admin') return `/admin/borrows?request=${n.borrow_request_id}`
+  // BorrowRequestsPage (หน้า "อนุมัติคำขอ") ตอนนี้โชว์ทั้ง pending + แจ้งขอคืนในหน้าเดียว (Phase B feature 4)
+  if (n.type === 'return_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
   if (n.type === 'overdue' && role === 'admin') return `/admin/borrows?request=${n.borrow_request_id}`
   return `/my-borrows?request=${n.borrow_request_id}`
 }
@@ -97,6 +98,11 @@ export default function NotificationBell() {
 
   const unread = items.filter((n) => !n.is_read).length
 
+  const markAllRead = async () => {
+    await notificationApi.markAllRead()
+    setItems((prev) => prev.map((n) => ({ ...n, is_read: true })))
+  }
+
   const handleClick = async (n) => {
     if (!n.is_read) {
       await notificationApi.markRead(n.id)
@@ -130,7 +136,14 @@ export default function NotificationBell() {
           style={{ top: pos.top, left: pos.left }}
           className="fixed w-72 max-h-96 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg z-50"
         >
-          <p className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">การแจ้งเตือน</p>
+          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+            <p className="text-xs font-semibold text-gray-500">การแจ้งเตือน</p>
+            {unread > 0 && (
+              <button onClick={markAllRead} className="text-xs text-primary-600 hover:underline">
+                ทำเครื่องหมายว่าอ่านแล้วทั้งหมด
+              </button>
+            )}
+          </div>
           {items.length === 0 ? (
             <p className="px-3 py-4 text-sm text-gray-400 text-center">ไม่มีการแจ้งเตือน</p>
           ) : (

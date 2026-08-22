@@ -22,10 +22,12 @@ function BundleForm({ initial, onClose, onSave }) {
   const [loading, setLoading] = useState(false)
 
   // ค้นหาอุปกรณ์มาใส่ชุด — debounce เบา ๆ กันยิง API ทุกตัวอักษร
+  // ใช้ listGrouped (ยุบรุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว) แทน list (รายหน่วย) — ไม่งั้นรุ่นที่มีหลายสิบหน่วย
+  // (เช่น Arduino UNO R3 42 ชิ้น) จะโผล่ซ้ำกันเป็นสิบตัวเลือกในกล่องค้นหา ทั้งที่เลือกอันไหนก็ได้ของรุ่นเดียวกัน
   useEffect(() => {
     if (!search) { setResults([]); return }
     const t = setTimeout(() => {
-      equipmentApi.list({ search, page_size: 8 }).then((d) => setResults(d.items)).catch(() => {})
+      equipmentApi.listGrouped({ search, page_size: 8 }).then((d) => setResults(d.items)).catch(() => {})
     }, 300)
     return () => clearTimeout(t)
   }, [search])
@@ -34,7 +36,7 @@ function BundleForm({ initial, onClose, onSave }) {
   useEffect(() => {
     if (!triggerSearch) { setTriggerResults([]); return }
     const t = setTimeout(() => {
-      equipmentApi.list({ search: triggerSearch, page_size: 8 }).then((d) => setTriggerResults(d.items)).catch(() => {})
+      equipmentApi.listGrouped({ search: triggerSearch, page_size: 8 }).then((d) => setTriggerResults(d.items)).catch(() => {})
     }, 300)
     return () => clearTimeout(t)
   }, [triggerSearch])
@@ -116,7 +118,10 @@ function BundleForm({ initial, onClose, onSave }) {
                 {results.map((eq) => (
                   <button key={eq.id} type="button" onClick={() => add(eq)}
                           className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">
-                    {eq.name} <span className="text-xs text-gray-400">{eq.code}</span>
+                    {eq.name}{' '}
+                    <span className="text-xs text-gray-400">
+                      {eq.unit_count > 1 ? `${eq.unit_count} หน่วย` : eq.code}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -143,7 +148,10 @@ function BundleForm({ initial, onClose, onSave }) {
                     {triggerResults.map((eq) => (
                       <button key={eq.id} type="button" onClick={() => pickTrigger(eq)}
                               className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">
-                        {eq.name} <span className="text-xs text-gray-400">{eq.code}</span>
+                        {eq.name}{' '}
+                        <span className="text-xs text-gray-400">
+                          {eq.unit_count > 1 ? `${eq.unit_count} หน่วย` : eq.code}
+                        </span>
                       </button>
                     ))}
                   </div>

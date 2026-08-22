@@ -29,3 +29,12 @@ async def mark_read(
 ) -> dict:
     await notification_service.mark_read(db, current_user.id, notification_id)
     return {"detail": "Marked as read."}
+
+
+@router.patch("/read-all")
+async def mark_all_read(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await notification_service.mark_all_read(db, current_user.id)
+    return {"detail": "All marked as read."}

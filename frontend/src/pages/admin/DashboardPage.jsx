@@ -43,7 +43,7 @@ export default function DashboardPage() {
           <p className="text-sm font-medium">เกินกำหนดคืน</p>
           <p className="text-4xl font-bold">{summary.overdue_requests}</p>
         </Link>
-        <Link to="/admin/equipment"
+        <Link to="/admin/equipment?status=low_stock"
           className="rounded-2xl p-5 flex flex-col justify-between bg-orange-50 text-orange-700 hover:opacity-80 transition-opacity">
           <p className="text-sm font-medium">สต็อกต่ำ</p>
           <p className="text-3xl font-bold">{summary.low_stock_items}</p>
@@ -53,7 +53,7 @@ export default function DashboardPage() {
           <p className="text-sm font-medium">คำขอที่ยืมอยู่</p>
           <p className="text-3xl font-bold">{summary.active_borrows}</p>
         </Link>
-        <Link to="/admin/equipment"
+        <Link to="/admin/equipment?status=borrowed"
           className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-indigo-50 text-indigo-700 hover:opacity-80 transition-opacity">
           <span className="flex items-center gap-1.5 text-sm font-medium">
             อุปกรณ์ที่ถูกยืมอยู่

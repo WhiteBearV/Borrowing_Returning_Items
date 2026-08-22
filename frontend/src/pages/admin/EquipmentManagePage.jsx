@@ -105,6 +105,10 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const removeImage = (url) => setForm((f) => ({ ...f, image_urls: f.image_urls.filter((u) => u !== url) }))
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  // เปลี่ยนออกจาก consumable แล้ว unit เดิม (ที่กรอกไว้ตอนเป็นวัสดุสิ้นเปลือง) ไม่มีความหมายแล้ว — เคลียร์ทิ้ง
+  const setItemType = (e) => setForm((f) => ({
+    ...f, item_type: e.target.value, unit: e.target.value === 'consumable' ? f.unit : '',
+  }))
   const toggleCategory = (id) =>
     setForm((f) => ({
       ...f,
@@ -147,12 +151,15 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+      {/* กว้างขึ้น + 2 คอลัมน์ — เดิมคอลัมน์เดียวยาวลงมากเพราะฟิลด์เพิ่มขึ้นเรื่อยๆ (code/item_type แก้ได้, สถานะ, ชุดอุปกรณ์) */}
+      <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl">
         <h2 className="font-bold text-gray-800 mb-4">{isEdit ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์ใหม่'}</h2>
         {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
           {[
-            { label: 'รหัสอุปกรณ์ *', key: 'code', required: true, disabled: isEdit },
+            { label: `รหัสอุปกรณ์${form.item_type === 'consumable' ? '' : ' *'}`, key: 'code',
+              required: form.item_type !== 'consumable', disabled: false,
+              placeholder: form.item_type === 'consumable' ? 'เว้นว่างได้ ระบบจะออกรหัสให้อัตโนมัติ' : undefined },
             { label: 'SN (Serial Number ผู้ผลิต)', key: 'serial_number', placeholder: 'เลขที่ผู้ผลิตติดมากับเครื่อง (ไม่บังคับ)',
               tip: 'เลขประจำเครื่องจากผู้ผลิต คนละอย่างกับรหัสอุปกรณ์ด้านบน — ใช้ยืนยันว่าเป็นเครื่องจริงตอนตรวจนับอุปกรณ์' },
             { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true },
@@ -169,7 +176,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </div>
           ))}
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">
               รูปภาพ {form.image_urls.length > 0 && <span className="text-gray-400">({form.image_urls.length} รูป · รูปแรก = ปก)</span>}
             </label>
@@ -190,7 +197,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             {uploading && <p className="mt-1 text-xs text-gray-400">กำลังอัปโหลด…</p>}
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">หมวดหมู่ * (เลือกได้หลายหมวด)</label>
             <div className="flex flex-wrap gap-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
               {categories.map((c) => {
@@ -209,22 +216,13 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">ประเภท *</label>
-            <select value={form.item_type} onChange={set('item_type')} disabled={isEdit}
+            <select value={form.item_type} onChange={setItemType}
               className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50">
               <option value="durable">ครุภัณฑ์</option>
               <option value="material">วัสดุ</option>
               <option value="consumable">วัสดุสิ้นเปลือง</option>
             </select>
           </div>
-
-          <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <input type="checkbox" checked={!form.is_borrowable} className="mt-0.5"
-              onChange={(e) => setForm({ ...form, is_borrowable: !e.target.checked })} />
-            <span className="text-xs text-gray-600">
-              <span className="font-medium text-gray-700">ของประจำห้อง — ห้ามยืมออก</span>
-              <br />เช่น โต๊ะ ตู้ ทีวี เครื่องที่ติดตั้งประจำที่ — นักศึกษาจะเห็นแต่ยืมไม่ได้
-            </span>
-          </label>
 
           {isEdit && (
             <div>
@@ -240,13 +238,43 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </div>
           )}
 
-          {isEdit && bundles.length > 0 && (
+          <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <input type="checkbox" checked={!form.is_borrowable} className="mt-0.5"
+              onChange={(e) => setForm({ ...form, is_borrowable: !e.target.checked })} />
+            <span className="text-xs text-gray-600">
+              <span className="font-medium text-gray-700">ของประจำห้อง — ห้ามยืมออก</span>
+              <br />เช่น โต๊ะ ตู้ ทีวี เครื่องที่ติดตั้งประจำที่ — นักศึกษาจะเห็นแต่ยืมไม่ได้
+            </span>
+          </label>
+
+          <div className={form.item_type === 'consumable' ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-2 gap-3'}>
             <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">จำนวนทั้งหมด *</label>
+              <input type="number" min={1} required value={form.quantity_total} onChange={set('quantity_total')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>
+            {form.item_type === 'consumable' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">หน่วย</label>
+                <input type="text" value={form.unit} onChange={set('unit')} placeholder="ชิ้น / ก้อน…"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่า/ชิ้น (บาท)</label>
+              <input type="number" min={0} step="0.01" value={form.unit_value ?? ''} onChange={set('unit_value')}
+                placeholder="เช่น 200 (เว้นว่างได้)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>
+          </div>
+
+          {isEdit && bundles.length > 0 && (
+            <div className="md:col-span-2">
               <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
                 ชุดอุปกรณ์
                 <Tooltip text={'ติ๊กชื่อชุด = อุปกรณ์นี้เป็นสมาชิกของชุดนั้น\nติ๊ก "ตัวกระตุ้น" เพิ่ม = กด "+ เพิ่มในตะกร้า" บนอุปกรณ์ตัวนี้แล้วจะได้อุปกรณ์ทั้งชุดมาในตะกร้าอัตโนมัติ (เลือกตัวกระตุ้นได้ชุดละ 1 ชิ้น)'} />
               </label>
-              <div className="space-y-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
                 {bundles.map((b) => {
                   const m = bundleMembership[b.id]
                   if (!m) return null
@@ -272,34 +300,13 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">จำนวนทั้งหมด *</label>
-              <input type="number" min={1} required value={form.quantity_total} onChange={set('quantity_total')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-            </div>
-            {form.item_type === 'consumable' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">หน่วย</label>
-                <input type="text" value={form.unit} onChange={set('unit')} placeholder="ชิ้น / ก้อน…"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่า/ชิ้น (บาท)</label>
-              <input type="number" min={0} step="0.01" value={form.unit_value ?? ''} onChange={set('unit_value')}
-                placeholder="เช่น 200 (เว้นว่างได้)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-            </div>
-          </div>
-
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">คำอธิบาย</label>
             <textarea rows={2} value={form.description} onChange={set('description')}
               className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="md:col-span-2 flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
             <button type="submit" disabled={loading}
               className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
@@ -312,19 +319,122 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   )
 }
 
+// ฟิลด์ที่แก้พร้อมกันหลายหน่วยได้อย่างปลอดภัย — ต้องตรงกับ EquipmentBulkUpdate ฝั่ง backend
+// (ไม่รวม code/serial_number/name/item_type/quantity_* — ดูเหตุผลใน CLAUDE.md/แผน Phase B feature 3)
+const BULK_FIELDS = [
+  { key: 'location', label: 'สถานที่เก็บ', type: 'text', placeholder: 'เช่น 15312 ตู้A ชั้น3' },
+  { key: 'description', label: 'คำอธิบาย', type: 'textarea' },
+  { key: 'unit', label: 'หน่วย', type: 'text', placeholder: 'ชิ้น / ก้อน…' },
+  { key: 'unit_value', label: 'มูลค่า/ชิ้น (บาท)', type: 'number' },
+  { key: 'low_stock_threshold', label: 'แจ้งเตือนของใกล้หมด (จำนวน)', type: 'number' },
+  {
+    key: 'status', label: 'สถานะ', type: 'select',
+    options: [['available', 'พร้อมให้ยืม'], ['unavailable', 'ไม่อนุญาตให้ยืม'],
+      ['damaged', 'เสียหาย'], ['under_repair', 'ซ่อมอยู่'], ['retired', 'ปลดระวาง']],
+  },
+  { key: 'is_borrowable', label: 'อนุญาตให้ยืม', type: 'bool' },
+]
+
+// แก้ไขหลายหน่วยพร้อมกัน — แต่ละฟิลด์เป็น checkbox เปิดใช้ + input คู่กัน ไม่ติ๊ก = ไม่ส่งฟิลด์นั้น = ไม่แตะของเดิม
+function BulkEditModal({ count, onClose, onSave }) {
+  const [enabled, setEnabled] = useState({})
+  const [values, setValues] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const toggleField = (key) => setEnabled((e) => ({ ...e, [key]: !e[key] }))
+  const setVal = (key, v) => setValues((s) => ({ ...s, [key]: v }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const update = {}
+    for (const f of BULK_FIELDS) {
+      if (!enabled[f.key]) continue
+      const raw = values[f.key]
+      update[f.key] = f.type === 'number' ? (raw === '' || raw == null ? null : Number(raw)) : raw
+    }
+    if (Object.keys(update).length === 0) { setError('เลือกอย่างน้อย 1 ฟิลด์ที่จะแก้ไข'); return }
+    setError('')
+    setLoading(true)
+    try {
+      await onSave(update)
+    } catch (err) {
+      setError(errMsg(err, 'บันทึกไม่สำเร็จ'))
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <h2 className="font-bold text-gray-800 mb-1">แก้ไขหลายรายการ</h2>
+        <p className="mb-4 text-xs text-gray-500">แก้พร้อมกัน {count} รายการ — ติ๊กเฉพาะฟิลด์ที่จะแก้ ฟิลด์ที่ไม่ติ๊กจะไม่ถูกแตะ</p>
+        {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <form onSubmit={submit} className="space-y-3">
+          {BULK_FIELDS.map((f) => (
+            <div key={f.key} className="rounded-lg border border-gray-200 p-2.5">
+              <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1.5">
+                <input type="checkbox" checked={!!enabled[f.key]} onChange={() => toggleField(f.key)} />
+                {f.label}
+              </label>
+              {enabled[f.key] && f.type === 'textarea' && (
+                <textarea rows={2} value={values[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              )}
+              {enabled[f.key] && f.type === 'text' && (
+                <input type="text" value={values[f.key] ?? ''} placeholder={f.placeholder} onChange={(e) => setVal(f.key, e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              )}
+              {enabled[f.key] && f.type === 'number' && (
+                <input type="number" step="0.01" value={values[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              )}
+              {enabled[f.key] && f.type === 'select' && (
+                <select value={values[f.key] ?? f.options[0][0]} onChange={(e) => setVal(f.key, e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                  {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              )}
+              {enabled[f.key] && f.type === 'bool' && (
+                <select value={values[f.key] === false ? 'false' : 'true'} onChange={(e) => setVal(f.key, e.target.value === 'true')}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                  <option value="true">ยืมได้</option>
+                  <option value="false">ห้ามยืมออก (ของประจำห้อง)</option>
+                </select>
+              )}
+            </div>
+          ))}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+            <button type="submit" disabled={loading}
+              className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
+              {loading ? 'กำลังบันทึก…' : `บันทึก (${count})`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function EquipmentManagePage() {
-  // เข้าถึงหน้านี้พร้อมกรองประเภทได้ทันทีผ่าน query string เช่น /admin/equipment?item_type=material
-  // (ลิงก์จาก "ภาพรวมคลังอุปกรณ์" ใน dashboard ใช้ path นี้) — อ่านแค่ตอน mount ครั้งแรกพอ ไม่ sync สองทาง
+  // เข้าถึงหน้านี้พร้อมกรองประเภท/สถานะได้ทันทีผ่าน query string เช่น /admin/equipment?status=low_stock
+  // (ลิงก์จาก "ภาพรวมคลังอุปกรณ์"/การ์ดแจ้งเตือนใน dashboard ใช้ path นี้) — อ่านแค่ตอน mount ครั้งแรกพอ ไม่ sync สองทาง
   const [searchParams] = useSearchParams()
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState(searchParams.get('item_type') || '')
+  const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || '')
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null) // null | 'create' | equipment object
   const [confirm, setConfirm] = useState(null) // { title, message, onConfirm }
   const [loading, setLoading] = useState(true)
+  // เลือกหลายรายการ (checkbox) — เก็บ equipment_id จริง (แถวเดี่ยว หรือหน่วยย่อยที่กางกลุ่มดูแล้ว)
+  const [selected, setSelected] = useState(() => new Set())
+  const [showBulkEdit, setShowBulkEdit] = useState(false)
+  const [bulkResult, setBulkResult] = useState(null) // { deleted, failed } — โชว์สรุปหลังลบหลายรายการ
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -341,12 +451,50 @@ export default function EquipmentManagePage() {
       search: search || undefined,
       category_id: filterCategory || undefined,
       item_type: filterType || undefined,
+      status: filterStatus || undefined,
       page, page_size: 15,
     }).then(setData).finally(() => setLoading(false))
   }
 
   useEffect(() => { reloadCategories() }, [])
-  useEffect(() => { load() }, [search, filterCategory, filterType, page])
+  useEffect(() => { load() }, [search, filterCategory, filterType, filterStatus, page])
+  // เปลี่ยนตัวกรอง/หน้า = แถวที่เห็นเปลี่ยนไป การเลือกเดิมอาจอ้างถึงแถวที่ไม่อยู่ในจอแล้ว เคลียร์กันสับสน
+  useEffect(() => { setSelected(new Set()) }, [search, filterCategory, filterType, filterStatus, page])
+
+  const toggleSelect = (id) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+
+  // ติ๊กที่แถวกลุ่ม (อุปกรณ์เก่าจากทะเบียนส่วนใหญ่ยุบรวมหลายหน่วยแบบนี้) = เลือกทุกหน่วยในกลุ่มทีเดียว
+  // ไม่ต้องกด "ดูรายหน่วย" ไล่ติ๊กเองทีละชิ้นก่อน — โหลดรายหน่วยให้อัตโนมัติถ้ายังไม่เคยกางดู (เห็นเป็นโบนัสว่าเลือกอะไรไปบ้าง)
+  const toggleSelectGroup = async (eq) => {
+    let members = expanded[eq.id]
+    if (!members) {
+      const detail = await equipmentApi.getGrouped(eq.id)
+      members = detail.members
+      setExpanded((e) => ({ ...e, [eq.id]: members }))
+    }
+    const memberIds = members.map((m) => m.id)
+    const allSelected = memberIds.length > 0 && memberIds.every((id) => selected.has(id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      memberIds.forEach((id) => (allSelected ? next.delete(id) : next.add(id)))
+      return next
+    })
+  }
+
+  // หาชื่อ/รหัสมาโชว์ในสรุปผลลบหลายรายการ — ใช้ข้อมูลที่กำลังแสดงอยู่บนจอ (แถวบน + หน่วยย่อยที่กางอยู่)
+  const labelFor = (id) => {
+    const top = data.items.find((e) => e.id === id)
+    if (top) return `${top.name} (${top.code})`
+    for (const members of Object.values(expanded)) {
+      const m = members.find((u) => u.id === id)
+      if (m) return m.code
+    }
+    return id
+  }
 
   // { [groupId]: EquipmentUnitSummary[] } — กลุ่มที่กำลังกางดูหน่วยย่อยอยู่
   const [expanded, setExpanded] = useState({})
@@ -379,9 +527,13 @@ export default function EquipmentManagePage() {
       danger: true,
       onConfirm: async () => {
         setConfirm(null)
-        await equipmentApi.retire(id, reason.trim())
-        load()
-        if (groupId) refreshExpanded(groupId)
+        try {
+          await equipmentApi.retire(id, reason.trim())
+          load()
+          if (groupId) refreshExpanded(groupId)
+        } catch (e) {
+          alert(e.response?.data?.detail || 'ปลดระวางไม่สำเร็จ')
+        }
       },
     })
   }
@@ -427,9 +579,35 @@ export default function EquipmentManagePage() {
     danger: true,
     onConfirm: async () => {
       setConfirm(null)
-      await equipmentApi.deletePermanent(id)
-      load()
-      if (groupId) refreshExpanded(groupId)
+      try {
+        await equipmentApi.deletePermanent(id)
+        load()
+        if (groupId) refreshExpanded(groupId)
+      } catch (e) {
+        alert(e.response?.data?.detail || 'ลบไม่สำเร็จ')
+      }
+    },
+  })
+
+  // ลบถาวรหลายรายการที่เลือกไว้พร้อมกัน — best-effort: ชิ้นที่ลบไม่ได้ (เช่นยังไม่ปลดระวาง) โชว์เหตุผลแยก
+  // ไม่บล็อกชิ้นอื่นที่เหลือ
+  const bulkDeleteSelected = () => setConfirm({
+    title: 'ลบอุปกรณ์ถาวรหลายรายการ',
+    message: `ลบอุปกรณ์ที่เลือกไว้ ${selected.size} รายการออกจากระบบถาวร?\n`
+      + 'ทำได้เฉพาะชิ้นที่ปลดระวางแล้วและไม่มีประวัติการยืมค้าง — ชิ้นที่ลบไม่ได้จะแสดงเหตุผลแยกให้เห็น ไม่กระทบชิ้นอื่น',
+    confirmLabel: 'ลบถาวร',
+    danger: true,
+    onConfirm: async () => {
+      setConfirm(null)
+      try {
+        const result = await equipmentApi.bulkDelete([...selected])
+        setBulkResult(result)
+        setSelected(new Set())
+        load()
+        Object.keys(expanded).forEach(refreshExpanded)
+      } catch (e) {
+        alert(e.response?.data?.detail || 'ลบไม่สำเร็จ')
+      }
     },
   })
 
@@ -514,7 +692,35 @@ export default function EquipmentManagePage() {
           <option value="material">วัสดุ</option>
           <option value="consumable">วัสดุสิ้นเปลือง</option>
         </select>
+        <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
+          className="w-full sm:w-40 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+          <option value="">ทุกสถานะ</option>
+          <option value="available">พร้อมให้ยืม</option>
+          <option value="unavailable">ไม่อนุญาตให้ยืม</option>
+          <option value="damaged">เสียหาย</option>
+          <option value="under_repair">ซ่อมอยู่</option>
+          <option value="retired">ปลดระวาง</option>
+          {/* 2 ตัวนี้ derive จากเกณฑ์/ตารางอื่น ไม่ใช่ equipment.status ตรงๆ (ดู equipment_service._apply_status_filter)
+              เดิมดูได้แค่กดเข้ามาจาก dashboard เฉยๆ ไม่มี filter ให้กรองต่อ */}
+          <option value="low_stock">สต็อกต่ำ</option>
+          <option value="borrowed">ถูกยืมอยู่</option>
+        </select>
       </div>
+
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-primary-200 bg-primary-50 px-4 py-2.5">
+          <span className="text-sm font-medium text-primary-800">เลือกอยู่ {selected.size} รายการ</span>
+          <button onClick={() => setShowBulkEdit(true)}
+            className="rounded-full border border-primary-300 bg-white px-3 py-1 text-xs font-medium text-primary-700 hover:bg-primary-100">
+            แก้ไขหลายรายการ
+          </button>
+          <button onClick={bulkDeleteSelected}
+            className="rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700">
+            ลบถาวรที่เลือก ({selected.size})
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:underline">ยกเลิกการเลือก</button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
@@ -523,8 +729,8 @@ export default function EquipmentManagePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['รูป', 'รหัส', 'ชื่อ', 'หมวดหมู่', 'ประเภท', 'คงเหลือ', 'สถานะ', ''].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
+                {['', 'รูป', 'รหัส', 'ชื่อ', 'หมวดหมู่', 'ประเภท', 'คงเหลือ', 'สถานะ', ''].map((h, i) => (
+                  <th key={i} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -535,6 +741,11 @@ export default function EquipmentManagePage() {
                 return (
                   <Fragment key={eq.id}>
                     <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-2">
+                        <input type="checkbox"
+                          checked={grouped ? Boolean(members?.length) && members.every((m) => selected.has(m.id)) : selected.has(eq.id)}
+                          onChange={() => (grouped ? toggleSelectGroup(eq) : toggleSelect(eq.id))} />
+                      </td>
                       <td className="px-4 py-2">
                         {eq.image_url
                           ? <img src={imageSrc(eq.image_url)} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
@@ -590,6 +801,9 @@ export default function EquipmentManagePage() {
 
                     {grouped && members && members.map((u) => (
                       <tr key={u.id} className="bg-gray-50/60">
+                        <td className="px-4 py-1.5">
+                          <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)} />
+                        </td>
                         <td className="px-4 py-1.5" />
                         <td className="px-4 py-1.5 pl-8 font-mono text-xs text-gray-500">{u.code}</td>
                         <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>
@@ -642,6 +856,43 @@ export default function EquipmentManagePage() {
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
         />
+      )}
+
+      {showBulkEdit && (
+        <BulkEditModal
+          count={selected.size}
+          onClose={() => setShowBulkEdit(false)}
+          onSave={async (update) => {
+            await equipmentApi.bulkUpdate([...selected], update)
+            setShowBulkEdit(false)
+            setSelected(new Set())
+            load()
+            Object.keys(expanded).forEach(refreshExpanded)
+          }}
+        />
+      )}
+
+      {bulkResult && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h2 className="font-bold text-gray-800 mb-3">ผลการลบถาวรหลายรายการ</h2>
+            <p className="text-sm text-green-700 mb-2">สำเร็จ {bulkResult.deleted.length} รายการ</p>
+            {bulkResult.failed.length > 0 && (
+              <div className="mb-3">
+                <p className="text-sm text-red-600 mb-1">ไม่สำเร็จ {bulkResult.failed.length} รายการ</p>
+                <ul className="max-h-48 overflow-y-auto space-y-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+                  {bulkResult.failed.map((f) => (
+                    <li key={f.equipment_id}>{labelFor(f.equipment_id)} — {f.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button onClick={() => setBulkResult(null)}
+              className="mt-2 w-full rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+              ปิด
+            </button>
+          </div>
+        </div>
       )}
 
       {showCats && (

@@ -79,3 +79,6 @@ backend/import_tmp/
 
 # TLS cert/key ของจริงบน VM (ออกจาก gen-self-signed-cert.sh หรือ certbot) — ห้าม commit เด็ดขาด
 /certs/
+
+# แผนงานจากโหมดวางแผน (Plan Mode) — เก็บไว้ local อ่านย้อนหลังได้ ห้าม commit/push เด็ดขาด
+/Plans/

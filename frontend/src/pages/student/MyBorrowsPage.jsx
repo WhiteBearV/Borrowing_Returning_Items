@@ -36,7 +36,13 @@ export default function MyBorrowsPage() {
     borrowApi.list({ page, page_size: 10 }).then(setData).finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [page])
+  // poll ทุก 4 วิ mirror BorrowRequestsPage.jsx/NotificationBell.jsx — เห็นสถานะที่แอดมินอัปเดตแล้ว
+  // (อนุมัติ/ปฏิเสธ/รับคืน) เองอัตโนมัติ ไม่ต้องกด refresh เอง
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 4000)
+    return () => clearInterval(id)
+  }, [page])
 
   // มาจากลิงก์แจ้งเตือน — คำขอที่ต้องการอาจไม่อยู่ในหน้าปัจจุบันที่โหลดมา (มีแบ่งหน้า)
   // ดึงมาแสดงแยกต่างหากแล้ว scroll ไปหาเลย ไม่ต้องเดาว่าอยู่หน้าไหน

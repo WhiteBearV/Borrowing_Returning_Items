@@ -225,9 +225,13 @@ def _build_form(req: object, kind: str) -> bytes:
         itype = getattr(item, "item_type_snapshot", None)
         unit = getattr(item, "equipment_unit", None) or _DEFAULT_UNIT.get(itype, "ชิ้น")
         qty = getattr(item, "quantity", 1)
+        # ร่าง/พรีวิว (ยังไม่อนุมัติ): ห้ามโชว์รหัสหน่วยเจาะจง เพราะระบบเลือก "หน่วยว่างรหัสต่ำสุด" ใหม่ทุกครั้ง
+        # ที่เรียก ยังไม่ sync กันระหว่างตะกร้า/คำขอ/อนุมัติ รหัสที่เห็นตอนร่างอาจไม่ตรงของจริงตอนอนุมัติ
+        # เขียนบอกตรง ๆ ว่า "รออนุมัติ" แทน "-" เฉย ๆ กันผู้ยืมสับสนว่าทำไมไม่มีรหัส
+        code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
         cells = [
             Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
-            Paragraph(getattr(item, "equipment_code", None) or "-", _style(f"c{i}", fontSize=9, alignment=1)),
+            Paragraph(code_display, _style(f"c{i}", fontSize=9, alignment=1)),
             Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
             Paragraph(_ITEM_TYPE_TH.get(itype, "-"), _style(f"t{i}", fontSize=9, alignment=1)),
             Paragraph(f"{qty} {unit}", _style(f"q{i}", fontSize=10, alignment=1)),

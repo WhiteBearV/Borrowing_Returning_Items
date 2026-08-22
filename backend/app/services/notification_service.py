@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
@@ -34,6 +34,16 @@ async def mark_read(db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.
     if not n:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
     n.is_read = True
+    await db.commit()
+
+
+async def mark_all_read(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """ทำเครื่องหมายว่าอ่านแล้วทั้งหมดในคราวเดียว — เฉพาะของ user นี้ ไม่แตะของคนอื่น"""
+    await db.execute(
+        update(Notification)
+        .where(Notification.user_id == user_id, Notification.is_read == False)  # noqa: E712
+        .values(is_read=True)
+    )
     await db.commit()
 
 
