@@ -56,19 +56,20 @@ export default function AllBorrowsPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-light text-gray-800">ประวัติการยืมทั้งหมด</h1>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 shrink-0 cursor-pointer">
-            <input type="checkbox" checked={overdueOnly}
-              onChange={(e) => { setOverdueOnly(e.target.checked); setPage(1) }}
-              className="rounded border-gray-300 text-red-600 focus:ring-red-400" />
-            เฉพาะเกินกำหนด
-          </label>
-          <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
-            className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-            <option value="">ทุกสถานะ</option>
-            {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
+        <select
+          value={overdueOnly ? 'overdue' : filterStatus}
+          onChange={(e) => {
+            const v = e.target.value
+            setOverdueOnly(v === 'overdue')
+            setFilterStatus(v === 'overdue' ? '' : v)
+            setPage(1)
+          }}
+          className="w-full sm:w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">ทุกสถานะ</option>
+          {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          <option value="overdue">เกินกำหนด</option>
+        </select>
       </div>
 
       {loading ? (
