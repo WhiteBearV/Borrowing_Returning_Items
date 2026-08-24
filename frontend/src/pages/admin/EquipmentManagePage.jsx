@@ -812,6 +812,11 @@ export default function EquipmentManagePage() {
                       <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[grouped ? eq.status : unitDisplayStatus(eq)] ?? ''}`}>
                         {STATUS_LABEL[grouped ? eq.status : unitDisplayStatus(eq)] ?? eq.status}
                         {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
+                        {!grouped && eq.holder && (
+                          <div className="font-normal text-gray-400 text-xs">
+                            {eq.holder.holder_name}{eq.holder.student_number ? ` (${eq.holder.student_number})` : ''}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         {grouped ? (
@@ -852,6 +857,11 @@ export default function EquipmentManagePage() {
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
                         <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[unitDisplayStatus(u)] ?? ''}`}>
                           {STATUS_LABEL[unitDisplayStatus(u)] ?? u.status}
+                          {u.holder && (
+                            <div className="font-normal text-gray-400">
+                              {u.holder.holder_name}{u.holder.student_number ? ` (${u.holder.student_number})` : ''}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">

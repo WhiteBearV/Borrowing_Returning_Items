@@ -32,6 +32,14 @@ class CategoryCreate(BaseModel):
     name: str
 
 
+class HolderInfo(BaseModel):
+    """ผู้ที่กำลังครอบครองอุปกรณ์ชิ้นนี้อยู่ (ยืมแล้วยังไม่คืน)"""
+    holder_name: str
+    student_number: str | None = None
+    due_date: date | None
+    quantity: int
+
+
 class EquipmentResponse(BaseModel):
     id: uuid.UUID
     code: str
@@ -57,15 +65,9 @@ class EquipmentResponse(BaseModel):
     # ต้องแยกจาก quantity_available < quantity_total เพราะช่องว่างนั้นเกิดจากของเสีย/สูญหายที่คืนไปแล้วได้ด้วย
     # ไม่ได้แปลว่ามีคนถือของอยู่จริงเสมอไป — ปล่อยให้ derive ผิดจากตัวเลขจะเห็น "ถูกยืม" ทั้งที่ไม่มีใครยืมจริง
     is_currently_borrowed: bool = False
+    holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีความหมายเฉพาะแถวหน่วยเดียว ดู _build_group_response)
 
     model_config = {"from_attributes": True}
-
-
-class HolderInfo(BaseModel):
-    """ผู้ที่กำลังครอบครองอุปกรณ์ชิ้นนี้อยู่ (ยืมแล้วยังไม่คืน)"""
-    holder_name: str
-    due_date: date | None
-    quantity: int
 
 
 class EquipmentDetailResponse(EquipmentResponse):
@@ -108,6 +110,7 @@ class EquipmentUnitSummary(BaseModel):
     quantity_available: int
     is_borrowable: bool
     is_currently_borrowed: bool = False
+    holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีค่าก็ต่อเมื่อ is_currently_borrowed)
 
     model_config = {"from_attributes": True}
 

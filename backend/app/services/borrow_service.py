@@ -608,6 +608,12 @@ async def return_item(
 
     if body.condition_on_return in STOCK_RETURN_CONDITIONS:
         item.equipment.quantity_available += item.quantity
+    elif body.condition_on_return in PHOTO_REQUIRED_CONDITIONS and item.equipment.quantity_total == 1:
+        # แถวนี้แทนหน่วยเดียว (ไม่ใช่ก้อนวัสดุ/สิ้นเปลืองที่ยังไม่แยกรายชิ้น quantity_total>1) — เสีย/สูญหาย/ทิ้ง
+        # แล้วเป็นสถานะจริงของอุปกรณ์ชิ้นนั้นเลย ไม่ใช่แค่ตัวเลขสต็อกลด ไม่งั้น status ค้าง "available" ทั้งที่
+        # ของหายไปแล้วจริง ๆ (เจอบั๊กจริง — quantity_available เหลือ 0 แต่ status ยังขึ้น "พร้อม" ให้ยืม)
+        # quantity_total>1 ไม่แตะ status เพราะแค่หน่วยเดียวในก้อนเสีย ไม่ได้แปลว่าทั้งก้อนเสียหมด
+        item.equipment.status = "unavailable" if body.condition_on_return == "lost" else "damaged"
 
     # ถ้าทุก item returned แล้ว → complete request
     # consumable ถูก auto-return ตอน approve แล้ว ดังนั้น all() ครอบคลุมทั้งหมด

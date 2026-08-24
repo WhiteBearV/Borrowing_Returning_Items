@@ -85,14 +85,31 @@ async def save_image(file: UploadFile) -> str:
     return f"/uploads/{filename}"
 
 
-async def _borrowed_equipment_ids(db: AsyncSession) -> set[uuid.UUID]:
-    """id ของอุปกรณ์ที่มีหน่วยกำลังถูกยืมอยู่จริง (approved + ยังไม่คืน)"""
-    result = await db.execute(
-        select(BorrowItem.equipment_id)
+async def get_holders_map(
+    db: AsyncSession, equipment_ids: list[uuid.UUID] | None = None
+) -> dict[uuid.UUID, HolderInfo]:
+    """หน่วยไหนกำลังถูกยืมอยู่จริงบ้าง (approved + ยังไม่คืน) พร้อมรายละเอียดคนถือ — equipment_ids=None คือทั้งระบบ
+
+    คิวรีเดียวได้ทั้ง "ถูกยืมอยู่ไหม" (เดิมใช้ _borrowed_equipment_ids คืนแค่ set id) และ "ใครถือ" (เดิม
+    get_holders แยกอีกคิวรี) รวมเป็นฟังก์ชันเดียว — ผู้เรียกที่ต้องการแค่ boolean เช็ค `id in map` ได้เลย
+    ไม่ต้องยิง 2 คิวรีซ้อนกันเหมือนก่อน
+    """
+    query = (
+        select(
+            BorrowItem.equipment_id, User.full_name, User.student_id,
+            BorrowItem.extended_due_date, BorrowRequest.due_date, BorrowItem.quantity,
+        )
         .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .join(User, BorrowRequest.student_id == User.id)
         .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
     )
-    return set(result.scalars().all())
+    if equipment_ids is not None:
+        query = query.where(BorrowItem.equipment_id.in_(equipment_ids))
+    result = await db.execute(query)
+    return {
+        eq_id: HolderInfo(holder_name=name, student_number=sid, due_date=ext or due, quantity=qty)
+        for eq_id, name, sid, ext, due, qty in result.all()
+    }
 
 
 async def _apply_status_filter(db: AsyncSession, query, filter_status: str | None):
@@ -115,7 +132,7 @@ async def _apply_status_filter(db: AsyncSession, query, filter_status: str | Non
             Equipment.quantity_available <= func.coalesce(Equipment.low_stock_threshold, default_threshold),
         )
     if filter_status == "borrowed":
-        return query.where(Equipment.id.in_(await _borrowed_equipment_ids(db)))
+        return query.where(Equipment.id.in_((await get_holders_map(db)).keys()))
     if filter_status:
         return query.where(Equipment.status == filter_status)
     return query
@@ -155,10 +172,10 @@ async def list_equipment(
     query = query.options(selectinload(Equipment.categories))
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
-    borrowed_ids = await _borrowed_equipment_ids(db)
+    holders_map = await get_holders_map(db)
     responses = [
         EquipmentResponse.model_validate(eq, from_attributes=True).model_copy(
-            update={"is_currently_borrowed": eq.id in borrowed_ids}
+            update={"is_currently_borrowed": eq.id in holders_map, "holder": holders_map.get(eq.id)}
         )
         for eq in items
     ]
@@ -187,14 +204,21 @@ def _location_breakdown(rows: list[Equipment]) -> list[LocationCount]:
     return [LocationCount(location=loc, count=n) for loc, n in counts.items()]
 
 
-def _build_group_response(rows: list[Equipment], borrowed_ids: set[uuid.UUID]) -> EquipmentGroupResponse:
-    """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)"""
+def _build_group_response(
+    rows: list[Equipment], holders_map: dict[uuid.UUID, HolderInfo]
+) -> EquipmentGroupResponse:
+    """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)
+
+    holder เจาะจงหน่วยตัวแทนเท่านั้น (มีความหมายจริงเฉพาะการ์ดหน่วยเดียว unit_count==1 — การ์ดหลายหน่วย
+    ต้องกางดูรายหน่วยแทนเพราะแต่ละหน่วยอาจมีคนละคนถือ ไม่มี "คนเดียว" ให้โชว์ตรงนี้)
+    """
     rep = rows[0]
     eligible = [r for r in rows if _is_eligible(r)]
     base = EquipmentResponse.model_validate(rep, from_attributes=True).model_dump()
     base["quantity_total"] = sum(r.quantity_total for r in rows)
     base["quantity_available"] = sum(r.quantity_available for r in eligible)
-    base["is_currently_borrowed"] = rep.id in borrowed_ids
+    base["is_currently_borrowed"] = rep.id in holders_map
+    base["holder"] = holders_map.get(rep.id)
     # มีหน่วยว่างพร้อมยืมอย่างน้อย 1 ชิ้น = การ์ดนี้ "พร้อมให้ยืม" ไม่งั้น fallback ไปสถานะของตัวแทน
     if eligible:
         base["is_borrowable"] = True
@@ -238,11 +262,11 @@ async def list_equipment_grouped(
     for eq in rows:
         groups.setdefault(_group_key(eq), []).append(eq)
 
-    borrowed_ids = await _borrowed_equipment_ids(db)
+    holders_map = await get_holders_map(db)
     if filter_borrowed_group:
-        groups = {key: members for key, members in groups.items() if any(m.id in borrowed_ids for m in members)}
+        groups = {key: members for key, members in groups.items() if any(m.id in holders_map for m in members)}
 
-    cards = [_build_group_response(members, borrowed_ids) for members in groups.values()]
+    cards = [_build_group_response(members, holders_map) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
 
     total = len(cards)
@@ -268,38 +292,15 @@ async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) 
     """
     eq = await get_equipment(db, equipment_id)
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
-    borrowed_ids = await _borrowed_equipment_ids(db)
-    group = _build_group_response(members, borrowed_ids)
-    holders = await get_holders(db, [m.id for m in members])
+    holders_map = await get_holders_map(db, [m.id for m in members])
+    group = _build_group_response(members, holders_map)
     unit_summaries = [
         EquipmentUnitSummary.model_validate(m, from_attributes=True).model_copy(
-            update={"is_currently_borrowed": m.id in borrowed_ids}
+            update={"is_currently_borrowed": m.id in holders_map, "holder": holders_map.get(m.id)}
         )
         for m in members
     ]
-    return EquipmentGroupDetailResponse(**group.model_dump(), holders=holders, members=unit_summaries)
-
-
-async def get_holders(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> list[HolderInfo]:
-    """คืนรายชื่อผู้ที่ยืมอุปกรณ์กลุ่มนี้อยู่แต่ยังไม่คืน เพื่อให้นักศึกษาเห็นผู้ครอบครองในขณะนั้น
-
-    รับเป็นลิสต์ id เพราะรุ่นที่มีหลายหน่วย (ดู find_group_members) ต้องรวมผู้ครอบครองทั้งกลุ่ม
-    ไม่ใช่แค่หน่วยตัวแทนที่โชว์เป็นการ์ดเดียว — ผู้เรียกที่มีแค่ 1 ชิ้นส่ง list ค่าเดียวได้ตามปกติ
-    """
-    result = await db.execute(
-        select(User.full_name, BorrowItem.extended_due_date, BorrowRequest.due_date, BorrowItem.quantity)
-        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
-        .join(User, BorrowRequest.student_id == User.id)
-        .where(
-            BorrowItem.equipment_id.in_(equipment_ids),
-            BorrowItem.returned.is_(False),
-            BorrowRequest.status == "approved",
-        )
-    )
-    return [
-        HolderInfo(holder_name=name, due_date=ext or due, quantity=qty)
-        for name, ext, due, qty in result.all()
-    ]
+    return EquipmentGroupDetailResponse(**group.model_dump(), holders=list(holders_map.values()), members=unit_summaries)
 
 
 async def _resolve_categories(db: AsyncSession, category_ids: list[uuid.UUID]) -> list[EquipmentCategory]:

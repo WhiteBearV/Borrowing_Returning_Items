@@ -123,6 +123,127 @@ async def test_borrowed_filter_also_works_on_grouped_listing(client: AsyncClient
         await _cleanup(eq_id, req_id=req_id)
 
 
+async def test_return_damaged_syncs_equipment_status_for_single_unit(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """คืนของสภาพ damaged (หน่วยเดียว quantity_total=1) ต้องเปลี่ยน equipment.status ตามจริง
+    ไม่ใช่ค้าง "available" ทั้งที่ของเสียไปแล้ว (บั๊กจริงที่เจอ — ดู test_is_currently_borrowed_... ด้านล่าง)
+    """
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+        item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
+
+        r = await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/return",
+            json={"condition_on_return": "damaged", "damage_photo_urls": ["/uploads/dmg.jpg"]},
+            headers=h_admin,
+        )
+        assert r.status_code == 200, r.text
+
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["status"] == "damaged"
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
+async def test_return_lost_syncs_equipment_status_to_unavailable(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """คืนของสภาพ lost (หน่วยเดียว) -> status="unavailable" (ตรงกับ import_service label "สูญหาย/เสื่อมสภาพ")"""
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+        item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
+
+        r = await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/return",
+            json={"condition_on_return": "lost", "damage_photo_urls": ["/uploads/lost.jpg"]},
+            headers=h_admin,
+        )
+        assert r.status_code == 200, r.text
+
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["status"] == "unavailable"
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
+async def test_return_damaged_does_not_flip_status_for_unsplit_batch(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """ก้อนวัสดุ quantity_total>1 ที่ยังไม่แยกรายชิ้น — คืนเสีย 1 ชิ้นจากที่ยืมไป ต้องไม่ทำให้ทั้งก้อนโดนตีตรา
+    "damaged" ไปด้วย (ก้อนยังมีของเหลืออีกหลายชิ้นที่ไม่เกี่ยวกับอันที่เสีย)"""
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin, item_type="material", quantity_total=5)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+        item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
+
+        r = await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/return",
+            json={"condition_on_return": "damaged", "damage_photo_urls": ["/uploads/dmg.jpg"]},
+            headers=h_admin,
+        )
+        assert r.status_code == 200, r.text
+
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["status"] == "available", "ก้อนที่เหลือ 4 ชิ้นยังยืมได้อยู่ ไม่ควรโดนตีตราเสียทั้งก้อน"
+        assert eq["quantity_available"] == 4
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
+async def test_grouped_detail_shows_holder_name_and_student_number(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """หน้าจัดการอุปกรณ์ต้องเห็นว่าใครถือของอยู่ (ชื่อ+รหัสนักศึกษา) ไม่ใช่แค่รู้ว่า "ถูกยืมอยู่" เฉยๆ"""
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+
+        r = await client.get(f"/equipment/grouped/{eq_id}", headers=h_admin)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["holder"]["holder_name"], "ต้องมีชื่อผู้ยืม"
+        assert body["holder"]["student_number"] is not None, "ต้องมีรหัสนักศึกษาผู้ยืมด้วย ไม่ใช่แค่ชื่อ"
+        assert len(body["holders"]) == 1
+        assert body["members"][0]["holder"]["student_number"] == body["holder"]["student_number"]
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
 async def test_is_currently_borrowed_false_after_damaged_return_despite_stock_gap(
     client: AsyncClient, admin_token: str, student_token: str
 ):

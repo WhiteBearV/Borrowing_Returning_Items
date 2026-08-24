@@ -137,7 +137,7 @@ async def get_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentDetailResponse:
     eq = await equipment_service.get_equipment(db, equipment_id)
-    holders = await equipment_service.get_holders(db, [equipment_id])
+    holders = list((await equipment_service.get_holders_map(db, [equipment_id])).values())
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
     return EquipmentDetailResponse(**base.model_dump(), holders=holders)
 
