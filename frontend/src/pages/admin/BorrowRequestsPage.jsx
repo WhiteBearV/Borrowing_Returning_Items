@@ -24,8 +24,10 @@ export default function BorrowRequestsPage() {
   const [actionError, setActionError] = useState('')
   const highlightRef = useRef(null)
 
-  const load = () => {
-    setLoading(true)
+  // showLoading=false ตอน poll พื้นหลัง — เดิม setLoading(true) ทุกรอบทำหน้าทั้งหมดสลับไปเป็น
+  // "กำลังโหลด…" ทุก 4 วิแล้วกลับมา ผู้ใช้เห็นเป็นจอกระพริบ ทั้งที่ข้อมูลส่วนใหญ่ไม่เปลี่ยน
+  const load = (showLoading = false) => {
+    if (showLoading) setLoading(true)
     borrowApi.list({ needs_attention: true, page, page_size: 20 }).then(setData).finally(() => setLoading(false))
   }
 
@@ -33,8 +35,8 @@ export default function BorrowRequestsPage() {
   // กันโดน re-render ทับตอนแอดมินกำลังกรอกฟอร์ม (เช่น เลือกสภาพ/อัปโหลดรูปค้างอยู่)
   useEffect(() => {
     if (rejectId || returnTarget) return
-    load()
-    const id = setInterval(load, 4000)
+    load(true)
+    const id = setInterval(() => load(false), 4000)
     return () => clearInterval(id)
   }, [page, rejectId, returnTarget])
 
