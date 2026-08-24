@@ -7,7 +7,7 @@
 """
 import asyncio
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 import pytest_asyncio
@@ -20,7 +20,7 @@ from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
 from app.models.notification import Notification
 from app.models.user import User
-from app.schemas.borrow import ReturnItemRequest
+from app.schemas.borrow import BorrowItemRequest, BorrowRequestCreate, ReturnItemRequest
 from app.services import borrow_service
 from tests.conftest import auth
 
@@ -198,6 +198,33 @@ async def test_group_detail_lists_every_member_unit(client, admin_token, three_u
     assert r.status_code == 200, r.text
     member_ids = {m["id"] for m in r.json()["members"]}
     assert member_ids == {str(unit_1), str(unit_2), str(unit_3)}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_request_ignores_retired_representative_unit(test_student, three_unit_group):
+    """บั๊กจริงที่เจอ: ปิดใช้งานหน่วยรหัสต่ำสุด (ตัวแทนกลุ่มที่หน้าเว็บส่ง equipment_id มา) แล้วยืมทั้งรุ่นไม่ได้เลย
+
+    create_request เดิมเช็ค eq.status ของหน่วยที่ frontend ส่งมาก่อนจะรู้ด้วยซ้ำว่ามีกลุ่ม —
+    หน่วยตัวแทน (รหัสต่ำสุด) ถูกปลดระวาง/ซ่อมแล้ว raise ทันที ทั้งที่หน่วยอื่นในรุ่นเดียวกันยังว่างอยู่
+    """
+    unit_1, unit_2, unit_3 = three_unit_group
+    async with AsyncSessionLocal() as db:
+        eq = await db.get(Equipment, unit_1)
+        eq.status = "retired"
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        student = await db.get(User, test_student.id)
+        resp = await borrow_service.create_request(
+            db, student,
+            BorrowRequestCreate(
+                requested_due_date=date.today() + timedelta(days=7),
+                items=[BorrowItemRequest(equipment_id=unit_1, quantity=1)],
+            ),
+        )
+    assert resp.items[0].equipment_id in (unit_2, unit_3), (
+        "ต้องจัดสรรหน่วยอื่นในกลุ่มที่ยังว่างอยู่ ไม่ใช่ error ทั้งที่ยังมีของว่างในคลัง"
+    )
 
 
 async def test_group_detail_works_for_non_representative_unit(client, admin_token, three_unit_group):

@@ -156,24 +156,23 @@ async def create_request(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Equipment {item_req.equipment_id} not found.",
             )
-        # ของประจำห้อง (โต๊ะ/ตู้/ทีวี) — อยู่ในทะเบียน สถานะปกติ แต่ไม่ให้ยืมออก
-        if not eq.is_borrowable:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' is not lendable.",
-            )
-        # status != available (unavailable/damaged/under_repair/retired) = ห้ามยืม ทุกชนิด ไม่ใช่แค่ครุภัณฑ์
-        if eq.status != "available":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
-            )
-
         group = (
             [eq] if eq.item_type == "consumable"
             else await equipment_service.find_group_members(db, eq.name, eq.item_type)
         )
         if len(group) <= 1:
+            # ของประจำห้อง (โต๊ะ/ตู้/ทีวี) — อยู่ในทะเบียน สถานะปกติ แต่ไม่ให้ยืมออก
+            if not eq.is_borrowable:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' is not lendable.",
+                )
+            # status != available (unavailable/damaged/under_repair/retired) = ห้ามยืม ทุกชนิด ไม่ใช่แค่ครุภัณฑ์
+            if eq.status != "available":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Equipment '{eq.name}' is not available (status: {eq.status}).",
+                )
             if eq.quantity_available < item_req.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

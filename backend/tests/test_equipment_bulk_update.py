@@ -1,8 +1,9 @@
-"""Tests: แก้ไขหลายหน่วยพร้อมกัน (Phase B feature 3)
+"""Tests: แก้ไขหลายหน่วยพร้อมกัน (Phase B feature 3 + ขยายเพิ่ม name/item_type/category_ids)
 
 all-or-nothing ต่างจาก bulk-delete — การแก้ location/status ไม่มีเหตุผลที่ควร "แก้ได้บางชิ้น"
-เฉพาะฟิลด์ปลอดภัย (location/description/image_urls/unit/unit_value/low_stock_threshold/status/is_borrowable)
-เท่านั้น — code/serial_number/name/item_type/quantity_* ต้อง reject เงียบ ๆ ผ่าน Pydantic (ไม่อยู่ใน schema)
+ฟิลด์ปลอดภัย (location/description/image_urls/unit/unit_value/low_stock_threshold/status/is_borrowable/
+name/item_type/category_ids) เท่านั้น — code/serial_number/quantity_* (unique/นับสต็อกต่อหน่วย)
+ต้อง reject เงียบ ๆ ผ่าน Pydantic (ไม่อยู่ใน schema)
 """
 import uuid
 
@@ -110,6 +111,43 @@ async def test_bulk_update_nothing_to_change_rejected(client: AsyncClient, admin
         assert r.status_code == 400
     finally:
         await _cleanup(eq_id)
+
+
+async def test_bulk_update_name_and_item_type_succeeds(client: AsyncClient, admin_token: str):
+    """name/item_type ปลอดภัยเพราะไม่มี unique constraint — ตั้งค่าเดียวกันให้หลายแถวได้เหมือน location"""
+    h = auth(admin_token)
+    ids = [await _make_equipment(client, h, item_type="material") for _ in range(2)]
+    try:
+        r = await client.patch("/equipment/bulk-update", json={
+            "equipment_ids": ids, "update": {"name": "ชื่อใหม่รวม", "item_type": "durable"},
+        }, headers=h)
+        assert r.status_code == 200, r.text
+        assert all(u["name"] == "ชื่อใหม่รวม" and u["item_type"] == "durable" for u in r.json()["updated"])
+    finally:
+        await _cleanup(*ids)
+
+
+async def test_bulk_update_category_ids_replaces_existing(
+    client: AsyncClient, admin_token: str, test_category,
+):
+    """category_ids แทนที่ชุดหมวดหมู่เดิมทั้งหมด (เหมือน update_equipment แก้ทีละหน่วย) ไม่ใช่เพิ่มเข้าไป"""
+    h = auth(admin_token)
+    old_cat = (await client.post("/equipment-categories", json={"name": f"cat_old_{uuid.uuid4().hex[:6]}"}, headers=h)).json()
+    ids = [await _make_equipment(client, h, category_ids=[old_cat["id"]]) for _ in range(2)]
+    try:
+        r = await client.patch("/equipment/bulk-update", json={
+            "equipment_ids": ids, "update": {"category_ids": [str(test_category.id)]},
+        }, headers=h)
+        assert r.status_code == 200, r.text
+        for u in r.json()["updated"]:
+            cat_ids = {c["id"] for c in u["categories"]}
+            assert cat_ids == {str(test_category.id)}, "ต้องแทนที่ทั้งหมด ไม่ใช่หมวดเดิมค้างอยู่"
+    finally:
+        await _cleanup(*ids)
+        async with AsyncSessionLocal() as db:
+            from app.models.equipment_category import EquipmentCategory
+            await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id == uuid.UUID(old_cat["id"])))
+            await db.commit()
 
 
 async def test_bulk_update_forbidden_for_student(client: AsyncClient, admin_token: str, student_token: str):

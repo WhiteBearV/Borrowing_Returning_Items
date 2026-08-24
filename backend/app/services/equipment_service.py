@@ -155,7 +155,14 @@ async def list_equipment(
     query = query.options(selectinload(Equipment.categories))
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
-    return PaginatedEquipment(items=items, total=total, page=page, page_size=page_size)  # type: ignore
+    borrowed_ids = await _borrowed_equipment_ids(db)
+    responses = [
+        EquipmentResponse.model_validate(eq, from_attributes=True).model_copy(
+            update={"is_currently_borrowed": eq.id in borrowed_ids}
+        )
+        for eq in items
+    ]
+    return PaginatedEquipment(items=responses, total=total, page=page, page_size=page_size)
 
 
 def _is_eligible(eq: Equipment) -> bool:
@@ -180,13 +187,14 @@ def _location_breakdown(rows: list[Equipment]) -> list[LocationCount]:
     return [LocationCount(location=loc, count=n) for loc, n in counts.items()]
 
 
-def _build_group_response(rows: list[Equipment]) -> EquipmentGroupResponse:
+def _build_group_response(rows: list[Equipment], borrowed_ids: set[uuid.UUID]) -> EquipmentGroupResponse:
     """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)"""
     rep = rows[0]
     eligible = [r for r in rows if _is_eligible(r)]
     base = EquipmentResponse.model_validate(rep, from_attributes=True).model_dump()
     base["quantity_total"] = sum(r.quantity_total for r in rows)
     base["quantity_available"] = sum(r.quantity_available for r in eligible)
+    base["is_currently_borrowed"] = rep.id in borrowed_ids
     # มีหน่วยว่างพร้อมยืมอย่างน้อย 1 ชิ้น = การ์ดนี้ "พร้อมให้ยืม" ไม่งั้น fallback ไปสถานะของตัวแทน
     if eligible:
         base["is_borrowable"] = True
@@ -230,11 +238,11 @@ async def list_equipment_grouped(
     for eq in rows:
         groups.setdefault(_group_key(eq), []).append(eq)
 
+    borrowed_ids = await _borrowed_equipment_ids(db)
     if filter_borrowed_group:
-        borrowed_ids = await _borrowed_equipment_ids(db)
         groups = {key: members for key, members in groups.items() if any(m.id in borrowed_ids for m in members)}
 
-    cards = [_build_group_response(members) for members in groups.values()]
+    cards = [_build_group_response(members, borrowed_ids) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
 
     total = len(cards)
@@ -260,9 +268,15 @@ async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) 
     """
     eq = await get_equipment(db, equipment_id)
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
-    group = _build_group_response(members)
+    borrowed_ids = await _borrowed_equipment_ids(db)
+    group = _build_group_response(members, borrowed_ids)
     holders = await get_holders(db, [m.id for m in members])
-    unit_summaries = [EquipmentUnitSummary.model_validate(m, from_attributes=True) for m in members]
+    unit_summaries = [
+        EquipmentUnitSummary.model_validate(m, from_attributes=True).model_copy(
+            update={"is_currently_borrowed": m.id in borrowed_ids}
+        )
+        for m in members
+    ]
     return EquipmentGroupDetailResponse(**group.model_dump(), holders=holders, members=unit_summaries)
 
 
@@ -593,21 +607,28 @@ async def bulk_update_equipment(
     bulk_delete_equipment เพราะการแก้ location/status ไม่มีเหตุผลที่ควร "แก้ได้บางชิ้น" เซสชันเดียว
     commit ครั้งเดียว, audit เป็น 1 entry รวม (ไม่ log ทีละแถว)
     """
-    changed = body.model_dump(exclude_none=True)
-    if not changed:
+    changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
+    if not changed and body.category_ids is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่มีอะไรจะแก้ไข")
+    if "name" in changed:
+        changed["name"] = _normalize_name(changed["name"])
 
     rows = [await get_equipment(db, eq_id) for eq_id in equipment_ids]  # 404 ถ้ามี id ที่ไม่มีจริง
+    # resolve ครั้งเดียวใช้ร่วมกันทุกแถว — ตั้งหมวดหมู่ชุดเดียวกันให้ทุกหน่วยที่เลือก ไม่ต้อง query ซ้ำ
+    new_categories = await _resolve_categories(db, body.category_ids) if body.category_ids is not None else None
 
     for eq in rows:
         for field, value in changed.items():
             setattr(eq, field, value)
         if "image_urls" in changed:
             eq.image_url = changed["image_urls"][0] if changed["image_urls"] else None  # sync cover
+        if new_categories is not None:
+            eq.categories = list(new_categories)
 
+    audit_fields = sorted(changed.keys() | ({"category_ids"} if new_categories is not None else set()))
     await audit_service.log_action(
         db, admin, "bulk_update_equipment", "equipment", rows[0].id,
-        {"count": len(rows), "fields": sorted(changed.keys()), "equipment_ids": [str(e.id) for e in rows]},
+        {"count": len(rows), "fields": audit_fields, "equipment_ids": [str(e.id) for e in rows]},
     )
     await db.commit()
     ids = [e.id for e in rows]

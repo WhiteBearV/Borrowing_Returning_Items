@@ -320,8 +320,15 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 }
 
 // ฟิลด์ที่แก้พร้อมกันหลายหน่วยได้อย่างปลอดภัย — ต้องตรงกับ EquipmentBulkUpdate ฝั่ง backend
-// (ไม่รวม code/serial_number/name/item_type/quantity_* — ดูเหตุผลใน CLAUDE.md/แผน Phase B feature 3)
+// (ไม่รวม code/serial_number/quantity_* — ตั้งค่าเดียวกันทับหลายแถวพร้อมกันไม่มีความหมาย/ชน unique constraint
+// ดู docstring EquipmentBulkUpdate ฝั่ง backend)
 const BULK_FIELDS = [
+  { key: 'name', label: 'ชื่ออุปกรณ์', type: 'text' },
+  {
+    key: 'item_type', label: 'ประเภท', type: 'select',
+    options: [['durable', 'ครุภัณฑ์'], ['material', 'วัสดุ'], ['consumable', 'วัสดุสิ้นเปลือง']],
+  },
+  { key: 'category_ids', label: 'หมวดหมู่ (แทนที่ของเดิมทั้งหมด)', type: 'categories' },
   { key: 'location', label: 'สถานที่เก็บ', type: 'text', placeholder: 'เช่น 15312 ตู้A ชั้น3' },
   { key: 'description', label: 'คำอธิบาย', type: 'textarea' },
   { key: 'unit', label: 'หน่วย', type: 'text', placeholder: 'ชิ้น / ก้อน…' },
@@ -336,7 +343,7 @@ const BULK_FIELDS = [
 ]
 
 // แก้ไขหลายหน่วยพร้อมกัน — แต่ละฟิลด์เป็น checkbox เปิดใช้ + input คู่กัน ไม่ติ๊ก = ไม่ส่งฟิลด์นั้น = ไม่แตะของเดิม
-function BulkEditModal({ count, onClose, onSave }) {
+function BulkEditModal({ count, categories, onClose, onSave }) {
   const [enabled, setEnabled] = useState({})
   const [values, setValues] = useState({})
   const [loading, setLoading] = useState(false)
@@ -344,9 +351,18 @@ function BulkEditModal({ count, onClose, onSave }) {
 
   const toggleField = (key) => setEnabled((e) => ({ ...e, [key]: !e[key] }))
   const setVal = (key, v) => setValues((s) => ({ ...s, [key]: v }))
+  const toggleCategory = (id) => setVal(
+    'category_ids',
+    (values.category_ids ?? []).includes(id)
+      ? values.category_ids.filter((c) => c !== id)
+      : [...(values.category_ids ?? []), id],
+  )
 
   const submit = async (e) => {
     e.preventDefault()
+    if (enabled.category_ids && (values.category_ids ?? []).length === 0) {
+      setError('เลือกหมวดหมู่อย่างน้อย 1 หมวด หรือไม่ติ๊กช่องนี้ถ้าไม่ต้องการแก้'); return
+    }
     const update = {}
     for (const f of BULK_FIELDS) {
       if (!enabled[f.key]) continue
@@ -401,6 +417,21 @@ function BulkEditModal({ count, onClose, onSave }) {
                   <option value="true">ยืมได้</option>
                   <option value="false">ห้ามยืมออก (ของประจำห้อง)</option>
                 </select>
+              )}
+              {enabled[f.key] && f.type === 'categories' && (
+                <div className="flex flex-wrap gap-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
+                  {categories.map((c) => {
+                    const on = (values.category_ids ?? []).includes(c.id)
+                    return (
+                      <button type="button" key={c.id} onClick={() => toggleCategory(c.id)}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                          on ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}>
+                        {c.name}
+                      </button>
+                    )
+                  })}
+                </div>
               )}
             </div>
           ))}
@@ -613,6 +644,12 @@ export default function EquipmentManagePage() {
 
   const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-primary-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
   const STATUS_LABEL = { available: 'พร้อม', borrowed: 'ถูกยืม', under_repair: 'ซ่อม', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
+  // equipment.status ฝั่ง backend คือสถานะ "ยืมได้ไหม" ของหน่วยเอง (available/damaged/...) ไม่ใช่ "ถูกยืมอยู่ไหม"
+  // (ดู _apply_status_filter) — หน่วยที่ถูกยืมออกไปสถานะยังเป็น available เหมือนเดิม แค่ quantity_available ลดลง
+  // เคยลอง derive "ถูกยืม" จาก quantity_available < quantity_total เฉยๆ แต่ผิด — ช่องว่างนั้นเกิดจากของ
+  // เสีย/สูญหายที่คืนไปแล้ว (ไม่คืนสต็อก) ได้ด้วย ไม่ได้แปลว่ามีคนถือของอยู่จริงเสมอไป ต้องใช้ flag จริงจาก
+  // backend (is_currently_borrowed มาจาก borrow_items ที่ยังไม่คืนจริง) แทน
+  const unitDisplayStatus = (u) => (u.status === 'available' && u.is_currently_borrowed ? 'borrowed' : u.status)
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -770,8 +807,10 @@ export default function EquipmentManagePage() {
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
                       <td className="px-4 py-2.5 text-gray-500">{{ durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'สิ้นเปลือง' }[eq.item_type] ?? eq.item_type}</td>
                       <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
-                      <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[eq.status] ?? ''}`}>
-                        {STATUS_LABEL[eq.status] ?? eq.status}
+                      {/* การ์ดกลุ่มหลายหน่วย (grouped) สถานะ "available" มาจาก backend แปลว่ามีหน่วยว่างอย่างน้อย 1 ชิ้นอยู่แล้ว
+                          (ดู _build_group_response) ไม่ derive ซ้ำตรงนี้ — derive เฉพาะแถวเดี่ยว 1 หน่วยที่ค่า quantity เป็นของหน่วยนั้นจริง */}
+                      <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[grouped ? eq.status : unitDisplayStatus(eq)] ?? ''}`}>
+                        {STATUS_LABEL[grouped ? eq.status : unitDisplayStatus(eq)] ?? eq.status}
                         {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
                       </td>
                       <td className="px-4 py-2.5">
@@ -811,8 +850,8 @@ export default function EquipmentManagePage() {
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
-                        <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[u.status] ?? ''}`}>
-                          {STATUS_LABEL[u.status] ?? u.status}
+                        <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[unitDisplayStatus(u)] ?? ''}`}>
+                          {STATUS_LABEL[unitDisplayStatus(u)] ?? u.status}
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
@@ -861,6 +900,7 @@ export default function EquipmentManagePage() {
       {showBulkEdit && (
         <BulkEditModal
           count={selected.size}
+          categories={categories}
           onClose={() => setShowBulkEdit(false)}
           onSave={async (update) => {
             await equipmentApi.bulkUpdate([...selected], update)

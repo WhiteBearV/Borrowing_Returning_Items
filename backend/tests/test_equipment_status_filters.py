@@ -123,6 +123,43 @@ async def test_borrowed_filter_also_works_on_grouped_listing(client: AsyncClient
         await _cleanup(eq_id, req_id=req_id)
 
 
+async def test_is_currently_borrowed_false_after_damaged_return_despite_stock_gap(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """บั๊กที่เจอจริง: คืนของสภาพ damaged ไม่คืนสต็อก (quantity_available < quantity_total ค้างถาวร)
+    แต่ไม่มีใครถือของอยู่จริงแล้ว — is_currently_borrowed ต้องเป็น false ไม่ใช่ derive จากช่องว่างสต็อก
+    (เคย derive แบบนั้นแล้วผิด: อุปกรณ์เก่าที่เคยเสียหาย/สูญหายขึ้น "ถูกยืม" ค้างตลอดไปทั้งที่คืนไปนานแล้ว)
+    """
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+
+        item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
+        r = await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/return",
+            json={"condition_on_return": "damaged", "damage_photo_urls": ["/uploads/dmg.jpg"]},
+            headers=h_admin,
+        )
+        assert r.status_code == 200, r.text
+
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["quantity_available"] < eq["quantity_total"], "damaged ไม่คืนสต็อก ต้องยังมีช่องว่างค้างอยู่"
+
+        r = await client.get("/equipment/grouped", params={"search": eq["code"], "page_size": 100}, headers=h_admin)
+        card = next(g for g in r.json()["items"] if g["id"] == eq_id)
+        assert card["is_currently_borrowed"] is False, "คืนไปแล้ว (แม้สภาพ damaged) ต้องไม่ขึ้นว่าถูกยืมอยู่"
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
 async def test_borrowed_filter_grouped_totals_reflect_whole_group_not_just_borrowed_unit(
     client: AsyncClient, admin_token: str, student_token: str
 ):

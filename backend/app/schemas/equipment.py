@@ -52,6 +52,11 @@ class EquipmentResponse(BaseModel):
     is_borrowable: bool
     created_at: datetime
     updated_at: datetime
+    # หน่วยนี้มีคำขอ approved ที่ยังไม่คืนอยู่จริงไหม — คำนวณจาก borrow_items ไม่ใช่ column บน equipment
+    # (status="available" แปลว่า "ยืมได้" เฉยๆ ไม่ใช่ "ไม่มีใครถือ" ดู equipment_service._apply_status_filter)
+    # ต้องแยกจาก quantity_available < quantity_total เพราะช่องว่างนั้นเกิดจากของเสีย/สูญหายที่คืนไปแล้วได้ด้วย
+    # ไม่ได้แปลว่ามีคนถือของอยู่จริงเสมอไป — ปล่อยให้ derive ผิดจากตัวเลขจะเห็น "ถูกยืม" ทั้งที่ไม่มีใครยืมจริง
+    is_currently_borrowed: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -102,6 +107,7 @@ class EquipmentUnitSummary(BaseModel):
     quantity_total: int
     quantity_available: int
     is_borrowable: bool
+    is_currently_borrowed: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -204,9 +210,15 @@ class BulkDeleteResult(BaseModel):
 
 
 class EquipmentBulkUpdate(BaseModel):
-    """ฟิลด์ที่แก้พร้อมกันหลายหน่วยได้อย่างปลอดภัยเท่านั้น — ไม่รวม code/serial_number (unique ต่อหน่วย),
-    name/item_type (นิยามตัวกลุ่มเอง), quantity_total/quantity_available (ตัวนับสต็อกต่อหน่วย)
+    """ฟิลด์ที่แก้พร้อมกันหลายหน่วยได้อย่างปลอดภัยเท่านั้น — ไม่รวม code/serial_number เพราะ unique ต่อหน่วย
+    (ตั้งค่าเดียวกันให้หลายแถวพร้อมกันจะชน DB constraint ทันทีตั้งแต่แถวที่ 2), quantity_total/quantity_available
+    (ตัวนับสต็อกต่อหน่วย ตั้งเลขเดียวกันทับทุกแถวไม่มีความหมาย) — name/item_type/category_ids ปลอดภัยเพราะไม่มี
+    unique constraint และ update_equipment (แก้ทีละหน่วย) ก็แก้ 2 ฟิลด์แรกได้อยู่แล้วโดยไม่กระทบประวัติการยืมเก่า
+    (BorrowItem เก็บ snapshot แยก) จึงใช้ตรรกะเดียวกันได้กับหลายแถวพร้อมกัน
     """
+    name: str | None = None
+    item_type: str | None = None
+    category_ids: list[uuid.UUID] | None = None
     location: str | None = None
     description: str | None = None
     image_urls: list[str] | None = None
