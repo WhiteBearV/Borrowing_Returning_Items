@@ -57,8 +57,12 @@ async def verify_email(db: AsyncSession, token: str) -> None:
         select(AuthToken).where(AuthToken.token == token, AuthToken.token_type == "email_verify")
     )
     auth_token = result.scalar_one_or_none()
-    if not auth_token or auth_token.used_at or auth_token.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token.")
+    if not auth_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token.")
+    if auth_token.used_at:
+        return  # ponytail: token นี้ยืนยันไปแล้ว (กดซ้ำจากอีกอุปกรณ์/แท็บ) ถือเป็นสำเร็จซ้ำได้ ไม่ต้อง error หลอกผู้ใช้ว่ายืนยันไม่ผ่าน
+    if auth_token.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token expired. Please request a new verification email.")
 
     user_result = await db.execute(select(User).where(User.id == auth_token.user_id))
     user = user_result.scalar_one()

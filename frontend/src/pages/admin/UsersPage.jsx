@@ -149,7 +149,7 @@ function AddUserModal({ onClose, onCreated }) {
     // ส่งเฉพาะ field ที่เกี่ยวกับ role นั้น ๆ (ค่าว่าง -> undefined)
     const payload = {
       role: form.role,
-      full_name: `${form.title}${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
+      full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
       email: form.email,
       password: form.password,
       student_id: form.role === 'student' ? form.student_id || undefined : undefined,

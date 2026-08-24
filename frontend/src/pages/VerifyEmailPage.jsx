@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { authApi } from '../api/authApi.js'
 
@@ -6,8 +6,12 @@ export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
   const [state, setState] = useState('loading') // loading | success | error
   const [errorMsg, setErrorMsg] = useState('')
+  const calledRef = useRef(false) // กัน React StrictMode ยิง effect ซ้ำ 2 รอบตอน dev แล้วใช้ token (ใช้ได้ครั้งเดียว) ซ้ำจนพัง
 
   useEffect(() => {
+    if (calledRef.current) return
+    calledRef.current = true
+
     const token = searchParams.get('token')
     if (!token) {
       setState('error')

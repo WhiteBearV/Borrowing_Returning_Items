@@ -31,7 +31,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await authApi.register({
-        full_name: `${form.title}${form.first_name.trim()} ${form.last_name.trim()}`,
+        full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
         student_id: form.student_id.trim(),
         email: form.email.trim(),
         password: form.password,
