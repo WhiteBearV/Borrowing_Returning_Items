@@ -119,6 +119,12 @@ async def update_bundle(
 ) -> BundleResponse:
     """แก้ไขชุด — ส่ง items มาเมื่อไหร่ถือว่าแทนที่รายการทั้งชุด"""
     bundle = await _load(db, bundle_id)
+    old = {
+        "name": bundle.name, "description": bundle.description, "is_active": bundle.is_active,
+        "trigger_equipment_id": str(bundle.trigger_equipment_id) if bundle.trigger_equipment_id else None,
+    }
+    old_item_count = len(bundle.items)
+
     for field in ("name", "description", "is_active"):
         value = getattr(body, field)
         if value is not None:
@@ -130,7 +136,18 @@ async def update_bundle(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle must have at least 1 item.")
         await _replace_items(db, bundle, body.items)
 
-    await audit_service.log_action(db, admin, "update_bundle", "bundles", bundle.id, {"name": bundle.name})
+    new = {
+        "name": bundle.name, "description": bundle.description, "is_active": bundle.is_active,
+        "trigger_equipment_id": str(bundle.trigger_equipment_id) if bundle.trigger_equipment_id else None,
+    }
+    field_diffs = {k: [old[k], new[k]] for k in old if old[k] != new[k]}
+    # ไม่ diff รายการทีละชิ้น (ซับซ้อนเกินจำเป็นสำหรับระบบขนาดนี้) — นับแค่จำนวนเปลี่ยนกี่รายการพอ
+    if body.items is not None and len(body.items) != old_item_count:
+        field_diffs["items_count"] = [old_item_count, len(body.items)]
+
+    await audit_service.log_action(
+        db, admin, "update_bundle", "bundles", bundle.id, {"name": bundle.name, "changes": field_diffs}
+    )
     await db.commit()
     response = BundleResponse.model_validate(await _load(db, bundle_id))
     await _annotate_unit_counts(db, [response])

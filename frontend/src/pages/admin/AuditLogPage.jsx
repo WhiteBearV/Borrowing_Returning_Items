@@ -13,8 +13,19 @@ const ACTION_LABEL = {
   retire_equipment: 'ปลดระวางอุปกรณ์',
   delete_equipment: 'ลบอุปกรณ์',
   split_equipment: 'แยกอุปกรณ์เป็นรายชิ้น',
+  restock_equipment: 'เติมของเข้าคลัง',
+  bulk_update_equipment: 'แก้ไขหลายรายการ',
+  create_bundle: 'สร้างชุดอุปกรณ์',
+  update_bundle: 'แก้ไขชุดอุปกรณ์',
+  delete_bundle: 'ลบชุดอุปกรณ์',
 }
 const actionLabel = (a) => ACTION_LABEL[a] ?? a
+
+// แสดงค่า diff อ่านง่าย — ใช้กับทั้งพรีวิวในตารางและ modal รายละเอียด
+const fmtVal = (v) => {
+  if (v === null || v === undefined) return '—'
+  return Array.isArray(v) ? v.join(', ') : String(v)
+}
 
 function DetailModal({ log, onClose }) {
   const rows = [
@@ -39,9 +50,19 @@ function DetailModal({ log, onClose }) {
         {log.detail && (
           <div>
             <p className="text-xs text-gray-400 mb-1">ข้อมูลเพิ่มเติม</p>
-            <pre className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap break-all">
-              {JSON.stringify(log.detail, null, 2)}
-            </pre>
+            {log.detail.changes ? (
+              <ul className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 space-y-1">
+                {Object.entries(log.detail.changes).map(([field, [from, to]]) => (
+                  <li key={field}>
+                    <span className="font-mono text-gray-500">{field}</span>: {fmtVal(from)} → {fmtVal(to)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <pre className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap break-all">
+                {JSON.stringify(log.detail, null, 2)}
+              </pre>
+            )}
           </div>
         )}
         <button onClick={onClose} className="w-full rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
@@ -55,15 +76,36 @@ export default function AuditLogPage() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [filterAction, setFilterAction] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   useEffect(() => {
     setLoading(true)
-    auditApi.list({ page, page_size: 25 }).then(setData).finally(() => setLoading(false))
-  }, [page])
+    auditApi.list({
+      page, page_size: 25,
+      action: filterAction || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+    }).then(setData).finally(() => setLoading(false))
+  }, [page, filterAction, dateFrom, dateTo])
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-light text-gray-800 mb-6">Audit Log</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-light text-gray-800">Audit Log</h1>
+        <div className="flex flex-wrap gap-2">
+          <select value={filterAction} onChange={(e) => { setFilterAction(e.target.value); setPage(1) }}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+            <option value="">ทุกการกระทำ</option>
+            {Object.entries(ACTION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+        </div>
+      </div>
 
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>
@@ -89,7 +131,9 @@ export default function AuditLogPage() {
                   </td>
                   <td className="px-4 py-2.5 text-xs text-gray-700">{actionLabel(log.action)}</td>
                   <td className="px-4 py-2.5 text-xs text-gray-500 truncate max-w-[220px]">
-                    {log.detail ? JSON.stringify(log.detail) : '—'}
+                    {log.detail?.changes
+                      ? Object.keys(log.detail.changes).join(', ') || '—'
+                      : log.detail ? JSON.stringify(log.detail) : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-primary-600 whitespace-nowrap">ดูรายละเอียด →</td>
                 </tr>

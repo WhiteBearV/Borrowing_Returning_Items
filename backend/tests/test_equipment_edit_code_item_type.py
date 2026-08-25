@@ -61,7 +61,7 @@ async def test_update_equipment_code_success(client: AsyncClient, admin_token: s
             log = (await db.execute(
                 select(AuditLog).where(AuditLog.target_id == uuid.UUID(eq_id), AuditLog.action == "update_equipment")
             )).scalars().first()
-            assert log.detail["code_to"] == new_code
+            assert log.detail["changes"]["code"][1] == new_code
     finally:
         await _cleanup(eq_id)
 

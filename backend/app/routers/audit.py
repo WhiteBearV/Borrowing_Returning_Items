@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +16,9 @@ async def list_audit_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     action: str | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedAuditLogs:
-    return await audit_service.list_logs(db, page, page_size, action)
+    return await audit_service.list_logs(db, page, page_size, action, date_from, date_to)

@@ -385,8 +385,9 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
 
-    # เก็บค่าก่อนแก้ไว้ทำ audit — setattr loop ด้านล่างเขียนทับแล้วย้อนดูค่าเดิมไม่ได้
-    old_code, old_item_type = eq.code, eq.item_type
+    # เก็บ diff ก่อน/หลังไว้ทำ audit (ดู audit_service.diff_fields) — setattr loop ด้านล่างเขียนทับแล้ว
+    # ย้อนดูค่าเดิมไม่ได้ ต้องอ่านจาก eq ก่อนแก้เท่านั้น
+    field_diffs = audit_service.diff_fields(eq, changed)
     old_status, old_total, old_available = eq.status, eq.quantity_total, eq.quantity_available
 
     for field, value in changed.items():
@@ -408,13 +409,13 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     if body.image_urls is not None:
         eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
     if body.category_ids is not None:
+        old_category_names = sorted(c.name for c in eq.categories)
         eq.categories = await _resolve_categories(db, body.category_ids)
+        new_category_names = sorted(c.name for c in eq.categories)
+        if old_category_names != new_category_names:
+            field_diffs["category_ids"] = [old_category_names, new_category_names]
 
-    detail = {"code": eq.code, "fields": sorted(changed.keys())}
-    if "code" in changed and old_code != eq.code:
-        detail["code_from"], detail["code_to"] = old_code, eq.code
-    if "item_type" in changed and old_item_type != eq.item_type:
-        detail["item_type_from"], detail["item_type_to"] = old_item_type, eq.item_type
+    detail = {"code": eq.code, "changes": field_diffs}
     await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id, detail)
     await db.commit()
     return await get_equipment(db, equipment_id)
@@ -716,10 +717,13 @@ async def bulk_update_equipment(
         if new_categories is not None:
             eq.categories = list(new_categories)
 
-    audit_fields = sorted(changed.keys() | ({"category_ids"} if new_categories is not None else set()))
+    # ไม่ใช่ before/after จริง เพราะ 1 การแก้ไขกระทบหลายแถวที่ค่าเดิมต่างกัน — log ฝั่ง "ตั้งเป็นอะไร" พอ
+    audit_set = dict(changed)
+    if new_categories is not None:
+        audit_set["category_ids"] = sorted(c.name for c in new_categories)
     await audit_service.log_action(
         db, admin, "bulk_update_equipment", "equipment", rows[0].id,
-        {"count": len(rows), "fields": audit_fields, "equipment_ids": [str(e.id) for e in rows]},
+        {"count": len(rows), "set": audit_set, "equipment_ids": [str(e.id) for e in rows]},
     )
     await db.commit()
     ids = [e.id for e in rows]

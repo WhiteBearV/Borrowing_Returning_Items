@@ -506,7 +506,7 @@ async def commit_import(
                 eq.quantity_available = 0
         await audit_service.log_action(
             db, admin, "update_equipment", "equipment", eq.id,
-            {"code": eq.code, "fields": sorted(ref["changes"].keys()), "source": src},
+            {"code": eq.code, "changes": ref["changes"], "source": src},
         )
         applied["update"] += 1
 
