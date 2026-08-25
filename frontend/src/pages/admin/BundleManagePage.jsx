@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { bundleApi } from '../../api/bundleApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
 const errMsg = (err, fallback) => err?.response?.data?.detail ?? fallback
 
@@ -207,9 +208,9 @@ export default function BundleManagePage() {
       </div>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : bundles.length === 0 ? (
-        <p className="text-center text-gray-400 py-16">ยังไม่มีชุดอุปกรณ์</p>
+        <EmptyState>ยังไม่มีชุดอุปกรณ์</EmptyState>
       ) : (
         <div className="space-y-3">
           {bundles.map((b) => (

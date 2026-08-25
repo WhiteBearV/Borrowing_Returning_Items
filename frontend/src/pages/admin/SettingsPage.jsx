@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { settingsApi } from '../../api/settingsApi.js'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState([])
@@ -27,7 +28,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) return <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+  if (loading) return <EmptyState>กำลังโหลด…</EmptyState>
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">

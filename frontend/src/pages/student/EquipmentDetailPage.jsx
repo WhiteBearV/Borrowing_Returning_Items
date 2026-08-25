@@ -4,8 +4,9 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import { formatDate } from '../../utils/formatDate.js'
+import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
-const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
@@ -24,7 +25,7 @@ export default function EquipmentDetailPage() {
     bundleApi.list().then(setBundles).catch(() => {})
   }, [id])
 
-  if (loading) return <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+  if (loading) return <EmptyState>กำลังโหลด…</EmptyState>
   if (!eq) return null
 
   const images = eq.image_urls?.length ? eq.image_urls : (eq.image_url ? [eq.image_url] : [])

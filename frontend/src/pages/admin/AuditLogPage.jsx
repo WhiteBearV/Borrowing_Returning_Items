@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { auditApi } from '../../api/auditApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
 // ป้ายภาษาไทยของแต่ละ action ให้อ่านเข้าใจว่าใครทำอะไร
 const ACTION_LABEL = {
@@ -65,7 +66,7 @@ export default function AuditLogPage() {
       <h1 className="text-2xl font-light text-gray-800 mb-6">Audit Log</h1>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
@@ -95,7 +96,7 @@ export default function AuditLogPage() {
               ))}
             </tbody>
           </table>
-          {data.items.length === 0 && <p className="text-center text-gray-400 py-10">ยังไม่มี log</p>}
+          {data.items.length === 0 && <EmptyState className="py-10">ยังไม่มี log</EmptyState>}
         </div>
       )}
 

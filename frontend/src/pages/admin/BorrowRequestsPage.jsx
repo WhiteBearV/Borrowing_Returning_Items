@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 import { ReturnModal } from '../../components/borrow/ReturnModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
@@ -103,9 +104,9 @@ export default function BorrowRequestsPage() {
       )}
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : data.items.length === 0 ? (
-        <p className="text-center text-gray-400 py-16">ไม่มีคำขอที่ต้องดำเนินการ</p>
+        <EmptyState>ไม่มีคำขอที่ต้องดำเนินการ</EmptyState>
       ) : (
         <div className="space-y-8">
           <section>

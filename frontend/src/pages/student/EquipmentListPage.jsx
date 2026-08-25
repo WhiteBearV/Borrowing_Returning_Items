@@ -4,8 +4,9 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
-const STATUS_LABEL = { available: 'พร้อมให้ยืม', borrowed: 'ถูกยืมอยู่', under_repair: 'ซ่อมอยู่', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
 
 export default function EquipmentListPage() {
@@ -121,9 +122,9 @@ export default function EquipmentListPage() {
       </div>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : data.items.length === 0 ? (
-        <p className="text-center text-gray-400 py-16">ไม่พบอุปกรณ์</p>
+        <EmptyState>ไม่พบอุปกรณ์</EmptyState>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.items.map((eq) => {

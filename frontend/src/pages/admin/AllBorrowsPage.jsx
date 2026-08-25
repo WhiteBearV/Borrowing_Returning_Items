@@ -4,15 +4,11 @@ import { borrowApi } from '../../api/borrowApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { ReturnModal, CONDITION_LABEL } from '../../components/borrow/ReturnModal.jsx'
+import BorrowStatusBadge, { STATUS_LABEL } from '../../components/borrow/BorrowStatusBadge.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
-const STATUS_STYLE = {
-  pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-primary-100 text-primary-700',
-  rejected: 'bg-red-100 text-red-700', cancelled: 'bg-gray-100 text-gray-500',
-  completed: 'bg-green-100 text-green-700',
-}
-const STATUS_LABEL = { pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ปฏิเสธ', cancelled: 'ยกเลิก', completed: 'คืนครบ' }
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
 export default function AllBorrowsPage() {
@@ -73,9 +69,9 @@ export default function AllBorrowsPage() {
       </div>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : data.items.length === 0 ? (
-        <p className="text-center text-gray-400 py-16">ไม่พบรายการ</p>
+        <EmptyState>ไม่พบรายการ</EmptyState>
       ) : (
         <div className="space-y-3">
           {data.items.map((req) => (
@@ -88,7 +84,7 @@ export default function AllBorrowsPage() {
                 <div className="flex flex-col gap-1 min-w-0">
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[req.status]}`}>{STATUS_LABEL[req.status]}</span>
+                    <BorrowStatusBadge status={req.status} />
                     {req.is_overdue && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">เกินกำหนด</span>}
                   </div>
                   <span className="text-xs text-gray-500 truncate">

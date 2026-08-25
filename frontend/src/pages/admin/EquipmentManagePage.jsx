@@ -7,6 +7,8 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
 import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
+import StatusBadge from '../../components/equipment/StatusBadge.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 
 const EMPTY_FORM = { code: '', serial_number: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
@@ -722,8 +724,6 @@ export default function EquipmentManagePage() {
     })
   }
 
-  const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-primary-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
-  const STATUS_LABEL = { available: 'พร้อม', borrowed: 'ถูกยืม', under_repair: 'ซ่อม', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
   // equipment.status ฝั่ง backend คือสถานะ "ยืมได้ไหม" ของหน่วยเอง (available/damaged/...) ไม่ใช่ "ถูกยืมอยู่ไหม"
   // (ดู _apply_status_filter) — หน่วยที่ถูกยืมออกไปสถานะยังเป็น available เหมือนเดิม แค่ quantity_available ลดลง
   // เคยลอง derive "ถูกยืม" จาก quantity_available < quantity_total เฉยๆ แต่ผิด — ช่องว่างนั้นเกิดจากของ
@@ -844,7 +844,7 @@ export default function EquipmentManagePage() {
       )}
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
           <table className="w-full text-sm">
@@ -893,8 +893,8 @@ export default function EquipmentManagePage() {
                       <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
                       {/* การ์ดกลุ่มหลายหน่วย (grouped) สถานะ "available" มาจาก backend แปลว่ามีหน่วยว่างอย่างน้อย 1 ชิ้นอยู่แล้ว
                           (ดู _build_group_response) ไม่ derive ซ้ำตรงนี้ — derive เฉพาะแถวเดี่ยว 1 หน่วยที่ค่า quantity เป็นของหน่วยนั้นจริง */}
-                      <td className={`px-4 py-2.5 font-medium ${STATUS_STYLE[grouped ? eq.status : unitDisplayStatus(eq)] ?? ''}`}>
-                        {STATUS_LABEL[grouped ? eq.status : unitDisplayStatus(eq)] ?? eq.status}
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={grouped ? eq.status : unitDisplayStatus(eq)} />
                         {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
                         {!grouped && eq.holder && (
                           <div className="font-normal text-gray-400 text-xs">
@@ -944,8 +944,8 @@ export default function EquipmentManagePage() {
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
-                        <td className={`px-4 py-1.5 text-xs font-medium ${STATUS_STYLE[unitDisplayStatus(u)] ?? ''}`}>
-                          {STATUS_LABEL[unitDisplayStatus(u)] ?? u.status}
+                        <td className="px-4 py-1.5">
+                          <StatusBadge status={unitDisplayStatus(u)} />
                           {u.holder && (
                             <div className="font-normal text-gray-400">
                               {u.holder.holder_name}{u.holder.student_number ? ` (${u.holder.student_number})` : ''}
@@ -971,7 +971,7 @@ export default function EquipmentManagePage() {
               })}
             </tbody>
           </table>
-          {data.items.length === 0 && <p className="text-center text-gray-400 py-10">ไม่พบอุปกรณ์</p>}
+          {data.items.length === 0 && <EmptyState className="py-10">ไม่พบอุปกรณ์</EmptyState>}
         </div>
       )}
 

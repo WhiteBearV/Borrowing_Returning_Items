@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 // ดร. เพิ่มจาก RegisterPage.jsx เพราะ admin สร้างบัญชีอาจารย์ได้ด้วย ไม่ใช่แค่นักศึกษา
@@ -64,7 +65,7 @@ export default function UsersPage() {
       </div>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
           <table className="w-full text-sm">
@@ -106,7 +107,7 @@ export default function UsersPage() {
               ))}
             </tbody>
           </table>
-          {data.items.length === 0 && <p className="text-center text-gray-400 py-10">ไม่พบผู้ใช้</p>}
+          {data.items.length === 0 && <EmptyState className="py-10">ไม่พบผู้ใช้</EmptyState>}
         </div>
       )}
 

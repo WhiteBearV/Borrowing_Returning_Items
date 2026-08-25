@@ -4,18 +4,9 @@ import { borrowApi } from '../../api/borrowApi.js'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
 import Pagination from '../../components/common/Pagination.jsx'
+import BorrowStatusBadge from '../../components/borrow/BorrowStatusBadge.jsx'
+import EmptyState from '../../components/common/EmptyState.jsx'
 
-const STATUS_STYLE = {
-  pending:   'bg-yellow-100 text-yellow-700',
-  approved:  'bg-primary-100 text-primary-700',
-  rejected:  'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
-  completed: 'bg-green-100 text-green-700',
-}
-const STATUS_LABEL = {
-  pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ถูกปฏิเสธ',
-  cancelled: 'ยกเลิกแล้ว', completed: 'คืนครบแล้ว',
-}
 const ITEM_CONDITION_LABEL = {
   ok: 'คืนแล้ว', damaged: 'เสียหาย', lost: 'สูญหาย',
   returned_full: 'คืนครบ', used_up: 'ใช้หมด', discarded: 'เสียหาย/ทิ้ง',
@@ -101,9 +92,9 @@ export default function MyBorrowsPage() {
       <h1 className="text-2xl font-light text-gray-800 mb-6">คำขอยืมของฉัน</h1>
 
       {loading ? (
-        <p className="text-center text-gray-400 py-16">กำลังโหลด…</p>
+        <EmptyState>กำลังโหลด…</EmptyState>
       ) : data.items.length === 0 ? (
-        <p className="text-center text-gray-400 py-16">ยังไม่มีคำขอยืม</p>
+        <EmptyState>ยังไม่มีคำขอยืม</EmptyState>
       ) : (
         <div className="space-y-3">
           {data.items.map((req) => {
@@ -121,9 +112,7 @@ export default function MyBorrowsPage() {
               >
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[req.status]}`}>
-                    {STATUS_LABEL[req.status]}
-                  </span>
+                  <BorrowStatusBadge status={req.status} />
                   {req.is_overdue && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">เกินกำหนด</span>
                   )}
