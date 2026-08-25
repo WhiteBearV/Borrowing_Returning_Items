@@ -24,6 +24,7 @@ from app.schemas.equipment import (
     ImportCommitRequest,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
+    PhysicalAuditRequest,
     RestockRequest,
 )
 from app.services import equipment_service, import_service
@@ -213,6 +214,17 @@ async def restock_equipment(
 ) -> list[EquipmentResponse]:
     """เติมของเข้าคลัง (ซื้อเพิ่ม) — บวกจำนวนที่ซื้อเพิ่มเข้าไปตรง ๆ ไม่ต้องคำนวณยอดรวมใหม่เอง"""
     return await equipment_service.restock_equipment(db, admin, equipment_id, body.count)
+
+
+@router.post("/equipment/{equipment_id}/audit", response_model=EquipmentResponse)
+async def audit_equipment(
+    equipment_id: uuid.UUID,
+    body: PhysicalAuditRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> EquipmentResponse:
+    """บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว (เจอของจริงตรงตำแหน่งที่บันทึกไว้)"""
+    return await equipment_service.physical_audit_equipment(db, admin, equipment_id, body.note, body.photo_urls)
 
 
 @router.delete("/equipment/{equipment_id}/permanent", status_code=204)

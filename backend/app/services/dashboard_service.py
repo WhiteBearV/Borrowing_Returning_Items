@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import TZ
@@ -76,6 +76,17 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         )
     )
 
+    # ครบกำหนดตรวจนับทางกายภาพ — mirror cutoff เดียวกับ equipment_service._audit_cutoff /
+    # scheduler._check_audit_due (ยังไม่เคยตรวจนับ หรือตรวจนับล่าสุดเกิน audit_interval_days วันแล้ว)
+    interval_days = await _get_setting_int(db, "audit_interval_days")
+    audit_cutoff = datetime.now(TZ) - timedelta(days=interval_days)
+    due_for_audit_result = await db.execute(
+        select(func.count(Equipment.id)).where(
+            Equipment.status != "retired",
+            or_(Equipment.last_audited_at.is_(None), Equipment.last_audited_at < audit_cutoff),
+        )
+    )
+
     return DashboardSummaryResponse(
         pending_requests=pending_result.scalar() or 0,
         overdue_requests=overdue_result.scalar() or 0,
@@ -84,4 +95,5 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         equipment_borrowed_out=borrowed_out_result.scalar() or 0,
         equipment_counts=equipment_counts,
         consumed_value_this_month=float(consumed_result.scalar() or 0),
+        due_for_audit_items=due_for_audit_result.scalar() or 0,
     )

@@ -16,6 +16,8 @@ export const equipmentApi = {
   // เติมของเข้าคลัง (ซื้อเพิ่ม) — พิมพ์แค่จำนวนที่เพิ่ม ระบบตัดสินเองว่าจะบวกเข้าแถวเดิม (ก้อน/สิ้นเปลือง)
   // หรือสร้างแถวใหม่แยกรหัส (ครุภัณฑ์/วัสดุที่แยกรายชิ้นแล้ว)
   restock: (id, count) => api.post(`/equipment/${id}/restock`, { count }).then((r) => r.data),
+  // บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว — note/photo_urls ไม่บังคับ
+  audit: (id, note, photo_urls) => api.post(`/equipment/${id}/audit`, { note, photo_urls }).then((r) => r.data),
   // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
   stockDocument: (kind, date_from, date_to) =>
     api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),

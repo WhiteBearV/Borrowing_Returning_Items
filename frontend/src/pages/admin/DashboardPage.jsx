@@ -7,7 +7,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState({
     pending_requests: 0, overdue_requests: 0, low_stock_items: 0, active_borrows: 0, equipment_borrowed_out: 0,
     equipment_counts: { durable: 0, material: 0, consumable: 0, total: 0 },
-    consumed_value_this_month: 0,
+    consumed_value_this_month: 0, due_for_audit_items: 0,
   })
 
   useEffect(() => {
@@ -67,6 +67,11 @@ export default function DashboardPage() {
             {summary.consumed_value_this_month.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
+        <Link to="/admin/equipment?status=due_for_audit"
+          className="rounded-2xl p-5 flex flex-col justify-between bg-teal-50 text-teal-700 hover:opacity-80 transition-opacity">
+          <p className="text-sm font-medium">ครบกำหนดตรวจนับ</p>
+          <p className="text-3xl font-bold">{summary.due_for_audit_items}</p>
+        </Link>
       </div>
 
       {/* ภาพรวมคลังอุปกรณ์ — สีกลาง แยกจาก tile แจ้งเตือนด้านบน */}

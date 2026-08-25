@@ -16,3 +16,4 @@ class DashboardSummaryResponse(BaseModel):
     equipment_borrowed_out: int
     equipment_counts: EquipmentCounts
     consumed_value_this_month: float
+    due_for_audit_items: int

@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -113,16 +113,31 @@ async def get_holders_map(
     }
 
 
+async def _audit_cutoff(db: AsyncSession) -> datetime:
+    """ตรวจนับล่าสุดก่อนวันนี้เกิน audit_interval_days วัน = ครบกำหนดตรวจนับใหม่ (mirror สูตรเดียวกับ
+    scheduler._check_audit_due และ dashboard_service.get_summary)"""
+    interval_days = int((await db.execute(
+        select(Setting.value).where(Setting.key == "audit_interval_days")
+    )).scalar_one())
+    return datetime.now(TZ) - timedelta(days=interval_days)
+
+
+def _is_due_for_audit(eq: Equipment, cutoff: datetime) -> bool:
+    return eq.status != "retired" and (eq.last_audited_at is None or eq.last_audited_at < cutoff)
+
+
 async def _apply_status_filter(db: AsyncSession, query, filter_status: str | None):
-    """status ปกติ (available/damaged/...) filter ตรงคอลัมน์เดิม + เพิ่ม 2 filter พิเศษที่ derive จากตาราง/
+    """status ปกติ (available/damaged/...) filter ตรงคอลัมน์เดิม + เพิ่ม filter พิเศษที่ derive จากตาราง/
     เกณฑ์อื่น ไม่ใช่ค่าจริงใน equipment.status — ใช้ในหน้าจัดการอุปกรณ์แทนการต้องกดเข้ามาจาก dashboard:
     - low_stock: เฉพาะ consumable ที่ต่ำกว่าเกณฑ์ (mirror สูตรเดียวกับ dashboard_service.get_summary)
     - borrowed: มีของออกไปจริงผ่าน BorrowItem ที่ยังไม่คืน (คนละอย่างกับ status="available" ที่กดลบไม่ได้
       สื่อว่า "ยืมได้" ไม่ใช่ "กำลังถูกยืม")
+    - due_for_audit: ยังไม่เคยตรวจนับ หรือตรวจนับครั้งล่าสุดเกิน audit_interval_days วันแล้ว (ไม่รวมของ
+      ที่ปลดระวางแล้ว — ไม่มีอยู่จริงในคลังให้ตรวจนับต่อ)
 
-    ใช้กับ list_equipment (ไม่ยุบกลุ่ม) เท่านั้น — list_equipment_grouped ต้อง filter "borrowed" ที่ระดับกลุ่ม
-    แยกต่างหาก (ดู comment ใน list_equipment_grouped) ไม่งั้นยอดรวมของการ์ดจะผิด เพราะกรองตัดหน่วยพี่น้อง
-    ในกลุ่มเดียวกันที่ไม่ได้ถูกยืมออกไปจาก query ตั้งแต่ต้น
+    ใช้กับ list_equipment (ไม่ยุบกลุ่ม) เท่านั้น — list_equipment_grouped ต้อง filter "borrowed"/"due_for_audit"
+    ที่ระดับกลุ่มแยกต่างหาก (ดู comment ใน list_equipment_grouped) ไม่งั้นยอดรวมของการ์ดจะผิด เพราะกรองตัดหน่วย
+    พี่น้องในกลุ่มเดียวกันที่ไม่เข้าเงื่อนไขออกจาก query ตั้งแต่ต้น
     """
     if filter_status == "low_stock":
         default_threshold = int((await db.execute(
@@ -134,6 +149,12 @@ async def _apply_status_filter(db: AsyncSession, query, filter_status: str | Non
         )
     if filter_status == "borrowed":
         return query.where(Equipment.id.in_((await get_holders_map(db)).keys()))
+    if filter_status == "due_for_audit":
+        cutoff = await _audit_cutoff(db)
+        return query.where(
+            Equipment.status != "retired",
+            or_(Equipment.last_audited_at.is_(None), Equipment.last_audited_at < cutoff),
+        )
     if filter_status:
         return query.where(Equipment.status == filter_status)
     return query
@@ -246,12 +267,15 @@ async def list_equipment_grouped(
         query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
         query = query.where(Equipment.item_type == item_type)
-    # "borrowed" ต้อง filter ที่ "กลุ่มไหนมีหน่วยถูกยืมอยู่บ้าง" ไม่ใช่กรองที่ query แถวก่อน group —
-    # ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่ถูกยืม แล้วเอาไปรวมยอด quantity_total/available เป็นยอดของกลุ่ม
-    # ทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
+    # "borrowed"/"due_for_audit" ต้อง filter ที่ "กลุ่มไหนมีหน่วยเข้าเงื่อนไขบ้าง" ไม่ใช่กรองที่ query แถวก่อน
+    # group — ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่เข้าเงื่อนไข แล้วเอาไปรวมยอด quantity_total/available เป็นยอด
+    # ของกลุ่มทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
     # ต้องดึงทุกหน่วยของกลุ่มมาคำนวณยอดก่อน แล้วค่อยกรองว่าจะโชว์การ์ดไหนทีหลัง
     filter_borrowed_group = filter_status == "borrowed"
-    query = await _apply_status_filter(db, query, None if filter_borrowed_group else filter_status)
+    filter_due_group = filter_status == "due_for_audit"
+    query = await _apply_status_filter(
+        db, query, None if (filter_borrowed_group or filter_due_group) else filter_status
+    )
     if search:
         kw = f"%{search.strip()}%"
         query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
@@ -266,6 +290,9 @@ async def list_equipment_grouped(
     holders_map = await get_holders_map(db)
     if filter_borrowed_group:
         groups = {key: members for key, members in groups.items() if any(m.id in holders_map for m in members)}
+    if filter_due_group:
+        cutoff = await _audit_cutoff(db)
+        groups = {key: members for key, members in groups.items() if any(_is_due_for_audit(m, cutoff) for m in members)}
 
     cards = [_build_group_response(members, holders_map) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
@@ -432,6 +459,27 @@ async def retire_equipment(
                                     "quantity": eq.quantity_total, "item_type": eq.item_type,
                                     "reason": (reason or "").strip() or None})
     await db.commit()
+
+
+async def physical_audit_equipment(
+    db: AsyncSession, admin: User, equipment_id: uuid.UUID, note: str | None, photo_urls: list[str]
+) -> Equipment:
+    """บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว (เจอของจริงตรงตำแหน่งที่บันทึกไว้)
+
+    last_audited_at เป็นแค่ตัวชี้ล่าสุด ใช้ query "ครบกำหนดตรวจนับ" ได้เร็ว — ประวัติแต่ละครั้งจริง ๆ
+    (ใคร เมื่อไหร่ โน้ต รูป) เก็บถาวรใน audit_logs (append-only แก้ไม่ได้) อยู่แล้ว ไม่ต้องมีตารางแยก
+    """
+    eq = await get_equipment(db, equipment_id)
+    previous = eq.last_audited_at
+    eq.last_audited_at = datetime.now(TZ)
+    await audit_service.log_action(db, admin, "physical_audit", "equipment", eq.id, {
+        "code": eq.code, "name": eq.name,
+        "note": (note or "").strip() or None,
+        "photo_urls": photo_urls or None,
+        "previous_audit_at": previous.isoformat() if previous else None,
+    })
+    await db.commit()
+    return await get_equipment(db, equipment_id)
 
 
 async def bulk_retire_equipment(

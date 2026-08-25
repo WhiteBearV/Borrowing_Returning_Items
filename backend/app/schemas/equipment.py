@@ -60,6 +60,7 @@ class EquipmentResponse(BaseModel):
     is_borrowable: bool
     created_at: datetime
     updated_at: datetime
+    last_audited_at: datetime | None = None
     # หน่วยนี้มีคำขอ approved ที่ยังไม่คืนอยู่จริงไหม — คำนวณจาก borrow_items ไม่ใช่ column บน equipment
     # (status="available" แปลว่า "ยืมได้" เฉยๆ ไม่ใช่ "ไม่มีใครถือ" ดู equipment_service._apply_status_filter)
     # ต้องแยกจาก quantity_available < quantity_total เพราะช่องว่างนั้นเกิดจากของเสีย/สูญหายที่คืนไปแล้วได้ด้วย
@@ -111,6 +112,7 @@ class EquipmentUnitSummary(BaseModel):
     is_borrowable: bool
     is_currently_borrowed: bool = False
     holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีค่าก็ต่อเมื่อ is_currently_borrowed)
+    last_audited_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -145,6 +147,11 @@ class EquipmentCreate(BaseModel):
 
 class RestockRequest(BaseModel):
     count: int = Field(..., gt=0)
+
+
+class PhysicalAuditRequest(BaseModel):
+    note: str | None = None
+    photo_urls: list[str] = []
 
 
 class EquipmentUpdate(BaseModel):

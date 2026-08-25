@@ -7,6 +7,8 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
 import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
+import AuditModal from '../../components/equipment/AuditModal.jsx'
+import { formatDate } from '../../utils/formatDate.js'
 import StatusBadge from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { openPdf } from '../../utils/openPdf.js'
@@ -523,6 +525,7 @@ export default function EquipmentManagePage() {
   const [bulkResult, setBulkResult] = useState(null) // { deleted, failed } — โชว์สรุปหลังลบหลายรายการ
   const [restock, setRestock] = useState(null) // { id, name, groupId } — เติมของ (ซื้อเพิ่ม)
   const [qrTarget, setQrTarget] = useState(null) // { id, name } — โชว์ QR code ของหน่วยนี้
+  const [auditTarget, setAuditTarget] = useState(null) // { id, name, groupId } — ตรวจนับกายภาพ
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -817,10 +820,11 @@ export default function EquipmentManagePage() {
           <option value="damaged">เสียหาย</option>
           <option value="under_repair">ซ่อมอยู่</option>
           <option value="retired">ปลดระวาง</option>
-          {/* 2 ตัวนี้ derive จากเกณฑ์/ตารางอื่น ไม่ใช่ equipment.status ตรงๆ (ดู equipment_service._apply_status_filter)
+          {/* 3 ตัวนี้ derive จากเกณฑ์/ตารางอื่น ไม่ใช่ equipment.status ตรงๆ (ดู equipment_service._apply_status_filter)
               เดิมดูได้แค่กดเข้ามาจาก dashboard เฉยๆ ไม่มี filter ให้กรองต่อ */}
           <option value="low_stock">สต็อกต่ำ</option>
           <option value="borrowed">ถูกยืมอยู่</option>
+          <option value="due_for_audit">ครบกำหนดตรวจนับ</option>
         </select>
       </div>
 
@@ -901,6 +905,11 @@ export default function EquipmentManagePage() {
                             {eq.holder.holder_name}{eq.holder.student_number ? ` (${eq.holder.student_number})` : ''}
                           </div>
                         )}
+                        {!grouped && (
+                          <div className="font-normal text-gray-400 text-xs">
+                            ตรวจนับล่าสุด: {eq.last_audited_at ? formatDate(eq.last_audited_at) : 'ยังไม่เคย'}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         {grouped ? (
@@ -914,6 +923,7 @@ export default function EquipmentManagePage() {
                           <div className="flex gap-3">
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
+                            <button onClick={() => setAuditTarget({ id: eq.id, name: eq.name })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
                               <span className="inline-flex items-center gap-1">
@@ -951,11 +961,15 @@ export default function EquipmentManagePage() {
                               {u.holder.holder_name}{u.holder.student_number ? ` (${u.holder.student_number})` : ''}
                             </div>
                           )}
+                          <div className="font-normal text-gray-400">
+                            ตรวจนับล่าสุด: {u.last_audited_at ? formatDate(u.last_audited_at) : 'ยังไม่เคย'}
+                          </div>
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
+                            <button onClick={() => setAuditTarget({ id: u.id, name: eq.name, groupId: eq.id })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
                             )}
@@ -988,6 +1002,21 @@ export default function EquipmentManagePage() {
 
       {qrTarget && (
         <QrCodeModal id={qrTarget.id} name={qrTarget.name} onClose={() => setQrTarget(null)} />
+      )}
+
+      {auditTarget && (
+        <AuditModal
+          id={auditTarget.id}
+          name={auditTarget.name}
+          onClose={() => setAuditTarget(null)}
+          onSave={async (note, photoUrls) => {
+            await equipmentApi.audit(auditTarget.id, note, photoUrls)
+            const groupId = auditTarget.groupId
+            setAuditTarget(null)
+            load()
+            if (groupId) refreshExpanded(groupId)
+          }}
+        />
       )}
 
       {restock && (
