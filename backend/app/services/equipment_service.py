@@ -820,7 +820,7 @@ async def build_stock_document(
 
 async def generate_qr(db: AsyncSession, equipment_id: uuid.UUID) -> bytes:
     eq = await get_equipment(db, equipment_id)
-    return generate_qr_png(eq.code)
+    return generate_qr_png(f"{settings.FRONTEND_URL}/equipment/{eq.id}")
 
 
 async def list_categories(db: AsyncSession) -> list[EquipmentCategory]:

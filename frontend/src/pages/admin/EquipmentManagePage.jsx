@@ -6,6 +6,7 @@ import { useAuthContext } from '../../context/AuthContext.jsx'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
+import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 
 const EMPTY_FORM = { code: '', serial_number: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
@@ -519,6 +520,7 @@ export default function EquipmentManagePage() {
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [bulkResult, setBulkResult] = useState(null) // { deleted, failed } — โชว์สรุปหลังลบหลายรายการ
   const [restock, setRestock] = useState(null) // { id, name, groupId } — เติมของ (ซื้อเพิ่ม)
+  const [qrTarget, setQrTarget] = useState(null) // { id, name } — โชว์ QR code ของหน่วยนี้
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -911,6 +913,7 @@ export default function EquipmentManagePage() {
                         ) : (
                           <div className="flex gap-3">
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
+                            <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
                               <span className="inline-flex items-center gap-1">
@@ -952,6 +955,7 @@ export default function EquipmentManagePage() {
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
+                            <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
                             )}
@@ -980,6 +984,10 @@ export default function EquipmentManagePage() {
           onClose={() => setModal(null)}
           onSave={() => { setModal(null); load(); Object.keys(expanded).forEach(refreshExpanded) }}
         />
+      )}
+
+      {qrTarget && (
+        <QrCodeModal id={qrTarget.id} name={qrTarget.name} onClose={() => setQrTarget(null)} />
       )}
 
       {restock && (
