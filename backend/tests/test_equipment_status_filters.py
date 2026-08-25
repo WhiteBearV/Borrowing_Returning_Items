@@ -185,6 +185,40 @@ async def test_return_lost_syncs_equipment_status_to_unavailable(
         await _cleanup(eq_id, req_id=req_id)
 
 
+async def test_edit_status_back_to_available_restores_quantity(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """คืนของสภาพ lost -> quantity_available ค้าง 0 (ตั้งใจ) แล้วแอดมินแก้สถานะกลับเป็น "available" ทีหลัง
+    (เช่นหาของเจอ) -> quantity_available ต้องกลับมาเป็น 1 ด้วย ไม่ใช่ค้าง 0 ตลอดไป (เจอบั๊กจริง — ฟอร์มแก้ไข
+    ไม่มีช่องแก้ quantity_available ตรง ๆ เลย ถ้า service ไม่คืนให้ก็ไม่มีทางอื่นทำให้ยืมได้อีก)"""
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 1}],
+        })
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+        item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
+
+        await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/return",
+            json={"condition_on_return": "lost", "damage_photo_urls": ["/uploads/lost.jpg"]},
+            headers=h_admin,
+        )
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["status"] == "unavailable" and eq["quantity_available"] == 0
+
+        r = await client.patch(f"/equipment/{eq_id}", json={"status": "available"}, headers=h_admin)
+        assert r.status_code == 200, r.text
+        assert r.json()["quantity_available"] == 1
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
 async def test_return_damaged_does_not_flip_status_for_unsplit_batch(
     client: AsyncClient, admin_token: str, student_token: str
 ):

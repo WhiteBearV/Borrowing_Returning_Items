@@ -496,9 +496,14 @@ async def commit_import(
             eq.image_url = row.image_urls[0]
         if row.categories:
             eq.categories = [await _get_or_create_category(db, n, cat_cache) for n in row.categories]
-        # แตะ quantity_available เฉพาะตอนสถานะ/จำนวนรวมเปลี่ยน — ของที่ถูกยืมอยู่จะได้ไม่โดนรีเซ็ต
+        # แตะ quantity_available เฉพาะตอนสถานะ/จำนวนรวมเปลี่ยน — ขยับตามส่วนต่าง (delta) ไม่ใช่ตั้งค่าทับ
+        # ตรง ๆ เพราะการตั้งทับ (= row.quantity หรือ 0) จะทิ้งจำนวนที่ถูกยืมออกไปจริงในตอนนั้นไปเลย (เจอบั๊กจริง
+        # — นำเข้าซ้ำแล้วค่าคงเหลือเพี้ยนค้างถาวร ไม่มีช่องแก้ quantity_available ตรง ๆ ที่ไหนให้แก้คืน)
         if row.status != old_status or row.quantity != old_qty:
-            eq.quantity_available = row.quantity if row.status == "available" else 0
+            if row.status == "available":
+                eq.quantity_available = max(0, min(row.quantity, eq.quantity_available + (row.quantity - old_qty)))
+            else:
+                eq.quantity_available = 0
         await audit_service.log_action(
             db, admin, "update_equipment", "equipment", eq.id,
             {"code": eq.code, "fields": sorted(ref["changes"].keys()), "source": src},

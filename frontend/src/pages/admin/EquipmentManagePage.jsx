@@ -60,10 +60,12 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
     }).catch(() => {})
   }, [])
 
-  const toggleBundleIncluded = (bundleId) => setBundleMembership((m) => ({
-    ...m,
-    [bundleId]: { included: !m[bundleId].included, trigger: m[bundleId].included ? false : m[bundleId].trigger },
-  }))
+  // ห้ามเป็นทั้งสมาชิกและตัวกระตุ้นพร้อมกัน (backend บังคับ) — ต้องเช็คค่า "ใหม่" ของ included ไม่ใช่ค่าเดิม
+  // ไม่งั้นติ๊กเข้าเป็นสมาชิกทั้งที่ยังเป็นตัวกระตุ้นอยู่ได้ (เจอบั๊กจริง — บันทึกแล้ว 400 ทุกครั้งเพราะชนกัน)
+  const toggleBundleIncluded = (bundleId) => setBundleMembership((m) => {
+    const included = !m[bundleId].included
+    return { ...m, [bundleId]: { included, trigger: included ? false : m[bundleId].trigger } }
+  })
   const toggleBundleTrigger = (bundleId) => setBundleMembership((m) => {
     const trigger = !m[bundleId].trigger
     return { ...m, [bundleId]: { included: trigger ? false : m[bundleId].included, trigger } }
@@ -284,7 +286,9 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                         <input type="checkbox" checked={m.included} onChange={() => toggleBundleIncluded(b.id)} />
                         <span className="truncate text-gray-700">{b.name}</span>
                       </label>
-                      {m.included && (
+                      {/* โชว์ตลอดแม้ยังไม่ติ๊ก "สมาชิก" เพราะตัวกระตุ้นของชุด included=false เสมอ (คนละสถานะกับสมาชิก)
+                          — เดิมซ่อนไว้จนกว่าจะติ๊กสมาชิกก่อน ทำให้แก้ไข/ถอดความเป็นตัวกระตุ้นไม่ได้เลย (เจอบั๊กจริง) */}
+                      {(m.included || m.trigger) && (
                         <label className="flex items-center gap-1 shrink-0 text-gray-500">
                           <input type="checkbox" checked={m.trigger} onChange={() => toggleBundleTrigger(b.id)} />
                           ตัวกระตุ้น
@@ -448,6 +452,54 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
   )
 }
 
+// เติมของเข้าคลัง (ซื้อเพิ่ม) — พิมพ์แค่จำนวนที่เพิ่ม ไม่ต้องคำนวณยอดรวมใหม่เอง (ต่างจากช่อง "จำนวนทั้งหมด"
+// ในฟอร์มแก้ไขที่ต้องพิมพ์ยอดรวมทั้งหมด พิมพ์ผิดแล้วต่ำกว่าเดิมจะทำสต็อกหาย) backend ตัดสินเองว่าจะบวกเข้า
+// แถวเดิม (ก้อน/สิ้นเปลือง) หรือสร้างแถวใหม่แยกรหัส (ครุภัณฑ์/วัสดุที่แยกรายชิ้นแล้ว)
+function RestockModal({ name, onClose, onSave }) {
+  const [count, setCount] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const n = Number(count)
+    if (!Number.isInteger(n) || n <= 0) { setError('กรอกจำนวนที่ซื้อเพิ่มเป็นเลขจำนวนเต็มมากกว่า 0'); return }
+    setError('')
+    setLoading(true)
+    try {
+      await onSave(n)
+    } catch (err) {
+      setError(errMsg(err, 'เติมของไม่สำเร็จ'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+        <h2 className="font-bold text-gray-800 mb-1">เพิ่มจำนวน</h2>
+        <p className="text-sm text-gray-500 mb-4">{name}</p>
+        {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <form onSubmit={submit}>
+          <label className="block text-xs font-medium text-gray-600 mb-1">ซื้อเพิ่มกี่ชิ้น</label>
+          <input type="number" min={1} step={1} autoFocus value={count} onChange={(e) => setCount(e.target.value)}
+            placeholder="เช่น 7"
+            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          <p className="mt-1 text-xs text-gray-400">ระบบจะบวกเข้ากับของเดิมให้เอง ไม่ต้องคำนวณยอดรวมใหม่เอง</p>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+            <button type="submit" disabled={loading}
+              className="flex-1 rounded-full bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+              {loading ? 'กำลังบันทึก…' : 'เพิ่ม'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function EquipmentManagePage() {
   // เข้าถึงหน้านี้พร้อมกรองประเภท/สถานะได้ทันทีผ่าน query string เช่น /admin/equipment?status=low_stock
   // (ลิงก์จาก "ภาพรวมคลังอุปกรณ์"/การ์ดแจ้งเตือนใน dashboard ใช้ path นี้) — อ่านแค่ตอน mount ครั้งแรกพอ ไม่ sync สองทาง
@@ -466,6 +518,7 @@ export default function EquipmentManagePage() {
   const [selected, setSelected] = useState(() => new Set())
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [bulkResult, setBulkResult] = useState(null) // { deleted, failed } — โชว์สรุปหลังลบหลายรายการ
+  const [restock, setRestock] = useState(null) // { id, name, groupId } — เติมของ (ซื้อเพิ่ม)
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -632,7 +685,7 @@ export default function EquipmentManagePage() {
       setConfirm(null)
       try {
         const result = await equipmentApi.bulkDelete([...selected])
-        setBulkResult(result)
+        setBulkResult({ title: 'ผลการลบถาวรหลายรายการ', succeeded: result.deleted, failed: result.failed })
         setSelected(new Set())
         load()
         Object.keys(expanded).forEach(refreshExpanded)
@@ -641,6 +694,31 @@ export default function EquipmentManagePage() {
       }
     },
   })
+
+  // ปลดระวางหลายรายการที่เลือกไว้พร้อมกัน — เหตุผลเดียวกันใช้กับทุกชิ้น (เหมือน retire() เดี่ยว ถามด้วย prompt)
+  // best-effort: ชิ้นที่ปลดระวางไม่ได้โชว์เหตุผลแยก ไม่บล็อกชิ้นอื่น
+  const bulkRetireSelected = () => {
+    const reason = window.prompt(`ปลดระวางอุปกรณ์ที่เลือกไว้ ${selected.size} รายการ\nระบุเหตุผล (เช่น ชำรุด/สูญหาย/หมดสภาพ):`, '')
+    if (reason === null) return // กด Cancel
+    setConfirm({
+      title: 'ปลดระวางอุปกรณ์หลายรายการ',
+      message: `ปลดระวางอุปกรณ์ที่เลือกไว้ ${selected.size} รายการ?\nเหตุผล: ${reason.trim() || '(ไม่ระบุ)'}\nอุปกรณ์จะไม่สามารถยืมได้อีก`,
+      confirmLabel: 'ปลดระวาง',
+      danger: true,
+      onConfirm: async () => {
+        setConfirm(null)
+        try {
+          const result = await equipmentApi.bulkRetire([...selected], reason.trim())
+          setBulkResult({ title: 'ผลการปลดระวางหลายรายการ', succeeded: result.retired, failed: result.failed })
+          setSelected(new Set())
+          load()
+          Object.keys(expanded).forEach(refreshExpanded)
+        } catch (e) {
+          alert(e.response?.data?.detail || 'ปลดระวางไม่สำเร็จ')
+        }
+      },
+    })
+  }
 
   const STATUS_STYLE = { available: 'text-green-600', borrowed: 'text-primary-600', under_repair: 'text-yellow-600', damaged: 'text-red-500', retired: 'text-gray-400', unavailable: 'text-gray-500' }
   const STATUS_LABEL = { available: 'พร้อม', borrowed: 'ถูกยืม', under_repair: 'ซ่อม', damaged: 'เสียหาย', retired: 'ปลดระวาง', unavailable: 'ไม่อนุญาตให้ยืม' }
@@ -751,6 +829,10 @@ export default function EquipmentManagePage() {
             className="rounded-full border border-primary-300 bg-white px-3 py-1 text-xs font-medium text-primary-700 hover:bg-primary-100">
             แก้ไขหลายรายการ
           </button>
+          <button onClick={bulkRetireSelected}
+            className="rounded-full border border-orange-300 bg-white px-3 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50">
+            ปลดระวางที่เลือก ({selected.size})
+          </button>
           <button onClick={bulkDeleteSelected}
             className="rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700">
             ลบถาวรที่เลือก ({selected.size})
@@ -820,12 +902,16 @@ export default function EquipmentManagePage() {
                       </td>
                       <td className="px-4 py-2.5">
                         {grouped ? (
-                          <button onClick={() => toggleExpand(eq.id)} className="text-xs text-primary-600 hover:underline">
-                            {members ? 'ปิด' : 'ดูรายหน่วย'}
-                          </button>
+                          <div className="flex gap-3">
+                            <button onClick={() => toggleExpand(eq.id)} className="text-xs text-primary-600 hover:underline">
+                              {members ? 'ปิด' : 'ดูรายหน่วย'}
+                            </button>
+                            <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
+                          </div>
                         ) : (
                           <div className="flex gap-3">
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
+                            <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
                               <span className="inline-flex items-center gap-1">
                                 <button onClick={() => splitUnits(eq.id, eq.name, eq.quantity_total)} className="text-xs text-purple-600 hover:underline">แยกเป็นรายชิ้น</button>
@@ -896,6 +982,19 @@ export default function EquipmentManagePage() {
         />
       )}
 
+      {restock && (
+        <RestockModal
+          name={restock.name}
+          onClose={() => setRestock(null)}
+          onSave={async (count) => {
+            await equipmentApi.restock(restock.id, count)
+            setRestock(null)
+            load()
+            Object.keys(expanded).forEach(refreshExpanded)
+          }}
+        />
+      )}
+
       {confirm && (
         <ConfirmModal
           title={confirm.title}
@@ -925,8 +1024,8 @@ export default function EquipmentManagePage() {
       {bulkResult && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
-            <h2 className="font-bold text-gray-800 mb-3">ผลการลบถาวรหลายรายการ</h2>
-            <p className="text-sm text-green-700 mb-2">สำเร็จ {bulkResult.deleted.length} รายการ</p>
+            <h2 className="font-bold text-gray-800 mb-3">{bulkResult.title}</h2>
+            <p className="text-sm text-green-700 mb-2">สำเร็จ {bulkResult.succeeded.length} รายการ</p>
             {bulkResult.failed.length > 0 && (
               <div className="mb-3">
                 <p className="text-sm text-red-600 mb-1">ไม่สำเร็จ {bulkResult.failed.length} รายการ</p>

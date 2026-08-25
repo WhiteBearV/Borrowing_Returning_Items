@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.equipment import (
     BulkDeleteFailure,
     BulkDeleteResult,
+    BulkRetireResult,
     BulkUpdateResult,
     CategoryCreate,
     CategoryResponse,
@@ -386,12 +387,23 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
 
     # เก็บค่าก่อนแก้ไว้ทำ audit — setattr loop ด้านล่างเขียนทับแล้วย้อนดูค่าเดิมไม่ได้
     old_code, old_item_type = eq.code, eq.item_type
+    old_status, old_total, old_available = eq.status, eq.quantity_total, eq.quantity_available
 
     for field, value in changed.items():
         setattr(eq, field, value)
+    # เพิ่มจำนวนรวม (แอดมินนับใหม่/เติมของเข้าคลัง) → ของที่เพิ่มมาต้องพร้อมให้ยืมด้วย ไม่งั้นค่าคงเหลือ
+    # ค้างที่ตัวเลขเดิมตลอดไป เพราะฟอร์มนี้ไม่มีช่องแก้ quantity_available ตรง ๆ เลยสักที่ (เจอบั๊กจริง)
+    if eq.quantity_total > old_total:
+        eq.quantity_available = old_available + (eq.quantity_total - old_total)
     # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
     # ถ้าไม่ดักไว้จะไปชน CHECK constraint แล้วกลายเป็น 500 แทนที่จะทำสิ่งที่แอดมินตั้งใจ
     if eq.quantity_available > eq.quantity_total:
+        eq.quantity_available = eq.quantity_total
+    # หน่วยเดี่ยว (quantity_total==1) เปลี่ยนสถานะกลับเป็น "พร้อมให้ยืม" จากสถานะอื่น (เช่นของหายที่เพิ่งเจอ/
+    # ซ่อมเสร็จ) → คืนของว่างให้ครบ เพราะ borrow_service.return_item ตอนของหาย/เสีย (lost/damaged) ปรับ status
+    # ให้เป็น unavailable/damaged แต่ตั้งใจไม่คืนสต็อก (quantity_available ค้าง 0) — ถ้าไม่ทำตรงนี้ ไม่มีทางอื่น
+    # เลยที่จะทำให้ยืมได้อีกหลังแก้ไข เพราะฟอร์มไม่มีช่องแก้ quantity_available ตรง ๆ
+    if "status" in changed and old_status != "available" and eq.status == "available" and eq.quantity_total == 1:
         eq.quantity_available = eq.quantity_total
     if body.image_urls is not None:
         eq.image_url = body.image_urls[0] if body.image_urls else None  # sync cover
@@ -419,6 +431,24 @@ async def retire_equipment(
                                     "quantity": eq.quantity_total, "item_type": eq.item_type,
                                     "reason": (reason or "").strip() or None})
     await db.commit()
+
+
+async def bulk_retire_equipment(
+    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], reason: str | None
+) -> BulkRetireResult:
+    """ปลดระวางหลายรายการพร้อมกันแบบ best-effort — เรียก retire_equipment เดิมซ้ำทีละชิ้น (ใช้ guard/audit
+    เดิมทุกอย่าง ไม่เขียนเงื่อนไขซ้ำ) เหตุผลเดียวกันใช้กับทุกชิ้นที่เลือก ชิ้นที่ปลดระวางไม่ได้ (เช่น id ไม่มีจริง)
+    ไม่บล็อกชิ้นอื่นที่เหลือ เหมือน bulk_delete_equipment
+    """
+    retired: list[uuid.UUID] = []
+    failed: list[BulkDeleteFailure] = []
+    for eq_id in equipment_ids:
+        try:
+            await retire_equipment(db, admin, eq_id, reason)
+            retired.append(eq_id)
+        except HTTPException as e:
+            failed.append(BulkDeleteFailure(equipment_id=eq_id, reason=str(e.detail)))
+    return BulkRetireResult(retired=retired, failed=failed)
 
 
 def _generate_split_codes(base_code: str, count: int, existing_codes: set[str]) -> list[str]:
@@ -526,6 +556,66 @@ async def split_equipment_into_units(
     if dry:
         return new_rows
 
+    await db.commit()
+    ids = [r.id for r in new_rows]
+    result = await db.execute(
+        select(Equipment).where(Equipment.id.in_(ids))
+        .options(selectinload(Equipment.categories)).order_by(Equipment.code)
+    )
+    return list(result.scalars().all())
+
+
+async def restock_equipment(
+    db: AsyncSession, admin: User, equipment_id: uuid.UUID, count: int
+) -> list[Equipment]:
+    """เติมของเข้าคลัง (ซื้อเพิ่ม) — พิมพ์แค่ "จะเพิ่มกี่ชิ้น" ไม่ต้องคำนวณยอดรวมใหม่เอง (เดิมมีแต่ฟอร์มแก้ไขที่
+    ต้องพิมพ์ยอดรวมใหม่ทั้งหมด พิมพ์ผิดแล้วต่ำกว่าเดิมจะโดน down-clamp ใน update_equipment ทำสต็อกหายจริง)
+
+    แยกพฤติกรรมตามว่าแถวนี้นับเป็น "ก้อน" หรือ "รายชิ้น" อยู่แล้ว:
+    - วัสดุสิ้นเปลือง หรือวัสดุก้อนที่ยังไม่แยกรายชิ้น (quantity_total > 1) → บวกเข้าที่แถวเดิมตรง ๆ
+    - ครุภัณฑ์ หรือวัสดุที่แยกรายชิ้นแล้ว (quantity_total == 1 ต่อแถว = 1 หน่วยจริงต่อแถว) → สร้างแถวใหม่
+      คนละรหัส count แถว เหมือนของเดิมที่แยกไว้ (ผูก serial number ทีละชิ้นทีหลังได้)
+    """
+    eq = (await db.execute(
+        select(Equipment).where(Equipment.id == equipment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if not eq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment not found.")
+
+    if eq.item_type == "consumable" or eq.quantity_total > 1:
+        eq.quantity_total += count
+        eq.quantity_available += count
+        await audit_service.log_action(
+            db, admin, "restock_equipment", "equipment", eq.id,
+            {"code": eq.code, "name": eq.name, "added": count, "quantity_total": eq.quantity_total},
+        )
+        await db.commit()
+        return [await get_equipment(db, eq.id)]
+
+    # ครุภัณฑ์ หรือวัสดุที่แยกรายชิ้นแล้ว — สร้างหน่วยใหม่แยกรหัส คนละแถวเหมือนของเดิม
+    await db.refresh(eq, attribute_names=["categories"])
+    existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
+    new_codes = _generate_split_codes(eq.code, count, existing_codes)
+    new_rows = []
+    for code in new_codes:
+        clone = Equipment(
+            id=uuid.uuid4(), code=code, name=eq.name, item_type=eq.item_type,
+            description=eq.description, image_url=eq.image_url, image_urls=list(eq.image_urls),
+            location=eq.location, unit=eq.unit, unit_value=eq.unit_value,
+            quantity_total=1, quantity_available=1,
+            low_stock_threshold=eq.low_stock_threshold, status="available", is_borrowable=eq.is_borrowable,
+        )
+        clone.categories = list(eq.categories)
+        db.add(clone)
+        new_rows.append(clone)
+
+    await audit_service.log_action(
+        db, admin, "restock_equipment", "equipment", eq.id,
+        {"code": eq.code, "name": eq.name, "added": count, "new_codes": new_codes},
+    )
+    await db.flush()
     await db.commit()
     ids = [r.id for r in new_rows]
     result = await db.execute(

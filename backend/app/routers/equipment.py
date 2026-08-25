@@ -10,6 +10,8 @@ from app.models.user import User
 from app.schemas.equipment import (
     BulkDeleteRequest,
     BulkDeleteResult,
+    BulkRetireRequest,
+    BulkRetireResult,
     BulkUpdateRequest,
     BulkUpdateResult,
     CategoryCreate,
@@ -22,6 +24,7 @@ from app.schemas.equipment import (
     ImportCommitRequest,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
+    RestockRequest,
 )
 from app.services import equipment_service, import_service
 
@@ -120,6 +123,16 @@ async def bulk_delete_equipment(
     return await equipment_service.bulk_delete_equipment(db, admin, body.equipment_ids)
 
 
+@router.post("/equipment/bulk-retire", response_model=BulkRetireResult)
+async def bulk_retire_equipment(
+    body: BulkRetireRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BulkRetireResult:
+    """ปลดระวางหลายรายการพร้อมกันแบบ best-effort — เหตุผลเดียวกันใช้กับทุกชิ้นที่เลือก"""
+    return await equipment_service.bulk_retire_equipment(db, admin, body.equipment_ids, body.reason)
+
+
 @router.patch("/equipment/bulk-update", response_model=BulkUpdateResult)
 async def bulk_update_equipment(
     body: BulkUpdateRequest,
@@ -189,6 +202,17 @@ async def split_equipment(
 ) -> list[EquipmentResponse]:
     """แยกวัสดุ (material) ก้อนเดียวที่ quantity_total > 1 เป็นรายชิ้นคนละรหัส — เฉพาะที่ไม่มีของยืมอยู่"""
     return await equipment_service.split_equipment_into_units(db, admin, equipment_id)
+
+
+@router.post("/equipment/{equipment_id}/restock", response_model=list[EquipmentResponse])
+async def restock_equipment(
+    equipment_id: uuid.UUID,
+    body: RestockRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[EquipmentResponse]:
+    """เติมของเข้าคลัง (ซื้อเพิ่ม) — บวกจำนวนที่ซื้อเพิ่มเข้าไปตรง ๆ ไม่ต้องคำนวณยอดรวมใหม่เอง"""
+    return await equipment_service.restock_equipment(db, admin, equipment_id, body.count)
 
 
 @router.delete("/equipment/{equipment_id}/permanent", status_code=204)

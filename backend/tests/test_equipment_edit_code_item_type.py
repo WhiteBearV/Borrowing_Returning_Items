@@ -101,6 +101,36 @@ async def test_update_equipment_item_type_regroups(client: AsyncClient, admin_to
         await _cleanup(eq_a, eq_b)
 
 
+async def test_update_equipment_increase_quantity_total_grows_available(
+    client: AsyncClient, admin_token: str, student_token: str
+):
+    """เพิ่ม quantity_total ของวัสดุที่มีของถูกยืมอยู่บางส่วน -> quantity_available ต้องขยับตามส่วนต่างที่เพิ่ม
+    ไม่ใช่ค้างที่เดิม (เจอบั๊กจริง — แอดมินนับของใหม่แล้วแก้ quantity_total ขึ้น แต่ของที่เพิ่มมาไม่เคยพร้อมยืม
+    เพราะไม่มีช่องแก้ quantity_available ตรง ๆ ที่ไหนเลย ต้องพึ่ง service reconcile ให้)"""
+    h_admin = auth(admin_token)
+    h_student = auth(student_token)
+    eq_id = await _make_equipment(client, h_admin, item_type="material", quantity_total=5)
+    req_id = None
+    try:
+        r = await client.post("/borrow-requests", headers=h_student, json={
+            "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": eq_id, "quantity": 2}],
+        })
+        assert r.status_code == 201, r.text
+        req_id = r.json()["id"]
+        assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
+
+        eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
+        assert eq["quantity_total"] == 5 and eq["quantity_available"] == 3  # 2 ถูกยืมอยู่
+
+        r = await client.patch(f"/equipment/{eq_id}", json={"quantity_total": 8}, headers=h_admin)
+        assert r.status_code == 200, r.text
+        assert r.json()["quantity_total"] == 8
+        assert r.json()["quantity_available"] == 6  # 3 เดิม + 3 ที่เพิ่มมาใหม่ ยังคง 2 ที่ถูกยืมอยู่แยกไว้
+    finally:
+        await _cleanup(eq_id, req_id=req_id)
+
+
 async def test_update_equipment_item_type_does_not_break_active_loan_snapshot(
     client: AsyncClient, admin_token: str, student_token: str
 ):

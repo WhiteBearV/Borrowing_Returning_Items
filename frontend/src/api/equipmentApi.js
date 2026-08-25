@@ -9,8 +9,13 @@ export const equipmentApi = {
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
   retire: (id, reason) => api.delete(`/equipment/${id}`, { params: reason ? { reason } : {} }),
+  // ปลดระวางหลายรายการพร้อมกันแบบ best-effort — เหตุผลเดียวกันใช้กับทุกชิ้น คืน { retired: [id], failed: [{equipment_id, reason}] }
+  bulkRetire: (equipment_ids, reason) => api.post('/equipment/bulk-retire', { equipment_ids, reason }).then((r) => r.data),
   // แยกวัสดุ (material) ก้อนเดียวที่ quantity_total > 1 เป็นรายชิ้นคนละรหัส — คืนหน่วยใหม่ทั้งหมด
   split: (id) => api.post(`/equipment/${id}/split`).then((r) => r.data),
+  // เติมของเข้าคลัง (ซื้อเพิ่ม) — พิมพ์แค่จำนวนที่เพิ่ม ระบบตัดสินเองว่าจะบวกเข้าแถวเดิม (ก้อน/สิ้นเปลือง)
+  // หรือสร้างแถวใหม่แยกรหัส (ครุภัณฑ์/วัสดุที่แยกรายชิ้นแล้ว)
+  restock: (id, count) => api.post(`/equipment/${id}/restock`, { count }).then((r) => r.data),
   // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
   stockDocument: (kind, date_from, date_to) =>
     api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),

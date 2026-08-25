@@ -143,6 +143,10 @@ class EquipmentCreate(BaseModel):
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)  # ชื่อ generic ใช้กับ code ได้เหมือนกัน
 
 
+class RestockRequest(BaseModel):
+    count: int = Field(..., gt=0)
+
+
 class EquipmentUpdate(BaseModel):
     code: str | None = None
     item_type: str | None = None
@@ -209,6 +213,16 @@ class BulkDeleteFailure(BaseModel):
 
 class BulkDeleteResult(BaseModel):
     deleted: list[uuid.UUID]
+    failed: list[BulkDeleteFailure]
+
+
+class BulkRetireRequest(BaseModel):
+    equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
+    reason: str | None = None
+
+
+class BulkRetireResult(BaseModel):
+    retired: list[uuid.UUID]
     failed: list[BulkDeleteFailure]
 
 
