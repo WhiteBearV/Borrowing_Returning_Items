@@ -18,6 +18,7 @@ const ACTION_LABEL = {
   create_bundle: 'สร้างชุดอุปกรณ์',
   update_bundle: 'แก้ไขชุดอุปกรณ์',
   delete_bundle: 'ลบชุดอุปกรณ์',
+  physical_audit: 'ตรวจนับอุปกรณ์',
 }
 const actionLabel = (a) => ACTION_LABEL[a] ?? a
 
