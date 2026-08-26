@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isBundleItemAvailable, mergeCartItem } from './cartRules.js'
+import { bundleSkippedNames, isBundleItemAvailable, mergeCartItem } from './cartRules.js'
 
 const wire = { id: 'w', item_type: 'consumable', quantity_available: 500 }
 const pc = { id: 'p', item_type: 'durable', quantity_available: 1 }
@@ -37,4 +37,24 @@ test('ของในชุดที่ยืมไม่ได้ต้อง�
   assert.equal(isBundleItemAvailable({ is_borrowable: true, quantity_available: 3 }), true)
   assert.equal(isBundleItemAvailable({ is_borrowable: false, quantity_available: 3 }), false)
   assert.equal(isBundleItemAvailable({ is_borrowable: true, quantity_available: 0 }), false)
+})
+
+test('bundleSkippedNames รายงานของที่ยืมไม่ได้ตอนนี้ ไม่รวมตัวกระตุ้น', () => {
+  const bundle = {
+    trigger_equipment_id: 'trigger',
+    items: [
+      { equipment_id: 'trigger', equipment_name: 'ตัวกระตุ้น', is_borrowable: true, quantity_available: 5 },
+      { equipment_id: 'a', equipment_name: 'สายUSB-C', is_borrowable: true, quantity_available: 0 },
+      { equipment_id: 'b', equipment_name: 'เมาส์', is_borrowable: true, quantity_available: 4 },
+    ],
+  }
+  assert.deepEqual(bundleSkippedNames(bundle), ['สายUSB-C'])
+})
+
+test('bundleSkippedNames ว่างเปล่าเมื่อของในชุดยืมได้ครบ', () => {
+  const bundle = {
+    trigger_equipment_id: 'trigger',
+    items: [{ equipment_id: 'a', equipment_name: 'เมาส์', is_borrowable: true, quantity_available: 4 }],
+  }
+  assert.deepEqual(bundleSkippedNames(bundle), [])
 })

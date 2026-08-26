@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { isBundleItemAvailable, mergeCartItem } from './cartRules.js'
+import { bundleSkippedNames, isBundleItemAvailable, mergeCartItem } from './cartRules.js'
 
 const KEY = 'borrowCart'
 const PURPOSE_KEY = 'borrowPurpose'
@@ -31,15 +31,15 @@ export function useBorrowCart() {
 
   /** เพิ่มทั้งชุดลงตะกร้า — คืนรายการที่เพิ่มไม่ได้ (ของหมด/ของประจำห้อง) ให้หน้าเว็บแจ้งผู้ใช้ */
   const addBundle = useCallback((bundle) => {
-    const skipped = []
+    // คำนวณ skipped นอก setCart updater เสมอ — updater ที่ส่งให้ setState ไม่ได้รันทันทีตอนนี้
+    // (React เรียกตอน re-render) เดิม push เข้า skipped ในนั้นแล้ว return skipped ทันทีข้างนอก
+    // เลยได้ [] ว่างเปล่าตลอดไม่ว่าจะข้ามอะไรไปจริงหรือไม่ ข้อความ "ยกเว้น..." เลยไม่เคยขึ้น
+    const skipped = bundleSkippedNames(bundle)
     // อัปเดตครั้งเดียวจบ — เรียก addItem ทีละชิ้นจะอ่าน state เก่าถ้าของในชุดซ้ำกัน
     setCart((prev) => bundle.items.reduce((acc, it) => {
       // ponytail: กันชุดข้อมูลเก่าที่ตัวกระตุ้นดันเป็นสมาชิกในชุดด้วย (ยืมซ้ำ 2 เท่าโดยไม่ตั้งใจ)
       if (it.equipment_id === bundle.trigger_equipment_id) return acc
-      if (!isBundleItemAvailable(it)) {
-        skipped.push(it.equipment_name ?? it.equipment_id)
-        return acc
-      }
+      if (!isBundleItemAvailable(it)) return acc
       return mergeCartItem(acc, {
         id: it.equipment_id, name: it.equipment_name, code: it.equipment_code,
         item_type: it.item_type, unit: it.unit, quantity_available: it.quantity_available,

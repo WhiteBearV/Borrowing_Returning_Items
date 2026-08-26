@@ -19,3 +19,10 @@ export function mergeCartItem(cart, equipment, quantity = 1) {
 export function isBundleItemAvailable(item) {
   return Boolean(item.is_borrowable) && Boolean(item.quantity_available)
 }
+
+/** รายชื่อของในชุดที่จะถูกข้าม (ยืมไม่ได้ตอนนี้) ไม่นับตัวกระตุ้นเอง — ใช้ทั้งตอนเพิ่มจริงและตอนขึ้นข้อความแจ้งผู้ใช้ */
+export function bundleSkippedNames(bundle) {
+  return bundle.items
+    .filter((it) => it.equipment_id !== bundle.trigger_equipment_id && !isBundleItemAvailable(it))
+    .map((it) => it.equipment_name ?? it.equipment_id)
+}
