@@ -18,6 +18,9 @@ export const equipmentApi = {
   restock: (id, count) => api.post(`/equipment/${id}/restock`, { count }).then((r) => r.data),
   // บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว — note/photo_urls ไม่บังคับ
   audit: (id, note, photo_urls) => api.post(`/equipment/${id}/audit`, { note, photo_urls }).then((r) => r.data),
+  // ปรับยอดคงเหลือให้ตรงกับการนับจริง (SET ตรง ๆ ต่างจาก restock ที่บวกเพิ่ม) — เหตุผลบังคับ, รูปไม่บังคับ
+  adjustStock: (id, newAvailable, reason, photoUrls) =>
+    api.post(`/equipment/${id}/adjust-stock`, { new_available: newAvailable, reason, photo_urls: photoUrls }).then((r) => r.data),
   // ใบรับเข้าคลัง (receipt) / ใบปลดระวาง (disposal) เป็น PDF ตามช่วงวันที่
   stockDocument: (kind, date_from, date_to) =>
     api.get('/equipment/stock-document', { params: { kind, date_from, date_to }, responseType: 'blob' }).then((r) => r.data),

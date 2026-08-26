@@ -17,6 +17,7 @@ export default function AllBorrowsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
   const [filterStatus, setFilterStatus] = useState('')
   const [overdueOnly, setOverdueOnly] = useState(false)
+  const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(highlightId)
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, itemId }
@@ -26,11 +27,13 @@ export default function AllBorrowsPage() {
 
   const load = () => {
     setLoading(true)
-    borrowApi.list({ status: filterStatus || undefined, overdue_only: overdueOnly || undefined, page, page_size: 20 })
-      .then(setData).finally(() => setLoading(false))
+    borrowApi.list({
+      status: filterStatus || undefined, overdue_only: overdueOnly || undefined,
+      search: search || undefined, page, page_size: 20,
+    }).then(setData).finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [filterStatus, overdueOnly, page])
+  useEffect(() => { load() }, [filterStatus, overdueOnly, search, page])
 
   // มาจากลิงก์แจ้งเตือน — คำขออาจไม่อยู่ในหน้า/ตัวกรองสถานะปัจจุบัน ดึงมาแสดงแยกแล้ว scroll ไปหา
   useEffect(() => {
@@ -52,6 +55,14 @@ export default function AllBorrowsPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-light text-gray-800">ประวัติการยืมทั้งหมด</h1>
+        <div className="flex flex-col sm:flex-row gap-3 sm:w-auto">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          placeholder="ค้นหาชื่อ/รหัสนักศึกษา/ชื่ออุปกรณ์…"
+          className="w-full sm:w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+        />
         <select
           value={overdueOnly ? 'overdue' : filterStatus}
           onChange={(e) => {
@@ -66,6 +77,7 @@ export default function AllBorrowsPage() {
           {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           <option value="overdue">เกินกำหนด</option>
         </select>
+        </div>
       </div>
 
       {loading ? (

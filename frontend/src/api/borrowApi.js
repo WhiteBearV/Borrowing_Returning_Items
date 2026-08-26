@@ -8,8 +8,13 @@ export const borrowApi = {
   approve: (id) => api.patch(`/borrow-requests/${id}/approve`).then((r) => r.data),
   reject: (id, rejection_reason) =>
     api.patch(`/borrow-requests/${id}/reject`, { rejection_reason }).then((r) => r.data),
-  renewItem: (id, itemId) =>
-    api.post(`/borrow-requests/${id}/items/${itemId}/renew`).then((r) => r.data),
+  // นักศึกษายื่นคำขอต่อเวลา (เลือกวันที่+เหตุผลเอง) — ยังไม่ใช่การต่อเวลาจริง แค่แจ้ง admin ให้มาอนุมัติ
+  renewRequest: (id, itemId, requested_date, reason) =>
+    api.post(`/borrow-requests/${id}/items/${itemId}/renew-request`, { requested_date, reason }).then((r) => r.data),
+  renewApprove: (id, itemId) =>
+    api.post(`/borrow-requests/${id}/items/${itemId}/renew-approve`).then((r) => r.data),
+  renewReject: (id, itemId, rejection_reason) =>
+    api.post(`/borrow-requests/${id}/items/${itemId}/renew-reject`, { rejection_reason }).then((r) => r.data),
   requestReturn: (id, itemIds) =>
     api.post(`/borrow-requests/${id}/request-return`, { item_ids: itemIds }).then((r) => r.data),
   returnItem: (id, itemId, data) =>

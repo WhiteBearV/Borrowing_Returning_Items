@@ -38,6 +38,15 @@ class BorrowItem(Base):
     # นักศึกษาแจ้งขอคืนเอง — แค่ป้ายแจ้ง admin ยังไม่กระทบ returned/quantity_available จนกว่า admin ยืนยัน
     return_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     return_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # นักศึกษาขอต่อเวลาเอง (เลือกวันที่ + เหตุผล) — ยังไม่ขยาย extended_due_date/renewed_count จนกว่า admin
+    # จะอนุมัติ (ดู borrow_service.approve_renew_item) mirror pattern เดียวกับ return_requested ข้างบน
+    renew_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    renew_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    renew_requested_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    renew_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # เหตุผลปฏิเสธคำขอต่อเวลาล่าสุด — คงไว้ให้นักศึกษาเห็นทีหลัง (เหมือน borrow_request.rejection_reason)
+    # ถูกเคลียร์เป็น None ทุกครั้งที่ยื่นคำขอต่อเวลาใหม่หรือได้รับอนุมัติ
+    renew_rejected_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -7,6 +7,8 @@ import EmptyState from '../../components/common/EmptyState.jsx'
 const ACTION_LABEL = {
   approve_request: 'อนุมัติคำขอ',
   reject_request: 'ปฏิเสธคำขอ',
+  approve_renew: 'อนุมัติต่อเวลา',
+  reject_renew: 'ปฏิเสธต่อเวลา',
   confirm_return: 'รับคืนอุปกรณ์',
   create_equipment: 'เพิ่มอุปกรณ์',
   update_equipment: 'แก้ไขอุปกรณ์',
@@ -14,6 +16,7 @@ const ACTION_LABEL = {
   delete_equipment: 'ลบอุปกรณ์',
   split_equipment: 'แยกอุปกรณ์เป็นรายชิ้น',
   restock_equipment: 'เติมของเข้าคลัง',
+  adjust_stock: 'ปรับยอดคงเหลือ',
   bulk_update_equipment: 'แก้ไขหลายรายการ',
   create_bundle: 'สร้างชุดอุปกรณ์',
   update_bundle: 'แก้ไขชุดอุปกรณ์',

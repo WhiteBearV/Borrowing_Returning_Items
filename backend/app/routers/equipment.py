@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
 from app.schemas.equipment import (
+    AdjustStockRequest,
     BulkDeleteRequest,
     BulkDeleteResult,
     BulkRetireRequest,
@@ -225,6 +226,17 @@ async def audit_equipment(
 ) -> EquipmentResponse:
     """บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว (เจอของจริงตรงตำแหน่งที่บันทึกไว้)"""
     return await equipment_service.physical_audit_equipment(db, admin, equipment_id, body.note, body.photo_urls)
+
+
+@router.post("/equipment/{equipment_id}/adjust-stock", response_model=EquipmentResponse)
+async def adjust_stock_equipment(
+    equipment_id: uuid.UUID,
+    body: AdjustStockRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> EquipmentResponse:
+    """ปรับยอดคงเหลือให้ตรงกับการนับจริง — ต่างจาก restock ตรงที่ไม่บวกเพิ่ม แต่ SET ค่าตรง ๆ"""
+    return await equipment_service.adjust_stock(db, admin, equipment_id, body.new_available, body.reason, body.photo_urls)
 
 
 @router.delete("/equipment/{equipment_id}/permanent", status_code=204)

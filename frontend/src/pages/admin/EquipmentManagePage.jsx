@@ -8,6 +8,7 @@ import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
 import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
 import AuditModal from '../../components/equipment/AuditModal.jsx'
+import AdjustStockModal from '../../components/equipment/AdjustStockModal.jsx'
 import { formatDate } from '../../utils/formatDate.js'
 import StatusBadge from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
@@ -526,6 +527,7 @@ export default function EquipmentManagePage() {
   const [restock, setRestock] = useState(null) // { id, name, groupId } — เติมของ (ซื้อเพิ่ม)
   const [qrTarget, setQrTarget] = useState(null) // { id, name } — โชว์ QR code ของหน่วยนี้
   const [auditTarget, setAuditTarget] = useState(null) // { id, name, groupId } — ตรวจนับกายภาพ
+  const [adjustTarget, setAdjustTarget] = useState(null) // { id, name, available, total, groupId } — ปรับยอดคงเหลือ
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -925,6 +927,7 @@ export default function EquipmentManagePage() {
                             <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             <button onClick={() => setAuditTarget({ id: eq.id, name: eq.name })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
+                            <button onClick={() => setAdjustTarget({ id: eq.id, name: eq.name, available: eq.quantity_available, total: eq.quantity_total })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
                               <span className="inline-flex items-center gap-1">
                                 <button onClick={() => splitUnits(eq.id, eq.name, eq.quantity_total)} className="text-xs text-purple-600 hover:underline">แยกเป็นรายชิ้น</button>
@@ -970,6 +973,7 @@ export default function EquipmentManagePage() {
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             <button onClick={() => setAuditTarget({ id: u.id, name: eq.name, groupId: eq.id })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
+                            <button onClick={() => setAdjustTarget({ id: u.id, name: eq.name, available: u.quantity_available, total: u.quantity_total, groupId: eq.id })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
                             )}
@@ -1028,6 +1032,23 @@ export default function EquipmentManagePage() {
             setRestock(null)
             load()
             Object.keys(expanded).forEach(refreshExpanded)
+          }}
+        />
+      )}
+
+      {adjustTarget && (
+        <AdjustStockModal
+          id={adjustTarget.id}
+          name={adjustTarget.name}
+          currentAvailable={adjustTarget.available}
+          currentTotal={adjustTarget.total}
+          onClose={() => setAdjustTarget(null)}
+          onSave={async (newAvailable, reason, photoUrls) => {
+            await equipmentApi.adjustStock(adjustTarget.id, newAvailable, reason, photoUrls)
+            const groupId = adjustTarget.groupId
+            setAdjustTarget(null)
+            load()
+            if (groupId) refreshExpanded(groupId)
           }}
         />
       )}

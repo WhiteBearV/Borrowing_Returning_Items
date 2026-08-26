@@ -674,6 +674,41 @@ async def restock_equipment(
     return list(result.scalars().all())
 
 
+async def adjust_stock(
+    db: AsyncSession, admin: User, equipment_id: uuid.UUID,
+    new_available: int, reason: str, photo_urls: list[str],
+) -> Equipment:
+    """ปรับ quantity_available ให้ตรงกับที่นับได้จริง — quantity_total ไม่เปลี่ยน ต่างจาก restock_equipment
+    ที่บวกเพิ่ม (ซื้อของใหม่) อันนี้ SET ตรง ๆ (แก้ยอดให้ตรงการนับจริง เช่นของหายไม่ผ่านระบบยืม)
+
+    quantity_available คือ "จำนวนที่ไม่ได้ถูกยืมออกอยู่" อยู่แล้ว (ยืมออก = total - available) ตั้งค่าต่ำกว่า
+    เดิมจึงแปลว่า "ของหาย/ขาดหายไปมากกว่าที่ระบบยืม-คืนบันทึกไว้" ตรงกับ use case นี้พอดี ไม่ต้องมี guard เพิ่ม
+    นอกจาก 0 <= new_available <= quantity_total
+    """
+    eq = (await db.execute(
+        select(Equipment).where(Equipment.id == equipment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if not eq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment not found.")
+    if new_available > eq.quantity_total:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"new_available ({new_available}) cannot exceed quantity_total ({eq.quantity_total}).",
+        )
+
+    old_available = eq.quantity_available
+    eq.quantity_available = new_available
+    await audit_service.log_action(db, admin, "adjust_stock", "equipment", eq.id, {
+        "code": eq.code, "name": eq.name,
+        "old_available": old_available, "new_available": new_available,
+        "reason": reason, "photo_urls": photo_urls or None,
+    })
+    await db.commit()
+    return await get_equipment(db, eq.id)
+
+
 async def delete_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID) -> None:
     """ลบอุปกรณ์ออกจาก DB ถาวร — อนุญาตเฉพาะ retired และไม่มีการยืมที่ยังไม่คืน (pending/approved)
 

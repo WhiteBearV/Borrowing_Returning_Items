@@ -12,8 +12,9 @@ import { useAuthContext } from '../../context/AuthContext.jsx'
 const notificationTarget = (n, role) => {
   if (!n.borrow_request_id) return null
   if (n.type === 'new_request_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
-  // BorrowRequestsPage (หน้า "อนุมัติคำขอ") ตอนนี้โชว์ทั้ง pending + แจ้งขอคืนในหน้าเดียว (Phase B feature 4)
+  // BorrowRequestsPage (หน้า "อนุมัติคำขอ") ตอนนี้โชว์ทั้ง pending + แจ้งขอคืน + คำขอต่อเวลาในหน้าเดียว
   if (n.type === 'return_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
+  if (n.type === 'renew_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
   if (n.type === 'overdue' && role === 'admin') return `/admin/borrows?request=${n.borrow_request_id}`
   return `/my-borrows?request=${n.borrow_request_id}`
 }

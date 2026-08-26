@@ -11,6 +11,8 @@ from app.schemas.borrow import (
     BorrowRequestResponse,
     PaginatedBorrowRequests,
     RejectRequest,
+    RenewRejectRequest,
+    RenewRequestCreate,
     RequestReturnRequest,
     ReturnItemRequest,
 )
@@ -35,11 +37,12 @@ async def list_borrow_requests(
     status: str | None = Query(None),
     overdue_only: bool = Query(False),
     needs_attention: bool = Query(False),
+    search: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedBorrowRequests:
     return await borrow_service.list_requests(
-        db, current_user, page, page_size, status, overdue_only, needs_attention
+        db, current_user, page, page_size, status, overdue_only, needs_attention, search
     )
 
 
@@ -83,15 +86,40 @@ async def reject_borrow_request(
     return {"detail": "Request rejected."}
 
 
-@router.post("/{request_id}/items/{item_id}/renew")
-async def renew_item(
+@router.post("/{request_id}/items/{item_id}/renew-request")
+async def renew_request_item(
     request_id: uuid.UUID,
     item_id: uuid.UUID,
+    body: RenewRequestCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await borrow_service.renew_item(db, current_user, request_id, item_id)
-    return {"detail": "Renewal successful."}
+    """นักศึกษายื่นคำขอต่อเวลา (เลือกวันที่+เหตุผลเอง) — ยังไม่ใช่การต่อเวลาจริง แค่แจ้ง admin ให้มาอนุมัติ"""
+    await borrow_service.request_renew_item(db, current_user, request_id, item_id, body.requested_date, body.reason)
+    return {"detail": "Renewal request submitted."}
+
+
+@router.post("/{request_id}/items/{item_id}/renew-approve")
+async def renew_approve_item(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await borrow_service.approve_renew_item(db, admin, request_id, item_id)
+    return {"detail": "Renewal approved."}
+
+
+@router.post("/{request_id}/items/{item_id}/renew-reject")
+async def renew_reject_item(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: RenewRejectRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await borrow_service.reject_renew_item(db, admin, request_id, item_id, body.rejection_reason)
+    return {"detail": "Renewal rejected."}
 
 
 @router.post("/{request_id}/request-return")

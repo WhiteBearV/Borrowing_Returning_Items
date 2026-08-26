@@ -253,11 +253,15 @@ async def list_requests(
     filter_status: str | None,
     overdue_only: bool,
     needs_attention: bool = False,
+    search: str | None = None,
 ) -> PaginatedBorrowRequests:
     """นักศึกษาเห็นแค่ของตัวเอง / admin เห็นทั้งหมด
 
     needs_attention=True: รวมคำขอที่ admin ต้อง "ทำอะไรสักอย่าง" ในหน้าเดียว — pending (รออนุมัติ) +
-    approved ที่มี item แจ้งขอคืนแล้ว (return_requested) ไม่ต้องสลับไปหน้า "ประวัติทั้งหมด" แยกต่างหาก
+    approved ที่มี item แจ้งขอคืนแล้ว (return_requested) หรือขอต่อเวลาแล้ว (renew_requested) ไม่ต้องสลับไปหน้า
+    "ประวัติทั้งหมด" แยกต่างหาก
+
+    search: ค้นชื่อผู้ยืม/รหัสนักศึกษา/ชื่ออุปกรณ์ในรายการ — ใช้หน้า "ประวัติการยืมทั้งหมด" (admin)
     """
     query = select(BorrowRequest).options(
         selectinload(BorrowRequest.items).selectinload(BorrowItem.equipment),
@@ -280,11 +284,31 @@ async def list_requests(
             )
             .exists()
         )
-        query = query.where(or_(BorrowRequest.status == "pending", has_return_requested))
+        has_renew_requested = (
+            select(BorrowItem.id)
+            .where(
+                BorrowItem.borrow_request_id == BorrowRequest.id,
+                BorrowItem.renew_requested == True,  # noqa: E712
+            )
+            .exists()
+        )
+        query = query.where(or_(BorrowRequest.status == "pending", has_return_requested, has_renew_requested))
     elif filter_status:
         query = query.where(BorrowRequest.status == filter_status)
     if overdue_only:
         query = query.where(BorrowRequest.is_overdue == True)
+    if search:
+        pattern = f"%{search}%"
+        has_matching_item = (
+            select(BorrowItem.id)
+            .where(BorrowItem.borrow_request_id == BorrowRequest.id, BorrowItem.equipment_name.ilike(pattern))
+            .exists()
+        )
+        # join กับ users เพื่อค้นชื่อ/รหัสนักศึกษา — ระวัง User.student_id (เลขรหัสนักศึกษา, string) คนละตัวกับ
+        # BorrowRequest.student_id (UUID FK ไปหา users.id) ห้ามสลับกัน
+        query = query.join(User, User.id == BorrowRequest.student_id).where(
+            or_(User.full_name.ilike(pattern), User.student_id.ilike(pattern), has_matching_item)
+        )
 
     query = query.order_by(BorrowRequest.requested_at.desc())
 
@@ -462,43 +486,15 @@ async def reject_request(
         print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
-async def renew_item(
-    db: AsyncSession, current_user: User, request_id: uuid.UUID, item_id: uuid.UUID
-) -> None:
-    """ต่อเวลายืมรายการอุปกรณ์ เช็ค renewed_count < max_renew_count"""
-    max_renew = await _get_setting_int(db, "max_renew_count")
-    renew_days = await _get_setting_int(db, "max_renew_days")
-
-    req_result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
-    req = req_result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
-    if current_user.role != "admin" and req.student_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
-    if req.status != "approved":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only renew approved requests.")
-
-    item_result = await db.execute(
-        select(BorrowItem).where(BorrowItem.id == item_id, BorrowItem.borrow_request_id == request_id)
-    )
-    item = item_result.scalar_one_or_none()
+def _find_item(req: BorrowRequest, item_id: uuid.UUID) -> BorrowItem:
+    item = next((i for i in req.items if i.id == item_id), None)
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
-    if item.returned:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item already returned.")
-    if item.renewed_count >= max_renew:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot renew more than {max_renew} time(s).",
-        )
+    return item
 
-    # ต่อเวลาจาก extended_due_date ถ้ามี ไม่งั้นจาก request.due_date
-    base_date = item.extended_due_date or req.due_date or date.today()
-    item.extended_due_date = base_date + timedelta(days=renew_days)
-    item.renewed_count += 1
 
-    # เคลียร์ธงเกินกำหนดถ้าไม่เหลือรายการที่ยังไม่คืนและเลยกำหนดแล้ว
-    # ไม่มีบรรทัดนี้ นักศึกษาที่ต่อเวลาถูกต้องจะติดธงค้างคืนไปตลอด — ไม่มีจุดไหนรีเซ็ตธงนี้เลย
+async def _recompute_overdue(db: AsyncSession, req: BorrowRequest) -> None:
+    """เคลียร์/ตั้งธงเกินกำหนดใหม่จากรายการที่ยังไม่คืน — เรียกซ้ำได้ทุกจุดที่ extended_due_date เปลี่ยน"""
     still_overdue = (await db.execute(
         select(BorrowItem.id).where(
             BorrowItem.borrow_request_id == req.id,
@@ -508,7 +504,147 @@ async def renew_item(
     )).first()
     req.is_overdue = still_overdue is not None
 
+
+async def request_renew_item(
+    db: AsyncSession, current_user: User, request_id: uuid.UUID, item_id: uuid.UUID,
+    requested_date: date, reason: str,
+) -> None:
+    """นักศึกษายื่นคำขอต่อเวลา (เลือกวันที่+เหตุผลเอง) — แค่ตั้ง flag รอ admin อนุมัติ ยังไม่ขยายกำหนดคืนจริง
+
+    mirror pattern เดียวกับ request_return_items — เช็ค max_renew_count ตอนขอเลย (fail-fast) ไม่รอไปเช็ค
+    ตอนอนุมัติ เพราะคำขอที่ปฏิเสธไม่นับครั้งอยู่แล้ว (นับเฉพาะตอนอนุมัติจริงใน approve_renew_item)
+    """
+    max_renew = await _get_setting_int(db, "max_renew_count")
+    max_days_ahead = await _get_setting_int(db, "max_renew_days")
+
+    req = await _load_request(db, request_id)
+    if current_user.role != "admin" and req.student_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    if req.status != "approved":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only renew items on approved requests.")
+
+    item = _find_item(req, item_id)
+    if item.returned:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item already returned.")
+    if item.renew_requested:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A renewal request is already pending for this item.")
+    if item.renewed_count >= max_renew:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot renew more than {max_renew} time(s).",
+        )
+    if requested_date <= date.today():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Requested date must be in the future.")
+    if requested_date > date.today() + timedelta(days=max_days_ahead):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Requested date is too far ahead (max {max_days_ahead} days from today).",
+        )
+
+    item.renew_requested = True
+    item.renew_requested_at = datetime.now(timezone.utc)
+    item.renew_requested_date = requested_date
+    item.renew_reason = reason
+    item.renew_rejected_reason = None
+
+    # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเองแจ้งตัวเองซ้ำซ้อน
+    admins = (await db.execute(select(User).where(User.role == "admin", User.is_active == True))).scalars().all()
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
+        await _notify(db, admin.id, "renew_requested_admin",
+                      f"นักศึกษาแจ้งขอต่อเวลา {item.equipment_name} จากคำขอ {req.request_code}",
+                      borrow_request_id=req.id)
     await db.commit()
+
+    # แจ้งเตือน admin ทางอีเมลด้วย — ต้อง commit ก่อนเผื่อส่งช้า/พัง ไม่กระทบผลการยื่นคำขอ
+    safe_name = escape(current_user.full_name)
+    safe_code = escape(req.request_code)
+    safe_item = escape(item.equipment_name or "")
+    for admin in admins:
+        if admin.id == current_user.id:
+            continue
+        try:
+            await send_email(
+                admin.email,
+                f"นักศึกษาแจ้งขอต่อเวลาคำขอ {req.request_code}",
+                f"<p>{safe_name} แจ้งขอต่อเวลา <b>{safe_item}</b> จากคำขอ <b>{safe_code}</b> "
+                f"ถึงวันที่ {requested_date} กรุณาเข้าระบบเพื่อตรวจสอบและอนุมัติ/ปฏิเสธ</p>",
+            )
+        except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ยื่นคำขอไม่สำเร็จ
+            print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
+
+
+async def approve_renew_item(
+    db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID
+) -> None:
+    """อนุมัติคำขอต่อเวลา — ขยาย extended_due_date ไปตามวันที่นักศึกษาขอ + นับ renewed_count"""
+    req = await _load_request(db, request_id)
+    item = _find_item(req, item_id)
+    if not item.renew_requested:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No pending renewal request for this item.")
+
+    old_due = item.extended_due_date or req.due_date
+    item.extended_due_date = item.renew_requested_date
+    item.renewed_count += 1
+    item.renew_requested = False
+    item.renew_requested_at = None
+    item.renew_rejected_reason = None
+
+    await _recompute_overdue(db, req)
+
+    await _notify(db, req.student_id, "renew_approved",
+                  f"คำขอต่อเวลา {item.equipment_name} จากคำขอ {req.request_code} ได้รับการอนุมัติ "
+                  f"กำหนดคืนใหม่ {item.extended_due_date}",
+                  borrow_request_id=req.id)
+    await audit_service.log_action(db, admin, "approve_renew", "borrow_items", item.id, {
+        "request_code": req.request_code, "item": item.equipment_name,
+        "old_due_date": str(old_due) if old_due else None,
+        "new_due_date": str(item.extended_due_date),
+    })
+    await db.commit()
+
+    try:
+        await send_email(
+            req.student.email,
+            f"คำขอต่อเวลา {req.request_code} ได้รับการอนุมัติ",
+            f"<p>คำขอต่อเวลา <b>{escape(item.equipment_name or '')}</b> จากคำขอ <b>{escape(req.request_code)}</b> "
+            f"ได้รับการอนุมัติแล้ว กำหนดคืนใหม่ {item.extended_due_date}</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลอนุมัติเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
+
+
+async def reject_renew_item(
+    db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, reason: str
+) -> None:
+    """ปฏิเสธคำขอต่อเวลา — ไม่แตะ renewed_count/extended_due_date เลย (ไม่นับเป็นครั้งที่ใช้ไป)"""
+    req = await _load_request(db, request_id)
+    item = _find_item(req, item_id)
+    if not item.renew_requested:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No pending renewal request for this item.")
+
+    item.renew_rejected_reason = reason
+    item.renew_requested = False
+    item.renew_requested_at = None
+
+    await _notify(db, req.student_id, "renew_rejected",
+                  f"คำขอต่อเวลา {item.equipment_name} จากคำขอ {req.request_code} ถูกปฏิเสธ: {reason}",
+                  borrow_request_id=req.id)
+    await audit_service.log_action(db, admin, "reject_renew", "borrow_items", item.id, {
+        "request_code": req.request_code, "item": item.equipment_name, "reason": reason,
+    })
+    await db.commit()
+
+    try:
+        await send_email(
+            req.student.email,
+            f"คำขอต่อเวลา {req.request_code} ถูกปฏิเสธ",
+            f"<p>คำขอต่อเวลา <b>{escape(item.equipment_name or '')}</b> จากคำขอ <b>{escape(req.request_code)}</b> "
+            f"ถูกปฏิเสธ: {escape(reason)}</p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลปฏิเสธเสีย
+        print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
 async def request_return_items(

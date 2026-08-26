@@ -5,6 +5,7 @@ import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import BorrowStatusBadge from '../../components/borrow/BorrowStatusBadge.jsx'
+import { RenewModal } from '../../components/borrow/RenewModal.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 
 const ITEM_CONDITION_LABEL = {
@@ -20,6 +21,7 @@ export default function MyBorrowsPage() {
   const [expanded, setExpanded] = useState(highlightId)
   const [loading, setLoading] = useState(true)
   const [selectedItems, setSelectedItems] = useState(new Set())
+  const [renewTarget, setRenewTarget] = useState(null) // { reqId, item } — ขอต่อเวลา
   const highlightRef = useRef(null)
 
   const load = () => {
@@ -60,11 +62,6 @@ export default function MyBorrowsPage() {
   const cancel = async (id) => {
     if (!confirm('ยืนยันการยกเลิกคำขอ?')) return
     await borrowApi.cancel(id)
-    load()
-  }
-
-  const renew = async (reqId, itemId) => {
-    await borrowApi.renewItem(reqId, itemId)
     load()
   }
 
@@ -162,11 +159,18 @@ export default function MyBorrowsPage() {
                             {item.renewed_count > 0 && (
                               <span className="ml-2 text-xs text-primary-500">ต่อเวลา {item.renewed_count}×</span>
                             )}
+                            {item.renew_requested ? (
+                              <span className="ml-2 text-xs text-amber-600">
+                                รอ Admin อนุมัติต่อเวลา ({formatDate(item.renew_requested_date)})
+                              </span>
+                            ) : item.renew_rejected_reason && (
+                              <span className="ml-2 text-xs text-red-500">ต่อเวลาถูกปฏิเสธ: {item.renew_rejected_reason}</span>
+                            )}
                           </div>
                         </div>
-                        {req.status === 'approved' && !item.returned && item.item_type_snapshot === 'durable' && (
+                        {req.status === 'approved' && !item.returned && item.item_type_snapshot === 'durable' && !item.renew_requested && (
                           <button
-                            onClick={() => renew(req.id, item.id)}
+                            onClick={() => setRenewTarget({ reqId: req.id, item })}
                             className="text-xs text-primary-600 hover:underline"
                           >
                             ต่อเวลา
@@ -232,6 +236,15 @@ export default function MyBorrowsPage() {
       )}
 
       <Pagination page={page} total={data.total} pageSize={10} onChange={setPage} />
+
+      {renewTarget && (
+        <RenewModal
+          item={renewTarget.item}
+          requestId={renewTarget.reqId}
+          onClose={() => setRenewTarget(null)}
+          onDone={() => { setRenewTarget(null); load() }}
+        />
+      )}
     </div>
   )
 }

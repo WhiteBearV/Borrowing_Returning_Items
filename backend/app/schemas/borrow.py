@@ -36,6 +36,11 @@ class BorrowItemResponse(BaseModel):
     extended_due_date: date | None
     return_requested: bool
     return_requested_at: datetime | None
+    renew_requested: bool = False
+    renew_requested_at: datetime | None = None
+    renew_requested_date: date | None = None
+    renew_reason: str | None = None
+    renew_rejected_reason: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -67,6 +72,15 @@ class BorrowRequestResponse(BaseModel):
 
 class RejectRequest(BaseModel):
     rejection_reason: str
+
+
+class RenewRequestCreate(BaseModel):
+    requested_date: date
+    reason: str = Field(..., min_length=1)
+
+
+class RenewRejectRequest(BaseModel):
+    rejection_reason: str = Field(..., min_length=1)
 
 
 class ReturnItemRequest(BaseModel):

@@ -154,6 +154,13 @@ class PhysicalAuditRequest(BaseModel):
     photo_urls: list[str] = []
 
 
+class AdjustStockRequest(BaseModel):
+    """ปรับ quantity_available ให้ตรงกับที่นับได้จริง (ต่างจาก restock ที่บวกเพิ่ม — อันนี้ SET ตรง ๆ)"""
+    new_available: int = Field(..., ge=0)
+    reason: str = Field(..., min_length=1)
+    photo_urls: list[str] = []
+
+
 class EquipmentUpdate(BaseModel):
     code: str | None = None
     item_type: str | None = None

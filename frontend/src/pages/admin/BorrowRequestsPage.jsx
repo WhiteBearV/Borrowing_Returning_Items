@@ -7,9 +7,10 @@ import { ReturnModal } from '../../components/borrow/ReturnModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate } from '../../utils/formatDate.js'
 
-// คำขอต้อง "ทำอะไรสักอย่าง" ถ้ายัง pending (รออนุมัติ) หรือ approved ที่มี item แจ้งขอคืนแล้ว
+// คำขอต้อง "ทำอะไรสักอย่าง" ถ้ายัง pending (รออนุมัติ) หรือ approved ที่มี item แจ้งขอคืนแล้ว/ขอต่อเวลาแล้ว
 const needsAttentionCheck = (req) =>
-  req.status === 'pending' || req.items.some((i) => i.return_requested && !i.returned)
+  req.status === 'pending' ||
+  req.items.some((i) => (i.return_requested && !i.returned) || i.renew_requested)
 
 export default function BorrowRequestsPage() {
   const navigate = useNavigate()
@@ -21,6 +22,8 @@ export default function BorrowRequestsPage() {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, item }
+  const [renewRejectTarget, setRenewRejectTarget] = useState(null) // { requestId, item }
+  const [renewRejectReason, setRenewRejectReason] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionError, setActionError] = useState('')
   const highlightRef = useRef(null)
@@ -35,11 +38,11 @@ export default function BorrowRequestsPage() {
   // poll ทุก 4 วิ mirror NotificationBell.jsx — หยุด poll ระหว่างมี modal เปิดอยู่ (reject/return)
   // กันโดน re-render ทับตอนแอดมินกำลังกรอกฟอร์ม (เช่น เลือกสภาพ/อัปโหลดรูปค้างอยู่)
   useEffect(() => {
-    if (rejectId || returnTarget) return
+    if (rejectId || returnTarget || renewRejectTarget) return
     load(true)
     const id = setInterval(() => load(false), 4000)
     return () => clearInterval(id)
-  }, [page, rejectId, returnTarget])
+  }, [page, rejectId, returnTarget, renewRejectTarget])
 
   // มาจากลิงก์แจ้งเตือน "คำขอใหม่"/"แจ้งขอคืน" — ถ้าคำขอถูกจัดการไปแล้ว (อนุมัติ/ปฏิเสธ/รับคืนครบ) จนไม่ต้อง
   // ทำอะไรอีกแล้ว หน้านี้จะไม่มีให้ดู ส่งไปหน้าประวัติทั้งหมดแทน
@@ -89,8 +92,35 @@ export default function BorrowRequestsPage() {
     }
   }
 
+  const approveRenew = async (reqId, itemId) => {
+    setActionError('')
+    try {
+      await borrowApi.renewApprove(reqId, itemId)
+      load()
+    } catch (err) {
+      setActionError(err?.response?.data?.detail ?? 'อนุมัติต่อเวลาไม่สำเร็จ')
+    }
+  }
+
+  const rejectRenew = async () => {
+    if (!renewRejectReason.trim()) return
+    setActionError('')
+    try {
+      await borrowApi.renewReject(renewRejectTarget.requestId, renewRejectTarget.item.id, renewRejectReason)
+      setRenewRejectTarget(null)
+      setRenewRejectReason('')
+      load()
+    } catch (err) {
+      setActionError(err?.response?.data?.detail ?? 'ปฏิเสธต่อเวลาไม่สำเร็จ')
+    }
+  }
+
   const pendingItems = data.items.filter((r) => r.status === 'pending')
-  const returnItems = data.items.filter((r) => r.status !== 'pending')
+  // เฉพาะคำขอที่มี item แจ้งขอคืนแล้วจริง — ไม่ใช่แค่ "ไม่ pending" เฉย ๆ เพราะตอนนี้ needs_attention
+  // รวมคำขอต่อเวลาด้วย ถ้ายังใช้ status !== 'pending' เฉย ๆ คำขอที่มีแค่ renew_requested (ไม่มี return_requested)
+  // จะโผล่มาในหมวด "แจ้งขอคืน" แบบว่างเปล่า
+  const returnItems = data.items.filter((r) => r.items.some((i) => i.return_requested && !i.returned))
+  const renewItems = data.items.filter((r) => r.items.some((i) => i.renew_requested))
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -240,6 +270,70 @@ export default function BorrowRequestsPage() {
               </div>
             )}
           </section>
+
+          <section>
+            <h2 className="mb-3 text-sm font-semibold text-gray-500">รอต่อเวลา ({renewItems.length})</h2>
+            {renewItems.length === 0 ? (
+              <p className="text-sm text-gray-400">ไม่มีคำขอต่อเวลา</p>
+            ) : (
+              <div className="space-y-3">
+                {renewItems.map((req) => (
+                  <div key={req.id} ref={req.id === highlightId ? highlightRef : null}
+                    className={`bg-white rounded-xl border shadow-sm overflow-hidden ${req.id === highlightId ? 'border-primary-400 ring-2 ring-primary-100' : 'border-gray-200'}`}>
+                    <button
+                      onClick={() => setExpanded(expanded === req.id ? null : req.id)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
+                    >
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
+                          <span className="text-xs text-gray-500">ผู้ยืม: {req.student_name ?? '—'}</span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-400">{expanded === req.id ? '▲' : '▼'}</span>
+                    </button>
+
+                    {expanded === req.id && (
+                      <div className="border-t px-4 py-3 space-y-3">
+                        <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                          {req.items.filter((i) => i.renew_requested).map((item) => (
+                            <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
+                              <div className="min-w-0">
+                                <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  ขอเลื่อนถึง {formatDate(item.renew_requested_date)} — {item.renew_reason}
+                                </p>
+                              </div>
+                              <div className="flex gap-2 shrink-0">
+                                <button
+                                  onClick={() => approveRenew(req.id, item.id)}
+                                  className="text-xs rounded-lg bg-green-50 text-green-700 px-3 py-1 hover:bg-green-100 font-medium"
+                                >
+                                  อนุมัติ
+                                </button>
+                                <button
+                                  onClick={() => { setRenewRejectTarget({ requestId: req.id, item }); setRenewRejectReason('') }}
+                                  className="text-xs rounded-lg bg-red-50 text-red-600 px-3 py-1 hover:bg-red-100 font-medium"
+                                >
+                                  ปฏิเสธ
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
+                          className="text-sm text-primary-600 hover:underline"
+                        >
+                          ดูใบยืม
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -263,6 +357,33 @@ export default function BorrowRequestsPage() {
               <button
                 disabled={!rejectReason.trim()}
                 onClick={reject}
+                className="flex-1 rounded-full bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                ยืนยันปฏิเสธ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject renewal modal */}
+      {renewRejectTarget && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h2 className="font-bold text-gray-800 mb-3">ระบุเหตุผลที่ปฏิเสธการต่อเวลา</h2>
+            <textarea
+              autoFocus
+              rows={3}
+              value={renewRejectReason}
+              onChange={(e) => setRenewRejectReason(e.target.value)}
+              placeholder="เหตุผล…"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+            />
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setRenewRejectTarget(null)} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button
+                disabled={!renewRejectReason.trim()}
+                onClick={rejectRenew}
                 className="flex-1 rounded-full bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
                 ยืนยันปฏิเสธ
