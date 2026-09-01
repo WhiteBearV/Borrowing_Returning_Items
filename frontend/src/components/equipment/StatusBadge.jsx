@@ -12,8 +12,11 @@ const STATUS_STYLE = {
 
 // isCurrentlyBorrowed: equipment.status ฝั่ง backend ไม่เปลี่ยนเป็น "borrowed" ตอนถูกยืม (ยังเป็น "available"
 // เหมือนเดิม แค่ quantity_available ลดลง) — ต้องส่ง flag จริงจาก is_currently_borrowed มาเอง ถ้าอยากโชว์ "ถูกยืมอยู่"
-export default function StatusBadge({ status, isCurrentlyBorrowed = false }) {
-  const key = status === 'available' && isCurrentlyBorrowed ? 'borrowed' : status
+// isBorrowable: ของประจำห้อง (is_borrowable=false) ยืมไม่ได้เสมอไม่ว่า status คอลัมน์จะเป็นอะไร (เช่น "available"
+// เพราะ import ไฟล์ทะเบียนใหม่เขียนทับ status แต่ไม่แตะ is_borrowable) — ต้องบังคับ badge เป็น "ไม่อนุญาตให้ยืม"
+// ก่อนเช็ค isCurrentlyBorrowed เสมอ (ของประจำห้องไม่มีทางถูกยืมอยู่แล้วเพราะยืมไม่ได้ตั้งแต่ต้น)
+export default function StatusBadge({ status, isCurrentlyBorrowed = false, isBorrowable = true }) {
+  const key = !isBorrowable ? 'unavailable' : status === 'available' && isCurrentlyBorrowed ? 'borrowed' : status
   return (
     <span className={`inline-flex text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[key] ?? STATUS_STYLE.unavailable}`}>
       {STATUS_LABEL[key] ?? status}

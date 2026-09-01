@@ -1,0 +1,116 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-21
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+งานวันนี้แบ่งเป็น 2 commit ใหญ่ (`800d970`, `b2ceda3`) รวม 52 ไฟล์ — ครอบคลุมฟีเจอร์ใหม่, รีสกินดีไซน์ทั้งระบบ,
+QA เต็มรอบ 2 ครั้ง และแก้บั๊กจากการใช้งานจริง
+
+### Backend
+
+**1. Serial Number (SN) อุปกรณ์**
+- `models/equipment.py` — เพิ่มคอลัมน์ `serial_number` (partial unique index กัน SN ซ้ำ แต่ยอมให้ NULL หลายแถวได้)
+- `alembic/versions/0019_equipment_serial_number.py` — migration ใหม่
+- `services/equipment_service.py` — เช็ค SN ซ้ำตอน create/update คืน 409 อ่านง่าย
+- `services/import_service.py` — เพิ่ม parser ชีต "SN" ใน `parse_workbook()` (เปลี่ยน return เป็น 3-tuple),
+  โหมด update-only จับคู่ด้วยรหัสที่มีอยู่แล้วเท่านั้น ไม่เขียนทับ SN เดิมเป็น null ถ้าแถวไม่ได้แตะ SN
+
+**2. แยกอุปกรณ์วัสดุ (material) เป็นรายชิ้น — แก้บั๊กยืมไม่แยกรายการ**
+- root cause: วัสดุนำเข้าผ่านชีต "วัสดุ" เดิมถูกเก็บเป็น 1 แถวเดียว `quantity_total=N` ไม่มีรหัสแยกต่อชิ้น
+  ต่างจากครุภัณฑ์ที่ 1 แถว = 1 เลขครุภัณฑ์อยู่แล้ว — กลไก auto-split ใน `borrow_service.create_request()`
+  มีอยู่แล้วแต่ไม่ทำงานเพราะข้อมูลไม่ได้แยกแถวไว้ตั้งแต่ต้น
+- `services/equipment_service.py` — `split_equipment_into_units()` ใหม่ (ขอบเขตเฉพาะ material, ปฏิเสธถ้ามีของ
+  ถูกยืมอยู่, ล็อก `FOR UPDATE` กัน race, generate รหัสใหม่ต่อจากเลขท้ายเดิม), `_location_breakdown()`
+- `routers/equipment.py` — `POST /equipment/{id}/split` (admin only)
+- `scripts/split_material_equipment.py` — สคริปต์ dry-run ได้ รันจริงแล้วบน DB dev แยกสำเร็จ 8 กลุ่มวัสดุ
+  (123000, 163001, 671001, ACC-KEYBOARD-001, ACC-MOUSE-001, ACC-PWR-001, MAT-ARD-001, MAT-ESP-001)
+  รวมถึงรหัส `234001` (UnoR4) ที่เป็นต้นเหตุของบั๊กที่รายงานมา — ยืนยันแล้วว่าหลังแยก การยืมหลายชิ้นแยกเป็น
+  รายรหัสถูกต้องตาม business rule (CLAUDE.md ข้อ 5)
+- `schemas/equipment.py` — `LocationCount`, `EquipmentGroupResponse.locations` (สรุปสถานที่แยกตามกลุ่ม),
+  `EquipmentUnitSummary.location` + `.serial_number`
+
+**3. แก้บั๊กจากการทดลองใช้งานจริง (commit `b2ceda3`)**
+- `services/borrow_service.py` — เพิ่มเพดานวันคืน `MAX_REQUESTED_DUE_DATE_YEARS = 3` กันนักศึกษาพิมพ์วันที่เพี้ยน
+  (ทดสอบพบว่ากรอกได้ถึงอีก 100 ปี) ใช้ `timedelta` แทน `.replace(year=...)` กัน `ValueError` ตอนวันนี้ตรงกับ
+  29 ก.พ. ปีอธิกสุรทิน
+- `models/borrow_request.py` — เพิ่ม property `student_major` (ดึงจาก `student.major`)
+- `schemas/borrow.py` — เพิ่ม `student_major` ใน `BorrowRequestResponse`
+- `utils/pdf.py` — ใบยืม/ใบคืน PDF โชว์สาขานักศึกษาเพิ่ม (`_MAJOR_LABEL` map เป็นชื่อเต็มภาษาไทย)
+- แก้ทดสอบ 8 ไฟล์ที่ hardcode วันที่ `2099-01-01` เป็น placeholder เดิม → เปลี่ยนเป็น `2028-06-01` ให้ผ่านเพดานใหม่
+- เพิ่มเทสใหม่ `test_borrow_request_rejects_far_future_due_date` ใน `test_api_integration.py`
+
+### Frontend
+
+**1. รีสกินดีไซน์ทั้งระบบ** (อ้างอิง `DESIGN-playstation.md` — ดึงเฉพาะ token สี/ฟอนต์/ปุ่ม/การ์ด คง layout เดิม)
+- `tailwind.config.js` — เพิ่ม `primary` color scale, `fontFamily.sans: Inter`
+- `index.html` — โหลดฟอนต์ Inter จาก Google Fonts
+- ปรับทุกหน้า/component ให้ใช้ token สีใหม่ (52 ไฟล์ในสรุป diff รวมทั้งฝั่ง student/admin)
+
+**2. UX เพิ่มเติมตามที่ขอ**
+- Hamburger menu: `Sidebar.jsx` เปลี่ยนเป็น overlay drawer เสมอ (ไม่ persistent บน desktop แล้ว)
+- Bento dashboard: `admin/DashboardPage.jsx`, `student/DashboardPage.jsx` — grid แบบ `[grid-auto-flow:dense]`
+- Tooltip: `components/common/Tooltip.jsx` ใหม่ — ใส่ในจุดสำคัญ (ฟิลด์ SN, วันคืน, ปุ่มแยกหน่วย ฯลฯ)
+- Backdrop blur: ใส่ในทุกหน้า modal/confirm (เช่น `ConfirmModal.jsx`, ออกจากระบบ)
+
+**3. แก้บั๊กจากการทดสอบใช้งานจริง**
+- ปุ่มกรองในหน้าภาพรวมอุปกรณ์ไม่กรองให้ตามที่คลิก — แก้ด้วย `useSearchParams()` อ่าน `item_type` มาตั้งค่า filter เริ่มต้น
+  ใน `EquipmentManagePage.jsx`
+- แจ้งเตือน (bell) เรนเดอร์บัคหลังย้ายปุ่มจาก sidebar มา header — ตำแหน่ง dropdown เดิมอิง `left` ตรงๆ ทำให้ล้นขอบจอ
+  แก้เป็น clamp positioning ใน `NotificationBell.jsx`
+- คลิกแจ้งเตือน → พาไปหน้าที่เกี่ยวข้อง: เพิ่ม `notificationTarget(n, role)` แยกปลายทางตาม type
+  (`new_request_admin`, `return_requested_admin`, `overdue` แยกตาม role) พร้อม deep-link `?request=` รองรับใน
+  `MyBorrowsPage.jsx`, `BorrowRequestsPage.jsx`, `AllBorrowsPage.jsx` (auto-expand + scroll + highlight)
+- คลิกที่ชื่อระบบ (header) → พาไปหน้า dashboard: ทำเป็น `<Link>` ใน `ProtectedRoute.jsx`
+- แทนที่อีโมจิ 📍 ด้วย `LocationIcon` SVG component ใน `EquipmentManagePage.jsx`
+- จำกัดวันคืนสูงสุด 3 ปีในฟอร์มยืม: `BorrowRequestPage.jsx` เพิ่ม `max={maxDueDate()}` บน input วันที่
+- ลด polling interval แจ้งเตือนจาก 10s → 4s ใน `NotificationBell.jsx` (แก้ปัญหาแจ้งเตือน "หน่วง" ที่รายงานมา —
+  ตรวจสอบแล้วฝั่ง backend เขียน notification ทันทีไม่มี lag เลย ต้นเหตุคือ poll interval ฝั่ง frontend ล้วนๆ)
+
+### อื่น ๆ (QA, Docs)
+
+- **Full QA รอบความพร้อมใช้งาน** — ทดสอบ end-to-end จริงด้วยบัญชีทดลอง (นักศึกษา+แอดมิน) ครบวงจร ยืม-อนุมัติ-คืน
+- **QA สแกนรูปที่ยังไม่มี** (`Report/2026-08-21-qa-missing-photos.md`) — พบ 939/1448 รายการยังไม่มีรูป
+  (durable 707/707 = 100% ครบ, material 231/737 = 31%) จัดกลุ่มเป็น 124 รุ่นพร้อมรหัส/สถานที่ให้ตามไปถ่ายรูปได้
+- pytest 145/145 ผ่าน, `npm run build` + `npm test` ผ่าน
+- Push ทั้ง 2 commit ขึ้น `origin/main` แล้ว (`800d970`, `b2ceda3`)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| นักศึกษากรอกวันคืนไกลเกินจริง (เจอกรอกได้ถึง 100 ปี) | ฟอร์มเดิมไม่มีเพดานบน | แก้แล้ว — จำกัด 3 ปีทั้ง frontend/backend (commit `b2ceda3`) |
+| แจ้งเตือนคลิกแล้วพาไปหน้าผิด (คำขอคืน → ไปหน้า "คำขอของฉัน" แทนหน้ารับคืน) | `notificationTarget` ไม่แยก type ให้ครบ | แก้แล้ว — แยกปลายทางตาม type/role |
+| แจ้งเตือนรู้สึกหน่วง | เข้าใจผิดว่า backend ช้า — พิสูจน์ด้วยสคริปต์วัดเวลาโดยตรงว่า backend เขียนทันที ต้นเหตุคือ poll 10s ฝั่ง frontend | ลดเหลือ 4s แล้ว |
+| อุปกรณ์วัสดุ 707/1448 รายการยังไม่มีรูป (31% ของวัสดุ) | ยังไม่ได้ถ่าย/อัปโหลดรูป | รายชื่อ+รหัส+สถานที่อยู่ใน `Report/2026-08-21-qa-missing-photos.md` แล้ว รอทยอยถ่ายรูป |
+| **เซิร์ฟเวอร์ production ยังไม่ได้อัปเดต** | push ขึ้น GitHub แล้วแต่ยังไม่ได้ deploy จริง | ต้อง `git pull` + `docker compose -f docker-compose.prod.yml up --build -d` + เช็ค alembic ถึง `0019` |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Deploy commit `800d970` + `b2ceda3` ขึ้นเซิร์ฟเวอร์จริง ตามขั้นตอนใน `DEPLOY-PLAN.md` — เช็ค migration
+      ถึง `0019` (เพิ่มคอลัมน์ `serial_number`) ให้แน่ใจก่อนถือว่าสำเร็จ
+2. [ ] ตรวจสอบผลใช้งานจริงหลัง deploy (เพดานวันคืน 3 ปี, PDF โชว์สาขา, ลิงก์แจ้งเตือน, poll 4s) ว่าเสถียรบน prod
+3. [ ] ทยอยถ่ายรูปอุปกรณ์วัสดุตามรายชื่อใน `Report/2026-08-21-qa-missing-photos.md`
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — ฟีเจอร์หลักครบ, ผ่าน pytest 145/145, เหลือรอ deploy จริงเท่านั้น
+**Frontend:** ~99% — รีสกิน + UX ใหม่ครบ, ผ่าน build/test, เหลือ polish เล็กน้อยตามฟีดแบ็กใช้งานจริงถ้ามีเพิ่ม
+**ระยะรวม:** โค้ดพร้อม production เต็มรูปแบบ อยู่ระหว่างรอบทดสอบใช้งานจริง (dogfooding) และ deploy ขึ้นเซิร์ฟเวอร์จริง
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- Pending Items จาก CLAUDE.md ข้อ 10 ที่ยังค้าง: ไฟล์ Excel คลังอุปกรณ์เดิมจากทีมอื่น (ยังไม่ได้รับ),
+  ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง, LINE OA Channel Access Token (stretch goal)
+- DB production ยังว่างเปล่า (รอ import ทะเบียนจริง) — สคริปต์ `split_material_equipment.py` รันจริงแล้วเฉพาะ
+  DB dev เท่านั้น ต้องรอ import อุปกรณ์เข้า prod ก่อนถึงจะรันสคริปต์นี้ได้ (ถ้า import วัสดุแบบ bulk อีกครั้ง)

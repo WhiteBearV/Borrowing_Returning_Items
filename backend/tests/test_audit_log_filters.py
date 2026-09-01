@@ -14,7 +14,7 @@ from tests.conftest import auth
 async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
     suffix = uuid.uuid4().hex[:6].upper()
     r = await client.post("/equipment", json={
-        "code": f"AUDFILT-{suffix}", "name": f"อุปกรณ์ทดสอบกรอง log {suffix}",
+        "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบกรอง log {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
         "image_urls": ["/uploads/test.jpg"],
     }, headers=admin_header)

@@ -16,11 +16,13 @@ from app.utils.pdf import (
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 class _Item:
-    def __init__(self, name, item_type="durable", qty=1, condition="ok", equipment_code=None):
+    def __init__(self, name, item_type="durable", qty=1, condition="ok", equipment_code=None,
+                 serial_number=None):
         self.id = uuid.uuid4()
         self.equipment_id = uuid.uuid4()
         self.equipment_name = name
         self.equipment_code = equipment_code
+        self.equipment_serial_number = serial_number
         self.item_type_snapshot = item_type
         self.quantity = qty
         self.returned = True
@@ -143,6 +145,55 @@ def test_return_pdf_still_shows_equipment_code():
     req = _Req(items=items, status="completed")
     text = _extract_text(generate_return_pdf(req))
     assert _UNIQUE_CODE in text
+
+
+# ── รหัสวัสดุสิ้นเปลืองไม่มีความหมายจริง (แค่ชื่อ+เลขลำดับที่ระบบตั้งเอง) ────────────
+# ต้องไม่โชว์บนใบยืม เพราะดูเหมือนรหัสครุภัณฑ์จริงและซ้ำซ้อนกับชื่อ
+
+def test_consumable_code_hidden_on_borrow_pdf():
+    pdf_mod._REGISTERED = False
+    consumable_code = "สายไฟ Dupont 20cm-001"
+    items = [_Item("สายไฟ Dupont 20cm", "consumable", 10, "ok", equipment_code=consumable_code)]
+    req = _Req(items=items, status="approved")
+    text = _extract_text(generate_borrow_pdf(req))
+    assert consumable_code not in text
+
+
+def test_consumable_code_hidden_on_draft_pdf():
+    pdf_mod._REGISTERED = False
+    consumable_code = "สายไฟ Dupont 20cm-001"
+    items = [_Item("สายไฟ Dupont 20cm", "consumable", 10, "ok", equipment_code=consumable_code)]
+    req = _Req(items=items, status="pending")
+    text = _extract_text(generate_preview_pdf(req))
+    assert consumable_code not in text
+
+
+# ── SN ต่อท้ายชื่อ ถ้าอุปกรณ์นั้นมี (ร่าง = "รออนุมัติ", จริง = ค่าจริง) ──────────────
+
+def test_borrow_pdf_shows_real_serial_number():
+    pdf_mod._REGISTERED = False
+    items = [_Item("Notebook", "durable", 1, "ok", equipment_code="64001", serial_number="4562135446")]
+    req = _Req(items=items, status="approved")
+    text = _extract_text(generate_borrow_pdf(req))
+    assert "Notebook(SN:4562135446)" in text
+
+
+def test_draft_pdf_masks_serial_number():
+    pdf_mod._REGISTERED = False
+    items = [_Item("Notebook", "durable", 1, "ok", equipment_code="64001", serial_number="4562135446")]
+    req = _Req(items=items, status="pending")
+    text = _extract_text(generate_preview_pdf(req))
+    assert "Notebook(SN:รออนุมัติ)" in text
+    assert "4562135446" not in text
+
+
+def test_pdf_no_serial_number_no_suffix():
+    """อุปกรณ์ที่ไม่มี SN ต้องไม่มี "(SN:" ต่อท้ายชื่อ"""
+    pdf_mod._REGISTERED = False
+    items = [_Item("บอร์ด Arduino Uno R3", "durable", 1, "ok", equipment_code=_UNIQUE_CODE)]
+    req = _Req(items=items, status="approved")
+    text = _extract_text(generate_borrow_pdf(req))
+    assert "(SN:" not in text
 
 
 # ── stock document (ร่างเข้า/ร่างออก) tests ────────────────────────────────────

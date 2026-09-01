@@ -16,8 +16,6 @@ export const equipmentApi = {
   // เติมของเข้าคลัง (ซื้อเพิ่ม) — พิมพ์แค่จำนวนที่เพิ่ม ระบบตัดสินเองว่าจะบวกเข้าแถวเดิม (ก้อน/สิ้นเปลือง)
   // หรือสร้างแถวใหม่แยกรหัส (ครุภัณฑ์/วัสดุที่แยกรายชิ้นแล้ว)
   restock: (id, count) => api.post(`/equipment/${id}/restock`, { count }).then((r) => r.data),
-  // บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว — note/photo_urls ไม่บังคับ
-  audit: (id, note, photo_urls) => api.post(`/equipment/${id}/audit`, { note, photo_urls }).then((r) => r.data),
   // ปรับยอดคงเหลือให้ตรงกับการนับจริง (SET ตรง ๆ ต่างจาก restock ที่บวกเพิ่ม) — เหตุผลบังคับ, รูปไม่บังคับ
   adjustStock: (id, newAvailable, reason, photoUrls) =>
     api.post(`/equipment/${id}/adjust-stock`, { new_available: newAvailable, reason, photo_urls: photoUrls }).then((r) => r.data),
@@ -32,6 +30,9 @@ export const equipmentApi = {
   bulkDelete: (equipment_ids) => api.post('/equipment/bulk-delete', { equipment_ids }).then((r) => r.data),
   // แก้ไขฟิลด์ปลอดภัยของหลายหน่วยพร้อมกัน (all-or-nothing) — คืน { updated: [...] }
   bulkUpdate: (equipment_ids, update) => api.patch('/equipment/bulk-update', { equipment_ids, update }).then((r) => r.data),
+  // ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — clamp อิสระต่อแถว คืน { updated: [...] }
+  bulkAdjustStock: (equipment_ids, delta, reason) =>
+    api.patch('/equipment/bulk-adjust-stock', { equipment_ids, delta, reason }).then((r) => r.data),
   // นำเข้าจากไฟล์ทะเบียน (Excel): อ่านไฟล์ → ดูร่าง → ยืนยัน
   importPreview: (file) => {
     const fd = new FormData()

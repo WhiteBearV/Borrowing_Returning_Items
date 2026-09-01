@@ -24,7 +24,7 @@ from tests.conftest import auth
 async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) -> str:
     suffix = uuid.uuid4().hex[:6].upper()
     body = {
-        "code": f"EDIT-{suffix}", "name": f"อุปกรณ์ทดสอบแก้ไข {suffix}",
+        "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบแก้ไข {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
         "image_urls": ["/uploads/test.jpg"],
     }
@@ -129,6 +129,48 @@ async def test_update_equipment_increase_quantity_total_grows_available(
         assert r.json()["quantity_available"] == 6  # 3 เดิม + 3 ที่เพิ่มมาใหม่ ยังคง 2 ที่ถูกยืมอยู่แยกไว้
     finally:
         await _cleanup(eq_id, req_id=req_id)
+
+
+async def test_update_equipment_can_clear_wrong_serial_number(client: AsyncClient, admin_token: str):
+    """แอดมินกรอก SN ผิด ต้องลบออกได้ (ส่ง null) ไม่ใช่แค่แก้เป็นค่าอื่น (เจอบั๊กจริง: exclude_none
+    เดิมตัด null ทิ้งเหมือนไม่ได้ส่งมา ล้างค่าที่เคยตั้งไว้ไม่ได้เลย)"""
+    h = auth(admin_token)
+    eq_id = await _make_equipment(client, h, serial_number=f"SN-{uuid.uuid4().hex[:8].upper()}")
+    try:
+        r = await client.patch(f"/equipment/{eq_id}", json={"serial_number": None}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["serial_number"] is None
+    finally:
+        await _cleanup(eq_id)
+
+
+async def test_update_equipment_clear_serial_number_not_blocked_by_other_null_rows(
+    client: AsyncClient, admin_token: str
+):
+    """หลาย equipment ที่ SN เป็น null พร้อมกันได้ (partial unique index เจาะจง WHERE NOT NULL) —
+    ล้าง SN ของแถวหนึ่งต้องไม่ไปชน 409 กับแถวอื่นที่ก็เป็น null อยู่แล้ว"""
+    h = auth(admin_token)
+    eq_a = await _make_equipment(client, h)  # ไม่มี SN ตั้งแต่สร้าง
+    eq_b = await _make_equipment(client, h, serial_number=f"SN-{uuid.uuid4().hex[:8].upper()}")
+    try:
+        r = await client.patch(f"/equipment/{eq_b}", json={"serial_number": None}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["serial_number"] is None
+    finally:
+        await _cleanup(eq_a, eq_b)
+
+
+async def test_update_equipment_serial_number_still_rejects_real_duplicate(client: AsyncClient, admin_token: str):
+    """แก้ไข SN ให้ซ้ำกับของชิ้นอื่นที่มี SN จริง (ไม่ใช่ null) ยังต้องโดน 409 เหมือนเดิม"""
+    h = auth(admin_token)
+    sn = f"SN-{uuid.uuid4().hex[:8].upper()}"
+    eq_a = await _make_equipment(client, h, serial_number=sn)
+    eq_b = await _make_equipment(client, h)
+    try:
+        r = await client.patch(f"/equipment/{eq_b}", json={"serial_number": sn}, headers=h)
+        assert r.status_code == 409
+    finally:
+        await _cleanup(eq_a, eq_b)
 
 
 async def test_update_equipment_item_type_does_not_break_active_loan_snapshot(

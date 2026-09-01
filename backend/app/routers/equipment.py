@@ -9,6 +9,8 @@ from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
 from app.schemas.equipment import (
     AdjustStockRequest,
+    BulkAdjustStockRequest,
+    BulkAdjustStockResult,
     BulkDeleteRequest,
     BulkDeleteResult,
     BulkRetireRequest,
@@ -25,7 +27,6 @@ from app.schemas.equipment import (
     ImportCommitRequest,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
-    PhysicalAuditRequest,
     RestockRequest,
 )
 from app.services import equipment_service, import_service
@@ -141,8 +142,21 @@ async def bulk_update_equipment(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> BulkUpdateResult:
-    """แก้ไขฟิลด์ปลอดภัย (location/description/status ฯลฯ) ของหลายหน่วยพร้อมกัน — all-or-nothing"""
+    """แก้ไขฟิลด์ปลอดภัย (location/description/status ฯลฯ) ของหลายหน่วยพร้อมกัน — all-or-nothing
+    (ยกเว้นเปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลัก ซึ่งข้ามแบบ best-effort ใส่ลง failed แทน)"""
     return await equipment_service.bulk_update_equipment(db, admin, body.equipment_ids, body.update)
+
+
+@router.patch("/equipment/bulk-adjust-stock", response_model=BulkAdjustStockResult)
+async def bulk_adjust_stock_equipment(
+    body: BulkAdjustStockRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BulkAdjustStockResult:
+    """ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — clamp อิสระต่อแถวไม่ให้เกิน
+    (quantity_total - จำนวนที่ถูกยืมอยู่จริง) หรือต่ำกว่า 0 ของแถวนั้นเอง — id ที่ไม่มีจริงไม่บล็อกทั้ง batch
+    (ดู failed ในผลลัพธ์)"""
+    return await equipment_service.bulk_adjust_stock(db, admin, body.equipment_ids, body.delta, body.reason)
 
 
 @router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)
@@ -152,9 +166,9 @@ async def get_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentDetailResponse:
     eq = await equipment_service.get_equipment(db, equipment_id)
-    holders = list((await equipment_service.get_holders_map(db, [equipment_id])).values())
+    holders = (await equipment_service.get_holders_map(db, [equipment_id])).get(equipment_id, [])
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
-    return EquipmentDetailResponse(**base.model_dump(), holders=holders)
+    return EquipmentDetailResponse(**base.model_dump(exclude={"holders"}), holders=holders)
 
 
 @router.post("/equipment/upload-image")
@@ -215,17 +229,6 @@ async def restock_equipment(
 ) -> list[EquipmentResponse]:
     """เติมของเข้าคลัง (ซื้อเพิ่ม) — บวกจำนวนที่ซื้อเพิ่มเข้าไปตรง ๆ ไม่ต้องคำนวณยอดรวมใหม่เอง"""
     return await equipment_service.restock_equipment(db, admin, equipment_id, body.count)
-
-
-@router.post("/equipment/{equipment_id}/audit", response_model=EquipmentResponse)
-async def audit_equipment(
-    equipment_id: uuid.UUID,
-    body: PhysicalAuditRequest,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-) -> EquipmentResponse:
-    """บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว (เจอของจริงตรงตำแหน่งที่บันทึกไว้)"""
-    return await equipment_service.physical_audit_equipment(db, admin, equipment_id, body.note, body.photo_urls)
 
 
 @router.post("/equipment/{equipment_id}/adjust-stock", response_model=EquipmentResponse)

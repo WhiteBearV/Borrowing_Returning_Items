@@ -96,8 +96,9 @@ async def test_equipment_multiple_categories(client: AsyncClient, admin_token: s
     suffix = uuid.uuid4().hex[:6]
     c1 = (await client.post("/equipment-categories", json={"name": f"cat_a_{suffix}"}, headers=h)).json()
     c2 = (await client.post("/equipment-categories", json={"name": f"cat_b_{suffix}"}, headers=h)).json()
+    code = f"{uuid.uuid4().int % 10**15:015d}"
     r = await client.post("/equipment", json={
-        "code": f"MULTI-{suffix}", "name": "อุปกรณ์หลายหมวด",
+        "code": code, "name": "อุปกรณ์หลายหมวด",
         "category_ids": [c1["id"], c2["id"]], "item_type": "durable", "quantity_total": 1,
         "image_urls": ["/uploads/test.jpg"],
     }, headers=h)
@@ -111,7 +112,7 @@ async def test_equipment_multiple_categories(client: AsyncClient, admin_token: s
     # cleanup — ลบอุปกรณ์และหมวดหมู่ที่สร้างในเทสต์นี้ ไม่ให้ค้างใน DB
     async with AsyncSessionLocal() as db:
         await db.execute(delete(equipment_category_links).where(equipment_category_links.c.equipment_id == r.json()["id"]))
-        await db.execute(delete(Equipment).where(Equipment.code == f"MULTI-{suffix}"))
+        await db.execute(delete(Equipment).where(Equipment.code == code))
         await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id.in_([c1["id"], c2["id"]])))
         await db.commit()
 
@@ -121,7 +122,8 @@ async def test_create_and_update_equipment_reject_duplicate_serial_number(client
     # (เคยเกิดขึ้นมาแล้วรอบก่อน ต้องมาตามลบมือทีหลัง) — ครอบทั้งเทสต์ด้วย try/finally แทนวางไว้ท้ายฟังก์ชันเฉย ๆ
     h = auth(admin_token)
     suffix = uuid.uuid4().hex[:6]
-    code_a, code_b = f"SNDUP-A-{suffix}", f"SNDUP-B-{suffix}"
+    code_a = f"{uuid.uuid4().int % 10**15:015d}"
+    code_b = f"{uuid.uuid4().int % 10**15:015d}"
     sn = f"SN-DUP-{suffix}"
 
     try:
@@ -165,8 +167,8 @@ async def test_create_equipment_blank_serial_number_does_not_collide(client: Asy
     ไม่งั้น '' ตัวแรกจะ "จอง" ค่าไว้ในคอลัมน์ที่ unique index กันซ้ำเฉพาะ IS NOT NULL แล้วตัวถัดไปที่ SN ว่าง
     เหมือนกันจะชน UniqueViolationError กลายเป็น 500 (ไม่ใช่ 409 ที่จับไว้)"""
     h = auth(admin_token)
-    suffix = uuid.uuid4().hex[:6]
-    code_a, code_b = f"SNBLANK-A-{suffix}", f"SNBLANK-B-{suffix}"
+    code_a = f"{uuid.uuid4().int % 10**15:015d}"
+    code_b = f"{uuid.uuid4().int % 10**15:015d}"
 
     try:
         r = await client.post("/equipment", json={

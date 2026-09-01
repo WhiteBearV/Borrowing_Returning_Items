@@ -1,0 +1,107 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-23
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**Phase B — 6 ฟีเจอร์จาก feedback ทดลองใช้งานจริง:**
+- แก้ไข `code`/`item_type` ของอุปกรณ์ได้หลังสร้างแล้ว — เพิ่มฟิลด์ใน `EquipmentUpdate` (`schemas/equipment.py`),
+  `update_equipment()` เพิ่ม dup-check code + audit detail (`code_from/to`, `item_type_from/to`) ใน
+  `services/equipment_service.py` — ปลอดภัยกับใบยืมเก่าเพราะ `BorrowItem` เก็บ `item_type_snapshot` แยก
+  จาก equipment ตัวจริง ตรวจสอบเพิ่มด้วยการแก้ item_type ขณะมีคำขอยืมอนุมัติค้างอยู่จริง แล้วยืนยันว่า
+  ระบบคืนของด้วย condition set เดิมถูกต้อง
+- วัสดุสิ้นเปลืองเว้นรหัสว่างได้ — `_generate_consumable_code()` ออกรหัสจากชื่อ+เลขลำดับอัตโนมัติ
+  (`{ชื่อ}-001`) ใน `equipment_service.py`, ต่อเข้า `create_equipment()`
+- เลือกอุปกรณ์หลายรายการลบถาวร/แก้ไขพร้อมกัน — `bulk_delete_equipment()` (best-effort ต่อรายการ),
+  `bulk_update_equipment()` (all-or-nothing) ใน `equipment_service.py`, endpoint
+  `POST /equipment/bulk-delete`, `PATCH /equipment/bulk-update` ใน `routers/equipment.py`
+- หน้าอนุมัติคำขอรวมคำขอที่แจ้งขอคืนในหน้าเดียว — เพิ่ม param `needs_attention` ใน `list_requests()`
+  (`borrow_service.py`) รวม pending + approved ที่มี item แจ้งขอคืนในเควรีเดียว
+
+**ฟีเจอร์เพิ่มเติมจาก feedback รอบถัดมา:**
+- status filter ในหน้าจัดการอุปกรณ์ เพิ่ม "สต็อกต่ำ"/"ถูกยืมอยู่" — `_apply_status_filter()` ใหม่ใน
+  `equipment_service.py` (mirror สูตร low_stock เดียวกับ `dashboard_service.get_summary`)
+- ทำเครื่องหมายแจ้งเตือนว่าอ่านแล้วทั้งหมด — `notification_service.mark_all_read()` +
+  `PATCH /notifications/read-all`
+
+**บั๊กที่พบและแก้ระหว่างทาง:**
+- `list_equipment_grouped()` filter "ถูกยืมอยู่" ที่ระดับแถวก่อน group ทำให้ยอด "คงเหลือ" ผิด (ตัดหน่วย
+  พี่น้องในกลุ่มเดียวกันออกจากยอดรวม เช่น อุปกรณ์มี 42 หน่วยจริง ยืมอยู่แค่ 1 แต่โชว์ "0/1" แทน "41/42") —
+  แก้โดยแยก filter ไปทำที่ระดับกลุ่มหลัง group เสร็จแล้ว
+- `users_service.delete_user()` ไม่เคลียร์ `approved_by`/`returned_by` FK ก่อนลบ — ลบ admin ที่เคย
+  อนุมัติ/รับคืนคำขอของคนอื่นไม่ได้เลย (ชน FK กลายเป็น 500) เจอจากการลบบัญชีทดสอบค้างจริง
+- `backend/tests/conftest.py` `_delete_user_cascade()` ลำดับลบ FK ผิด + ไม่เคลียร์ `approved_by`/`returned_by`
+  ทำให้ teardown เทสที่มี user คนเดียวกันเป็นทั้งผู้ยืม/ผู้อนุมัติล้มเหลวกลางคัน
+
+**เทสใหม่ทั้งหมด 13 ไฟล์** (เพิ่มจาก 175 เป็น 199 เทส): `test_equipment_edit_code_item_type.py`,
+`test_equipment_consumable_autocode.py`, `test_equipment_bulk_delete.py`, `test_equipment_bulk_update.py`,
+`test_equipment_delete.py`, `test_equipment_status_filters.py`, `test_borrow_needs_attention_filter.py`,
+`test_notification_mark_all_read.py`, `test_user_delete.py`, `test_auth_register.py`
+
+### Frontend
+
+- `EquipmentManagePage.jsx`: checkbox เลือกหลายรายการ (ติ๊กแถวกลุ่มอุปกรณ์เก่า = auto-expand + เลือกทุก
+  หน่วยในกลุ่มทีเดียว), status filter dropdown เพิ่ม 2 ตัวเลือก, `EquipmentModal` ขยายเป็น layout 2 คอลัมน์
+  (เดิมคอลัมน์เดียวยาวมาก)
+- `BorrowRequestsPage.jsx`: แบ่ง 2 sections (รออนุมัติ/แจ้งขอคืน) + poll อัตโนมัติทุก 4 วิ (หยุด poll ตอน
+  มี modal เปิดอยู่)
+- `components/borrow/ReturnModal.jsx`: แยกออกจาก `AllBorrowsPage.jsx` เป็น component ใช้ร่วมกัน 2 หน้า
+- `NotificationBell.jsx`: ปุ่ม "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"
+- `MyBorrowsPage.jsx` (หน้า "คำขอของฉัน" ฝั่งนักศึกษา): เพิ่ม poll 4 วิ (เดิมไม่มีเลย ต้องกด refresh เอง)
+- `BorrowRequestPage.jsx`: เพิ่มปุ่ม "← ย้อนกลับ" ในหน้าตะกร้า
+- `DashboardPage.jsx`: tile "สต็อกต่ำ"/"อุปกรณ์ที่ถูกยืมอยู่" ลิงก์เข้า filter ใหม่โดยตรง
+
+**Revert:** ลบข้อความ "📦 จาก "xxx" — แยกออกจากชุดนี้ได้ทีละชิ้น" ในตะกร้าออกทั้งหมดตามที่ผู้ใช้ตัดสินใจ —
+เอา `fromBundle` tagging ออกจาก `cartRules.js`/`useBorrowCart.js`/`BorrowRequestPage.jsx`/
+`cartRules.test.mjs` ทั้งหมด กลับไปเป็นตะกร้า list เดียวเหมือนก่อน Phase B
+
+### อื่น ๆ (Data cleanup, Git)
+
+- ลบข้อมูลทดสอบที่รั่วเข้าคลังอุปกรณ์จริง 113+1 แถว (ต้นเหตุ: `backend/.env` มี `PYTEST_ALLOW_DB=1` ทำให้
+  `pytest` รันใส่ DB dev จริงตรงๆ และเทสหลายไฟล์ไม่มี cleanup) แก้ไฟล์เทสที่ขาด cleanup ให้ครบแล้ว
+- ลบบัญชีทดสอบค้าง 10 บัญชี ("นักศึกษา/แอดมิน ทดสอบ") ที่หลงเหลือจาก pytest run เก่าก่อนแก้บั๊ก conftest
+- **commit `60cab61` + `git push origin main` สำเร็จ** — รวมงานทั้งหมดของวันนี้ (Phase B + ฟีเจอร์เพิ่มเติม
+  2 รอบ + บั๊กที่แก้ 3 ตัว) ยืนยันผ่านเทสครบก่อน push (199 backend + 6 frontend + `npm run build`)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ข้อมูลทดสอบรั่วเข้าคลังจริง 113 แถว | `PYTEST_ALLOW_DB=1` + เทสบางไฟล์ไม่มี cleanup ใน `finally` | แก้แล้ว — ลบข้อมูลผ่าน service layer จริง + เพิ่ม cleanup ในเทสทุกไฟล์ ป้องกันไม่ให้เกิดซ้ำ |
+| ลบ admin ที่เคยอนุมัติคำขอคนอื่นไม่ได้ (500) | `delete_user()` ไม่เคลียร์ FK `approved_by`/`returned_by` ก่อนลบ | แก้แล้วใน `users_service.py` + มีเทสคุม |
+| UsersPage.jsx ไม่มีปุ่มลบบัญชีในหน้า UI | ยังไม่เคยผูก endpoint `DELETE /users/{id}` เข้ากับปุ่มในหน้าเว็บ (มีแต่ "ปิดใช้งาน") | ยังไม่ทำ — backend รองรับแล้ว รอถ้าต้องการเพิ่มปุ่มจริง |
+| dev server มีคนใช้งานจริงคู่ขนานตลอดเวลา | ระบบ deploy ใช้งานจริงคู่ขนานกับตอน dev | ต้องระวังเป็นพิเศษเวลาทดสอบผ่าน browser จริง ห้ามแก้ค่า equipment/user โดยไม่ query ยืนยันก่อนว่าไม่ใช่ของจริง |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] รอ feedback รอบใหม่จากอาจารย์/ผู้ใช้จริงหลัง deploy โค้ดวันนี้ขึ้น production
+2. [ ] พิจารณาผูกปุ่ม "ลบบัญชี" ใน `UsersPage.jsx` เข้ากับ `DELETE /users/{id}` ที่มีอยู่แล้ว ถ้าต้องการให้แอดมินใช้ผ่าน UI ได้จริง (ตอนนี้เรียกตรงผ่าน API เท่านั้น)
+3. [ ] Deploy รอบใหม่ขึ้น VM จริง (`DockerMaeb`) ให้ตรงกับ commit `60cab61` — ไม่มี migration ใหม่ทั้ง 4 รอบวันนี้ ไม่ต้องรัน `alembic upgrade` เพิ่ม
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% เสร็จ — ฟีเจอร์หลักครบตาม business rules ใน CLAUDE.md ทั้งหมด, เหลือแค่ผูก UI ปุ่มลบบัญชี
+**Frontend:** ~99% เสร็จ — เหลือรอ feedback รอบใหม่จากการใช้งานจริงเพิ่มเติม
+**ระยะรวม:** โครงการอยู่ในช่วงทดสอบใช้งานจริง (feedback loop) ไม่ใช่ initial development แล้ว — วันนี้ปิด
+feedback รอบ Phase B ครบทั้ง 6 ข้อ บวกฟีเจอร์/บั๊กเพิ่มเติมอีก 3 รอบย่อยในวันเดียว
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending Items จาก CLAUDE.md ข้อ 10** ที่ยังรอข้อมูล: `ALLOWED_EMAIL_DOMAINS` ยังต้องยืนยัน domain อีเมล
+  มหาลัยจริงกับอาจารย์ก่อน deploy จริงรอบถัดไป, LINE OA ยังไม่ implement (stretch goal)
+- dev DB (`equipment_borrow`) มีนักศึกษา/แอดมินใช้งานจริงคู่ขนานอยู่เสมอ — ระหว่างทดสอบบั๊กวันนี้เกือบ reset
+  ค่าอุปกรณ์ที่มีคนยืมอยู่จริงโดยไม่ตั้งใจ (จับได้ทันก่อนบันทึกจริง แก้คืนถูกต้องแล้ว) ต้องระวังเรื่องนี้ทุกครั้ง
+  ที่ทดสอบผ่าน browser จริงในอนาคต
+- ยังไม่ได้ deploy โค้ดวันนี้ขึ้น production VM จริง — มีแค่ commit+push ขึ้น GitHub เท่านั้น

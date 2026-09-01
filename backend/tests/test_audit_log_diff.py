@@ -19,7 +19,7 @@ from tests.conftest import auth
 async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) -> str:
     suffix = uuid.uuid4().hex[:6].upper()
     body = {
-        "code": f"AUDDIFF-{suffix}", "name": f"อุปกรณ์ทดสอบ diff {suffix}",
+        "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบ diff {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
         "image_urls": ["/uploads/test.jpg"],
     }
@@ -132,7 +132,7 @@ def _register_file(tmp_path, code, name, broken=False):
 
 async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, admin_token: str, tmp_path):
     h = auth(admin_token)
-    code = f"AUDDIFF-{uuid.uuid4().hex[:6].upper()}"
+    code = f"{uuid.uuid4().int % 10**15:015d}"
     eq_id = await _make_equipment(client, h, code=code, name="ชื่อเดิมในระบบ", location="15310")
     try:
         path = _register_file(tmp_path, code, "ชื่อใหม่จากทะเบียน", broken=True)

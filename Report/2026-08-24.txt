@@ -1,0 +1,82 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-24
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา) ร่วมกับ Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้เริ่มงานอีเมลที่ค้างมานาน (ทดสอบส่งจริงด้วย Gmail ส่วนตัว) แล้วต่อยอดเป็นการ QA ทั้งระบบสด ๆ ผ่านการใช้งานจริงบนเครื่อง dev — เจอบั๊กจริงหลายจุดจากการทดสอบ แก้ไปพร้อมกัน 5 commit (`abdd660` → `06f2a09` → `ca449ff` → `6baef7b` → `3f444d5`) และ deploy ขึ้น production ไปแล้ว 3 รอบ (frontend-only 2 รอบ + full stack 1 รอบ) รอบล่าสุด (`6baef7b`, `3f444d5`) ยังไม่ deploy
+
+### Backend
+
+- **`app/services/auth_service.py` — `verify_email`**: token ที่ถูกใช้ไปแล้ว (กดลิงก์ยืนยันซ้ำจากอีกอุปกรณ์/แท็บ) เดิม error "Invalid or expired token" ทั้งที่บัญชียืนยันสำเร็จไปแล้วจริง แก้ให้ถือเป็นสำเร็จซ้ำได้ (idempotent) — token ที่ไม่มีอยู่จริงเท่านั้นถึง error
+- **`app/services/borrow_service.py` — `create_request`**: บั๊กจริงที่พบจากการทดสอบ — ปิดใช้งาน/ปลดระวางหน่วยแรก (รหัสต่ำสุด, ตัวแทนกลุ่ม) ของอุปกรณ์รุ่นที่มีหลายหน่วย (เช่น Arduino UNO R4 ที่ยืมได้หลายชิ้น) ทำให้ยืมทั้งรุ่นไม่ได้เลยแม้หน่วยอื่นยังว่างอยู่ — สาเหตุคือเช็คสถานะของหน่วยตัวแทนก่อนรู้ด้วยซ้ำว่ามีกลุ่ม แก้ให้เช็คสถานะเฉพาะกรณีมีหน่วยเดียวจริง ๆ ส่วนรุ่นที่มีหลายหน่วยให้สแกนหาหน่วยว่างในกลุ่มเหมือน `approve_request` ที่ทำถูกอยู่แล้ว
+- **`app/services/borrow_service.py` — `return_item`**: พบต้นตอบั๊ก "อุปกรณ์ขึ้นสถานะพร้อมทั้งที่ของเหลือ 0 ชิ้น" (เช่น `212001 0/1 พร้อม`) — ไม่เคย sync `equipment.status` ตอนคืนของสภาพเสียหาย/สูญหาย มีแต่ลด `quantity_available` ถาวรเฉย ๆ แก้ให้หน่วยเดียว (`quantity_total=1`) คืนสภาพ `damaged`/`discarded` → status เป็น `damaged`, คืนสภาพ `lost` → status เป็น `unavailable` (ตรงกับ label เดิมของ `import_service` "สูญหาย/เสื่อมสภาพ") — ก้อนวัสดุ `quantity_total>1` ที่ยังไม่แยกรายชิ้นไม่แตะ status เพราะเสียแค่หน่วยเดียวไม่ได้แปลว่าทั้งก้อนเสีย (ตรง CLAUDE.md §5 เงื่อนไข condition_on_return)
+- **`app/services/equipment_service.py`**: เพิ่ม `is_currently_borrowed` (คำนวณจาก `borrow_items` จริง ไม่ใช่ derive จากช่องว่าง `quantity_available`/`quantity_total` ที่ลองแล้วผิด — ของเสีย/สูญหายที่คืนไปแล้วก็มีช่องว่างค้างถาวรได้เหมือนกัน ไม่ได้แปลว่ามีคนถือของอยู่จริง) รวม `_borrowed_equipment_ids` เดิม (แค่ set id) กับ `get_holders` เดิม (query แยก) เป็น `get_holders_map` เดียว — ได้ทั้ง "ถูกยืมอยู่ไหม" และ "ใครถือ" (ชื่อ + รหัสนักศึกษา) ในคิวรีเดียว ใช้กับทั้ง `list_equipment`, `list_equipment_grouped`, `get_equipment_group_detail`
+- **`app/schemas/equipment.py`**: เพิ่ม `HolderInfo.student_number`, `EquipmentResponse.is_currently_borrowed`/`holder`, `EquipmentUnitSummary.is_currently_borrowed`/`holder` — ย้าย `HolderInfo` ขึ้นไปนิยามก่อน `EquipmentResponse` (แก้ forward-reference)
+- **`app/schemas/equipment.py` — `EquipmentBulkUpdate`**: เพิ่ม `name`/`item_type`/`category_ids` เข้าไปในฟิลด์ที่แก้พร้อมกันหลายรายการได้ (ตามคำขอ "แก้หลายชิ้นให้เหมือนแก้ทีละชิ้น") — `code`/`serial_number` ยังตัดออกเหมือนเดิมเพราะ unique constraint (ตั้งค่าเดียวกันหลายแถวพัง), `quantity_total`/`quantity_available` ตัดออกเพราะเป็นตัวนับสต็อกต่อหน่วย
+- **`app/services/equipment_service.py` — `bulk_update_equipment`**: เพิ่ม logic แยก `category_ids` ออกจาก setattr loop (relationship ต้อง resolve ผ่าน `_resolve_categories` แทน) + normalize ชื่อผ่าน `_normalize_name`
+- **`app/routers/equipment.py`**: ปรับ endpoint `/equipment/{id}` ให้เรียก `get_holders_map` ใหม่แทน `get_holders` เดิม
+
+### Frontend
+
+- **`components/common/Tooltip.jsx`**: บั๊กจริงที่พบและ repro ได้ในเบราว์เซอร์ — tooltip แบบ `position: absolute` เดิมอยู่ในตารางที่มี `overflow-x-auto` (หน้าจัดการอุปกรณ์) พอ hover ปุ่ม "?" ตรง "แยกเป็นรายชิ้น" bubble ที่โผล่ออกมาดันความกว้างตารางจนเกิด scrollbar แนวนอน ทำให้แถวขยับ ปุ่มเลื่อนหลุดจากใต้ cursor → `mouseleave` ยิง → bubble หาย → scrollbar หาย → ปุ่มเลื่อนกลับมา → `mouseenter` ยิงใหม่ วนซ้ำไม่หยุด (วัดจริงด้วยการติด event listener: **1,792+ event ใน 3 วินาที**) แก้ด้วยการ portal bubble ไป `document.body` แบบ `position: fixed` คำนวณตำแหน่งจากจุดจริงของปุ่ม (แพทเทิร์นเดียวกับที่ `NotificationBell.jsx` เคยแก้ปัญหา sidebar ตัดขอบมาก่อน) — ทดสอบซ้ำเหลือ 1 enter, 0 leave ไม่กระพริบแล้ว
+- **`pages/VerifyEmailPage.jsx`**: เพิ่ม `useRef` กัน React StrictMode ยิง API ยืนยันอีเมลซ้ำตอน dev (token ใช้ได้ครั้งเดียว โดนยิงซ้ำแล้วพัง)
+- **`pages/RegisterPage.jsx`, `pages/admin/UsersPage.jsx`**: แก้ประกอบ `full_name` เดิมต่อคำนำหน้ากับชื่อตรง ๆ ไม่มีช่องว่าง ("นายวีรภัทร" ควรเป็น "นาย วีรภัทร") เพิ่มช่องว่างให้ถูก
+- **`pages/admin/BorrowRequestsPage.jsx`**: แก้จอกระพริบตอน poll พื้นหลังทุก 4 วิ — เดิม `setLoading(true)` ทุกรอบทำทั้งหน้าสลับไป "กำลังโหลด…" แล้วกลับมา แก้ให้ poll พื้นหลังไม่โชว์ loading state (poll ยังทำงานเหมือนเดิม แค่ไม่รีเซ็ตหน้าจอ)
+- **`pages/admin/AllBorrowsPage.jsx`**: เพิ่มตัวเลือก "เกินกำหนด" เข้าไปในดรอปดาวน์สถานะเดิม (ตอนแรกทำเป็น checkbox แยก ผู้ใช้ขอให้รวมเข้าดรอปดาวน์เดิมแทน) — backend มี `overdue_only` param รองรับอยู่แล้ว ไม่ต้องแก้ backend
+- **`pages/admin/EquipmentManagePage.jsx`**: (1) แก้ status badge ต่อหน่วยให้ derive "ถูกยืม" จาก `is_currently_borrowed` จริงแทนการเดาจากช่องว่างสต็อก (2) เพิ่ม `BulkEditModal` ฟิลด์ ชื่ออุปกรณ์/ประเภท/หมวดหมู่ (หมวดหมู่แทนที่ของเดิมทั้งหมด มีข้อความเตือนในฟอร์ม) (3) โชว์ชื่อ+รหัสนักศึกษาผู้ยืมใต้ badge "ถูกยืม" ทั้งแถวหน่วยเดียวและแถวย่อยในกลุ่ม
+
+### Deploy (VM `172.16.46.130`)
+
+| รอบ | commit | ขอบเขต | หมายเหตุ |
+|---|---|---|---|
+| 1 | `abdd660` | full stack (มี migration `0020`) | backup ก่อน migrate, ตรวจ 200 borrow_items เก่า backfill ครบ |
+| 2 | `06f2a09` | frontend only | ~20 วิ downtime, ไม่แตะ backend/db |
+| 3 | `ca449ff` | frontend only | ~20 วิ downtime |
+| 4 | `6baef7b`, `3f444d5` | **ยังไม่ deploy** | รอ confirm จากผู้ใช้ — รอบนี้แก้ backend ด้วย ต้อง rebuild เต็ม stack |
+
+### อื่น ๆ (Config, Docker, Docs)
+
+- แก้ `backend/.env` (`ENABLE_EMAIL=true` + Gmail ส่วนตัวเป็น sender ทดสอบ, `FRONTEND_URL` จาก `localhost` เป็น LAN IP เครื่อง `172.20.57.146` ให้ทดสอบข้ามอุปกรณ์ได้ — พบและแก้ typo `ENABLE_EMAIL=flase` ที่ทำให้ backend บูตไม่ขึ้นระหว่างทาง)
+- แก้ข้อมูลชื่อผู้ใช้เก่าที่คำนำหน้าติดกับชื่อ (บั๊กเดียวกับที่แก้ใน RegisterPage) — dev DB 3 คน, **prod DB จริง 37 คน**
+- Backfill DB จริง: **8 หน่วยอุปกรณ์**ที่ค้าง `quantity_available=0` แต่ status ยัง "available" มานาน (ประวัติการคืนถูกลบไปแล้วผ่านฟีเจอร์ "ลบประวัติ" เลยไม่รู้เหตุผลเจาะจง) ตั้งเป็น `unavailable` ตามที่ผู้ใช้เลือก
+- ลบข้อมูลขยะจากเทสต์ที่รั่วเข้า dev DB จริง **20 แถว** (`DEL-*`, `NEEDS-*`, `TEST-*` — เจอระหว่างตรวจ ไม่เกี่ยวกับงานหลักวันนี้ ตรวจแล้วไม่มี borrow_items/audit_logs ผูกอยู่ ลบได้ปลอดภัย)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ยืมอุปกรณ์รุ่นหลายหน่วยไม่ได้ทั้งรุ่นถ้าปิดหน่วยแรก | `create_request` เช็คสถานะหน่วยตัวแทนก่อนรู้ว่ามีกลุ่ม | แก้แล้ว (`6baef7b`) |
+| อุปกรณ์ที่ถูกยืมอยู่ขึ้นสถานะ "พร้อม" | `equipment.status` ไม่เคยถูกตั้งเป็น "borrowed"; แยกอีกเรื่องคือคืนของเสีย/สูญหายไม่ sync status เลย | แก้แล้ว (`6baef7b`, `3f444d5`) + backfill ข้อมูลเก่า 8 แถว |
+| Tooltip ในหน้าจัดการอุปกรณ์กระพริบดูไม่ได้ | absolute positioning ในตาราง overflow-x-auto วน scrollbar/hover loop | แก้แล้ว (`6baef7b`) |
+| **เทสต์ทั้งชุดรั่วข้อมูลลง dev DB จริง 20 แถว ทั้งที่รายงาน "ผ่านหมด"** | ยังไม่ทราบสาเหตุแน่ชัด — สงสัย `test_equipment_delete.py`/`test_borrow_needs_attention_filter.py` cleanup ล้มเหลวแบบเงียบ ๆ | **ยังไม่ได้แก้ ต้องสืบสวนเพิ่ม** — ลบขยะที่พบแล้วเป็นการชั่วคราว |
+| commit `6baef7b`/`3f444d5` ยัง deploy ไม่ทันวันนี้ | รอ confirm ผู้ใช้ตอนจบวัน | พรุ่งนี้ deploy รอบแรกเป็นอย่างแรก |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Deploy commit `6baef7b` + `3f444d5` ขึ้น production (full stack rebuild, backup ก่อนเสมอ)
+2. [ ] สืบสวนสาเหตุที่เทสต์ 2 ไฟล์ (`test_equipment_delete.py`, `test_borrow_needs_attention_filter.py`) รั่วข้อมูลลง DB จริงทั้งที่รายงานผ่านหมด — เช็ค cleanup logic/exception handling ในไฟล์เทสต์
+3. [ ] ทดสอบ flow "คืนของเสียหาย/สูญหาย" บนเบราว์เซอร์จริงอีกรอบหลัง deploy เพื่อยืนยันว่า status sync ทำงานถูกต้องในสภาพแวดล้อม prod
+4. [ ] ทดสอบฟีเจอร์ "แก้ไขหลายรายการ" (ชื่อ/ประเภท/หมวดหมู่) บน prod จริงหลัง deploy
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% เสร็จ — ฟีเจอร์หลักครบ, วันนี้เป็นการแก้บั๊กเชิงลึกจาก QA จริงมากกว่าฟีเจอร์ใหม่ (ยกเว้น bulk-edit เพิ่มฟิลด์)
+**Frontend:** ~99% เสร็จ — เก็บ UX bug (จอกระพริบ, tooltip, สถานะแสดงผิด) ที่พบจากการใช้งานจริง
+**ระยะรวม:** ระบบใช้งานได้จริงและอยู่ในช่วง QA เข้มข้นบน production คู่ขนานกับมีผู้ใช้จริงยืม-คืนอยู่แล้ว (ข้อมูลจริงมีการยืมและคำขอจริงเกิดขึ้นระหว่างวัน) วันนี้เน้นแก้บั๊กที่กระทบผู้ใช้จริงโดยตรง 3 เรื่องใหญ่ (ยืมกลุ่มติดหน่วยปิด, สถานะเท็จ, tooltip กระพริบ) ครบทั้งสาเหตุรากและ regression test
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Audit log**: การแก้ข้อมูลตรง ๆ ผ่าน SQL วันนี้ (เว้นวรรคชื่อ 37 คน, backfill สถานะ 8 หน่วย, ลบขยะเทสต์ 20 แถว) **ไม่ได้ผ่าน `audit_service.log_action`** เพราะเป็นการแก้นอกระบบ ไม่ใช่ action ผ่าน UI/API ปกติ — ผิดหลัก CLAUDE.md §5 "ทุก action ของ admin ต้องเรียก audit_service.log_action" ในทางเทคนิค (ไม่ใช่ admin action แต่เป็น data hygiene ของทีมพัฒนา) ควรพิจารณาว่าจะบันทึกร่องรอยการแก้เหล่านี้ไว้ที่ไหนสักที่เพื่อความโปร่งใสในอนาคต
+- **ประวัติการคืนของที่ถูกลบ**: ฟีเจอร์ "ลบประวัติการยืม" (`delete_request`) ลบ `BorrowItem` ทิ้งโดยไม่กระทบ `equipment.quantity_available`/`status` (ถูกต้องแล้วในแง่ข้อมูล) แต่ทำให้ตรวจสอบย้อนหลังไม่ได้ว่าของที่ค้างสต็อกหายไปเพราะอะไร — เป็น trade-off ที่ควรรู้ไว้ ถ้าอยากให้ตรวจสอบย้อนหลังได้ควรพิจารณา soft-delete แทน hard-delete ในอนาคต (ไม่ใช่เรื่องด่วน)
+- **เทสต์รั่วข้อมูลลง DB จริง**: ยืนยันแล้วว่าเกิดขึ้นจริงวันนี้ 20 แถว ทั้งที่ pytest รายงาน "ทุกตัวผ่าน" — เป็นสัญญาณว่า cleanup logic ในบางไฟล์เทสต์ไม่น่าเชื่อถือ 100% ควรรีวิวก่อนรันเทสต์ทั้งชุดถี่ ๆ บน DB dev จริงต่อไป (ตรงกับที่เคยเจอปัญหานี้มาก่อนแล้วครั้งหนึ่งตามที่บันทึกไว้ในโค้ดคอมเมนต์ของหลายไฟล์เทสต์)

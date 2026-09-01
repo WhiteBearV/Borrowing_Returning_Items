@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -17,6 +17,7 @@ from app.models.equipment_category import EquipmentCategory
 from app.models.setting import Setting
 from app.models.user import User
 from app.schemas.equipment import (
+    BulkAdjustStockResult,
     BulkDeleteFailure,
     BulkDeleteResult,
     BulkRetireResult,
@@ -88,12 +89,16 @@ async def save_image(file: UploadFile) -> str:
 
 async def get_holders_map(
     db: AsyncSession, equipment_ids: list[uuid.UUID] | None = None
-) -> dict[uuid.UUID, HolderInfo]:
+) -> dict[uuid.UUID, list[HolderInfo]]:
     """หน่วยไหนกำลังถูกยืมอยู่จริงบ้าง (approved + ยังไม่คืน) พร้อมรายละเอียดคนถือ — equipment_ids=None คือทั้งระบบ
 
     คิวรีเดียวได้ทั้ง "ถูกยืมอยู่ไหม" (เดิมใช้ _borrowed_equipment_ids คืนแค่ set id) และ "ใครถือ" (เดิม
     get_holders แยกอีกคิวรี) รวมเป็นฟังก์ชันเดียว — ผู้เรียกที่ต้องการแค่ boolean เช็ค `id in map` ได้เลย
     ไม่ต้องยิง 2 คิวรีซ้อนกันเหมือนก่อน
+
+    คืนเป็น list ต่อ equipment_id (ไม่ใช่ HolderInfo เดี่ยว) เพราะวัสดุสิ้นเปลืองแถวเดียวยืมพร้อมกันได้หลายคน
+    คนละจำนวน (ต่างจาก durable ที่ยืมทีละหน่วยจริง ไม่มีทางมีคนถือพร้อมกันหลายคนต่อ 1 แถว) — เดิมใช้ dict
+    comprehension ทับ key ซ้ำ เหลือแค่คนสุดท้ายที่ query คืนมา คนอื่นหายไปเงียบ ๆ
     """
     query = (
         select(
@@ -103,27 +108,20 @@ async def get_holders_map(
         .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
         .join(User, BorrowRequest.student_id == User.id)
         .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
+        # ไม่มี ORDER BY เดิม DB ไม่การันตีลำดับแถวที่คืนมาเลย — โค้ดที่อ่าน holders[0] เป็น "ตัวแทน" คนเดียว
+        # (เช่น _build_group_response, list_equipment) จะได้คนละคนสลับกันไปมาระหว่างการเรียกแต่ละครั้งทั้งที่
+        # ข้อมูลไม่ได้เปลี่ยน — เรียงชื่อแล้วตาม BorrowItem.id กันเผื่อชื่อซ้ำ ให้ผลลัพธ์คงที่เสมอ
+        .order_by(User.full_name, BorrowItem.id)
     )
     if equipment_ids is not None:
         query = query.where(BorrowItem.equipment_id.in_(equipment_ids))
     result = await db.execute(query)
-    return {
-        eq_id: HolderInfo(holder_name=name, student_number=sid, due_date=ext or due, quantity=qty)
-        for eq_id, name, sid, ext, due, qty in result.all()
-    }
-
-
-async def _audit_cutoff(db: AsyncSession) -> datetime:
-    """ตรวจนับล่าสุดก่อนวันนี้เกิน audit_interval_days วัน = ครบกำหนดตรวจนับใหม่ (mirror สูตรเดียวกับ
-    scheduler._check_audit_due และ dashboard_service.get_summary)"""
-    interval_days = int((await db.execute(
-        select(Setting.value).where(Setting.key == "audit_interval_days")
-    )).scalar_one())
-    return datetime.now(TZ) - timedelta(days=interval_days)
-
-
-def _is_due_for_audit(eq: Equipment, cutoff: datetime) -> bool:
-    return eq.status != "retired" and (eq.last_audited_at is None or eq.last_audited_at < cutoff)
+    holders_map: dict[uuid.UUID, list[HolderInfo]] = {}
+    for eq_id, name, sid, ext, due, qty in result.all():
+        holders_map.setdefault(eq_id, []).append(
+            HolderInfo(holder_name=name, student_number=sid, due_date=ext or due, quantity=qty)
+        )
+    return holders_map
 
 
 async def _apply_status_filter(db: AsyncSession, query, filter_status: str | None):
@@ -132,11 +130,9 @@ async def _apply_status_filter(db: AsyncSession, query, filter_status: str | Non
     - low_stock: เฉพาะ consumable ที่ต่ำกว่าเกณฑ์ (mirror สูตรเดียวกับ dashboard_service.get_summary)
     - borrowed: มีของออกไปจริงผ่าน BorrowItem ที่ยังไม่คืน (คนละอย่างกับ status="available" ที่กดลบไม่ได้
       สื่อว่า "ยืมได้" ไม่ใช่ "กำลังถูกยืม")
-    - due_for_audit: ยังไม่เคยตรวจนับ หรือตรวจนับครั้งล่าสุดเกิน audit_interval_days วันแล้ว (ไม่รวมของ
-      ที่ปลดระวางแล้ว — ไม่มีอยู่จริงในคลังให้ตรวจนับต่อ)
 
-    ใช้กับ list_equipment (ไม่ยุบกลุ่ม) เท่านั้น — list_equipment_grouped ต้อง filter "borrowed"/"due_for_audit"
-    ที่ระดับกลุ่มแยกต่างหาก (ดู comment ใน list_equipment_grouped) ไม่งั้นยอดรวมของการ์ดจะผิด เพราะกรองตัดหน่วย
+    ใช้กับ list_equipment (ไม่ยุบกลุ่ม) เท่านั้น — list_equipment_grouped ต้อง filter "borrowed" ที่ระดับกลุ่ม
+    แยกต่างหาก (ดู comment ใน list_equipment_grouped) ไม่งั้นยอดรวมของการ์ดจะผิด เพราะกรองตัดหน่วย
     พี่น้องในกลุ่มเดียวกันที่ไม่เข้าเงื่อนไขออกจาก query ตั้งแต่ต้น
     """
     if filter_status == "low_stock":
@@ -149,12 +145,13 @@ async def _apply_status_filter(db: AsyncSession, query, filter_status: str | Non
         )
     if filter_status == "borrowed":
         return query.where(Equipment.id.in_((await get_holders_map(db)).keys()))
-    if filter_status == "due_for_audit":
-        cutoff = await _audit_cutoff(db)
-        return query.where(
-            Equipment.status != "retired",
-            or_(Equipment.last_audited_at.is_(None), Equipment.last_audited_at < cutoff),
-        )
+    # "available"/"unavailable" ต้องรวม is_borrowable เข้าไปด้วย ไม่ใช่แค่คอลัมน์ status ตรง ๆ — ของประจำห้อง
+    # (is_borrowable=false) status ยังเป็น "available" อยู่ (import ไฟล์ทะเบียนใหม่ไม่แตะฟิลด์นี้) จึงต้องกรอง
+    # ทั้งสองคอลัมน์ควบกันไม่งั้นของประจำห้องจะโผล่ปนกลุ่ม "พร้อมให้ยืม" และไม่โผล่ในกลุ่ม "ไม่อนุญาตให้ยืม" เลย
+    if filter_status == "available":
+        return query.where(Equipment.status == "available", Equipment.is_borrowable == True)  # noqa: E712
+    if filter_status == "unavailable":
+        return query.where(or_(Equipment.status == "unavailable", Equipment.is_borrowable == False))  # noqa: E712
     if filter_status:
         return query.where(Equipment.status == filter_status)
     return query
@@ -195,12 +192,16 @@ async def list_equipment(
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
     holders_map = await get_holders_map(db)
-    responses = [
-        EquipmentResponse.model_validate(eq, from_attributes=True).model_copy(
-            update={"is_currently_borrowed": eq.id in holders_map, "holder": holders_map.get(eq.id)}
-        )
-        for eq in items
-    ]
+    responses = []
+    for eq in items:
+        holders = holders_map.get(eq.id, [])
+        responses.append(EquipmentResponse.model_validate(eq, from_attributes=True).model_copy(
+            update={
+                "is_currently_borrowed": eq.id in holders_map,
+                "holder": holders[0] if holders else None,
+                "holders": holders,
+            }
+        ))
     return PaginatedEquipment(items=responses, total=total, page=page, page_size=page_size)
 
 
@@ -227,20 +228,24 @@ def _location_breakdown(rows: list[Equipment]) -> list[LocationCount]:
 
 
 def _build_group_response(
-    rows: list[Equipment], holders_map: dict[uuid.UUID, HolderInfo]
+    rows: list[Equipment], holders_map: dict[uuid.UUID, list[HolderInfo]]
 ) -> EquipmentGroupResponse:
     """ประกอบการ์ดยุบกลุ่ม — field แสดงผลอื่น ๆ ใช้ของหน่วยรหัสต่ำสุด (rows เรียงมาแล้ว)
 
     holder เจาะจงหน่วยตัวแทนเท่านั้น (มีความหมายจริงเฉพาะการ์ดหน่วยเดียว unit_count==1 — การ์ดหลายหน่วย
-    ต้องกางดูรายหน่วยแทนเพราะแต่ละหน่วยอาจมีคนละคนถือ ไม่มี "คนเดียว" ให้โชว์ตรงนี้)
+    ต้องกางดูรายหน่วยแทนเพราะแต่ละหน่วยอาจมีคนละคนถือ ไม่มี "คนเดียว" ให้โชว์ตรงนี้) — เอา holders[0] ของ
+    หน่วยตัวแทนมาใช้ (ไม่กระทบจริงเพราะมีแค่ consumable เท่านั้นที่ถือพร้อมกันได้หลายคนต่อแถว และ consumable
+    ไม่เข้ามาที่นี่เลย เพราะ _group_key ไม่ยุบรวม consumable — unit_count เป็น 1 เสมออยู่แล้ว)
     """
     rep = rows[0]
     eligible = [r for r in rows if _is_eligible(r)]
+    rep_holders = holders_map.get(rep.id, [])
     base = EquipmentResponse.model_validate(rep, from_attributes=True).model_dump()
     base["quantity_total"] = sum(r.quantity_total for r in rows)
     base["quantity_available"] = sum(r.quantity_available for r in eligible)
     base["is_currently_borrowed"] = rep.id in holders_map
-    base["holder"] = holders_map.get(rep.id)
+    base["holder"] = rep_holders[0] if rep_holders else None
+    base["holders"] = rep_holders
     # มีหน่วยว่างพร้อมยืมอย่างน้อย 1 ชิ้น = การ์ดนี้ "พร้อมให้ยืม" ไม่งั้น fallback ไปสถานะของตัวแทน
     if eligible:
         base["is_borrowable"] = True
@@ -267,15 +272,12 @@ async def list_equipment_grouped(
         query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
         query = query.where(Equipment.item_type == item_type)
-    # "borrowed"/"due_for_audit" ต้อง filter ที่ "กลุ่มไหนมีหน่วยเข้าเงื่อนไขบ้าง" ไม่ใช่กรองที่ query แถวก่อน
+    # "borrowed" ต้อง filter ที่ "กลุ่มไหนมีหน่วยเข้าเงื่อนไขบ้าง" ไม่ใช่กรองที่ query แถวก่อน
     # group — ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่เข้าเงื่อนไข แล้วเอาไปรวมยอด quantity_total/available เป็นยอด
     # ของกลุ่มทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
     # ต้องดึงทุกหน่วยของกลุ่มมาคำนวณยอดก่อน แล้วค่อยกรองว่าจะโชว์การ์ดไหนทีหลัง
     filter_borrowed_group = filter_status == "borrowed"
-    filter_due_group = filter_status == "due_for_audit"
-    query = await _apply_status_filter(
-        db, query, None if (filter_borrowed_group or filter_due_group) else filter_status
-    )
+    query = await _apply_status_filter(db, query, None if filter_borrowed_group else filter_status)
     if search:
         kw = f"%{search.strip()}%"
         query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
@@ -290,9 +292,6 @@ async def list_equipment_grouped(
     holders_map = await get_holders_map(db)
     if filter_borrowed_group:
         groups = {key: members for key, members in groups.items() if any(m.id in holders_map for m in members)}
-    if filter_due_group:
-        cutoff = await _audit_cutoff(db)
-        groups = {key: members for key, members in groups.items() if any(_is_due_for_audit(m, cutoff) for m in members)}
 
     cards = [_build_group_response(members, holders_map) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
@@ -322,13 +321,19 @@ async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) 
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
     holders_map = await get_holders_map(db, [m.id for m in members])
     group = _build_group_response(members, holders_map)
-    unit_summaries = [
-        EquipmentUnitSummary.model_validate(m, from_attributes=True).model_copy(
-            update={"is_currently_borrowed": m.id in holders_map, "holder": holders_map.get(m.id)}
-        )
-        for m in members
-    ]
-    return EquipmentGroupDetailResponse(**group.model_dump(), holders=list(holders_map.values()), members=unit_summaries)
+    unit_summaries = []
+    for m in members:
+        m_holders = holders_map.get(m.id, [])
+        unit_summaries.append(EquipmentUnitSummary.model_validate(m, from_attributes=True).model_copy(
+            update={"is_currently_borrowed": m.id in holders_map, "holder": m_holders[0] if m_holders else None}
+        ))
+    # flatten list ของ list — holders_map คืนหลายคนต่อ equipment_id ได้แล้ว (ดู get_holders_map) ต้องรวมทุกคน
+    # ของทุกหน่วยในกลุ่มมาเป็น list เดียว ไม่ใช่แค่ list ของหน่วยตัวแทนแบบเดิม (group.model_dump() มี key
+    # "holders" ของหน่วยตัวแทนอยู่แล้วจาก _build_group_response ต้อง exclude ก่อนไม่งั้นชนกับ kwarg ด้านล่าง)
+    all_holders = [h for hs in holders_map.values() for h in hs]
+    return EquipmentGroupDetailResponse(
+        **group.model_dump(exclude={"holders"}), holders=all_holders, members=unit_summaries,
+    )
 
 
 async def _resolve_categories(db: AsyncSession, category_ids: list[uuid.UUID]) -> list[EquipmentCategory]:
@@ -356,6 +361,21 @@ def _generate_consumable_code(name: str, existing_codes: set[str]) -> str:
         n += 1
 
 
+def _validate_durable_code(code: str) -> None:
+    """บังคับรหัสครุภัณฑ์ (durable) ต้องเป็นตัวเลข 15 หลักพอดี — นับเฉพาะตัวเลขในสตริง (ตัด "-" ออก)
+
+    เรียกเฉพาะตอน "เปลี่ยนเข้า durable" จาก material/consumable เท่านั้น (create_equipment/update_equipment/
+    bulk_update_equipment) — ไม่ retroactive กับแถวที่เป็น durable อยู่แล้ว เพราะของเดิมที่ import จากทะเบียนจริง
+    หลายตัวใช้รหัสภายในสั้นกว่านี้ (เช่น "212001") ต้องไม่บล็อกการแก้ไขปกติของแถวเหล่านั้น
+    """
+    digits = re.sub(r"\D", "", code or "")
+    if len(digits) != 15:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'เปลี่ยนเป็นครุภัณฑ์ได้เฉพาะรหัสที่เป็นตัวเลข 15 หลักเท่านั้น (รหัส "{code}" มี {len(digits)} หลัก)',
+        )
+
+
 async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate) -> Equipment:
     code = body.code
     if not code:
@@ -364,6 +384,9 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
                                 detail="จำเป็นต้องระบุรหัสอุปกรณ์ (เว้นว่างได้เฉพาะวัสดุสิ้นเปลือง)")
         existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
         code = _generate_consumable_code(body.name, existing_codes)
+
+    if body.item_type == "durable":
+        _validate_durable_code(code)
 
     existing = await db.execute(select(Equipment).where(Equipment.code == code))
     if existing.scalar_one_or_none():
@@ -396,7 +419,9 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     (ดู borrow_service.py create_request/approve_request) แก้ตรงนี้จึงไม่กระทบใบยืมเก่าเลย
     """
     eq = await get_equipment(db, equipment_id)
-    changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
+    # exclude_unset (ไม่ใช่ exclude_none) — ต้องแยก "ไม่ได้ส่งฟิลด์นี้มา" ออกจาก "ส่งมาเป็น null ตั้งใจล้างค่า"
+    # เช่น SN ที่แอดมินกรอกผิดแล้วอยากลบทิ้ง — exclude_none เดิมจะตัด null ทิ้งเหมือนไม่ได้ส่งมา ลบไม่ได้เลย
+    changed = body.model_dump(exclude_unset=True, exclude={"category_ids"})
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
     if "code" in changed and changed["code"] != eq.code:
@@ -405,12 +430,19 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         )
         if dup_code.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Equipment code already exists.")
-    if "serial_number" in changed and changed["serial_number"] != eq.serial_number:
+    # เช็คซ้ำเฉพาะตอนตั้งค่าจริง (truthy) — ล้าง SN เป็น None ต้องไม่ชนกัน เพราะ partial unique index
+    # (ix_equipment_serial_number_unique) เจาะจง WHERE serial_number IS NOT NULL ไว้แล้วว่า NULL ซ้ำกันได้
+    if changed.get("serial_number") and changed["serial_number"] != eq.serial_number:
         dup_sn = await db.execute(
             select(Equipment).where(Equipment.serial_number == changed["serial_number"], Equipment.id != equipment_id)
         )
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
+
+    # เปลี่ยนเข้า durable (จาก material/consumable) ต้องรหัสครบ 15 หลัก — ใช้ code ใหม่ถ้า request นี้เปลี่ยน code
+    # ด้วย ไม่งั้นใช้ของเดิม (ไม่ retroactive กับแถวที่เป็น durable อยู่แล้ว ดู _validate_durable_code)
+    if changed.get("item_type") == "durable" and eq.item_type != "durable":
+        _validate_durable_code(changed.get("code", eq.code))
 
     # เก็บ diff ก่อน/หลังไว้ทำ audit (ดู audit_service.diff_fields) — setattr loop ด้านล่างเขียนทับแล้ว
     # ย้อนดูค่าเดิมไม่ได้ ต้องอ่านจาก eq ก่อนแก้เท่านั้น
@@ -459,27 +491,6 @@ async def retire_equipment(
                                     "quantity": eq.quantity_total, "item_type": eq.item_type,
                                     "reason": (reason or "").strip() or None})
     await db.commit()
-
-
-async def physical_audit_equipment(
-    db: AsyncSession, admin: User, equipment_id: uuid.UUID, note: str | None, photo_urls: list[str]
-) -> Equipment:
-    """บันทึกว่าตรวจนับอุปกรณ์ชิ้นนี้ทางกายภาพแล้ว (เจอของจริงตรงตำแหน่งที่บันทึกไว้)
-
-    last_audited_at เป็นแค่ตัวชี้ล่าสุด ใช้ query "ครบกำหนดตรวจนับ" ได้เร็ว — ประวัติแต่ละครั้งจริง ๆ
-    (ใคร เมื่อไหร่ โน้ต รูป) เก็บถาวรใน audit_logs (append-only แก้ไม่ได้) อยู่แล้ว ไม่ต้องมีตารางแยก
-    """
-    eq = await get_equipment(db, equipment_id)
-    previous = eq.last_audited_at
-    eq.last_audited_at = datetime.now(TZ)
-    await audit_service.log_action(db, admin, "physical_audit", "equipment", eq.id, {
-        "code": eq.code, "name": eq.name,
-        "note": (note or "").strip() or None,
-        "photo_urls": photo_urls or None,
-        "previous_audit_at": previous.isoformat() if previous else None,
-    })
-    await db.commit()
-    return await get_equipment(db, equipment_id)
 
 
 async def bulk_retire_equipment(
@@ -781,6 +792,10 @@ async def bulk_update_equipment(
     """แก้ไขหลายหน่วยพร้อมกัน (เช่น ย้ายสถานที่ทั้ง 12 หน่วยของรุ่นเดียวกัน) — all-or-nothing ต่างจาก
     bulk_delete_equipment เพราะการแก้ location/status ไม่มีเหตุผลที่ควร "แก้ได้บางชิ้น" เซสชันเดียว
     commit ครั้งเดียว, audit เป็น 1 entry รวม (ไม่ log ทีละแถว)
+
+    ข้อยกเว้นเดียว: เปลี่ยนเข้า durable — แถวที่รหัสไม่ครบ 15 หลัก (ดู _validate_durable_code) ถูกข้าม
+    แบบ best-effort ใส่ลง failed แทน ไม่ทำให้ทั้ง batch ล้ม (เหมือน bulk_retire/bulk_delete) เพราะของเดิม
+    ที่เลือกมาพร้อมกันมักปนรหัสที่ปฏิรูปแล้วกับยังไม่ปฏิรูป
     """
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
     if not changed and body.category_ids is None:
@@ -789,6 +804,22 @@ async def bulk_update_equipment(
         changed["name"] = _normalize_name(changed["name"])
 
     rows = [await get_equipment(db, eq_id) for eq_id in equipment_ids]  # 404 ถ้ามี id ที่ไม่มีจริง
+
+    failed: list[BulkDeleteFailure] = []
+    if changed.get("item_type") == "durable":
+        valid_rows = []
+        for eq in rows:
+            if eq.item_type != "durable":
+                try:
+                    _validate_durable_code(eq.code)
+                except HTTPException as e:
+                    failed.append(BulkDeleteFailure(equipment_id=eq.id, reason=str(e.detail)))
+                    continue
+            valid_rows.append(eq)
+        rows = valid_rows
+        if not rows:
+            return BulkUpdateResult(updated=[], failed=failed)
+
     # resolve ครั้งเดียวใช้ร่วมกันทุกแถว — ตั้งหมวดหมู่ชุดเดียวกันให้ทุกหน่วยที่เลือก ไม่ต้อง query ซ้ำ
     new_categories = await _resolve_categories(db, body.category_ids) if body.category_ids is not None else None
 
@@ -813,7 +844,68 @@ async def bulk_update_equipment(
     result = await db.execute(
         select(Equipment).where(Equipment.id.in_(ids)).options(selectinload(Equipment.categories))
     )
-    return BulkUpdateResult(updated=list(result.scalars().all()))
+    return BulkUpdateResult(updated=list(result.scalars().all()), failed=failed)
+
+
+async def bulk_adjust_stock(
+    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], delta: int, reason: str
+) -> BulkAdjustStockResult:
+    """ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — มิเรอร์ adjust_stock แต่วน loop
+    ต่อแถวเพราะแต่ละแถว quantity_total ไม่เท่ากัน ตั้งเลข absolute เดียวทับทุกแถวไม่มีความหมาย
+
+    clamp อิสระต่อแถว (0 <= quantity_available <= quantity_total - outstanding_qty) โดย outstanding_qty
+    คือจำนวนที่ถูกยืมออกไปจริง (approved + ยังไม่คืน ดู get_holders_map) ณ ขณะนี้ — ต้องหักออกจากเพดานบนเสมอ
+    ไม่ใช่แค่ quantity_total เฉยๆ ไม่งั้นแอดมินปรับยอดว่างขึ้นไปทับจำนวนที่ยังค้างอยู่ในมือคนยืมได้ (เช่น total=10
+    มี 3 หน่วยถูกยืมอยู่ available=7 ถ้า clamp ที่ total เฉยๆ +3 จะดันเป็น 10) พอมีคนคืนของ 3 หน่วยนั้นจริงเข้ามา
+    ทีหลัง quantity_available += quantity จะทะลุ quantity_total ชน ck_equipment_quantity_available_range
+    (IntegrityError 500 ตอน commit การคืน — ทำให้คืนของไม่ได้เลย)
+
+    best-effort เหมือน bulk_delete/bulk_retire/bulk_update — id ที่ไม่มีจริงถูกใส่ลง failed แทนที่จะ abort
+    ทั้ง batch ด้วย 404, แถวที่เหลือยัง commit จริง — ids ซ้ำถูก dedupe ก่อน (ไม่งั้น delta ถูกใช้ซ้ำหลายรอบ
+    กับแถวเดียว) และล็อกแถวเรียงตาม Equipment.code เสมอ (ไม่ใช่ id หรือลำดับที่ผู้ใช้ส่งมา) — ต้องตรงกับลำดับล็อก
+    ใน borrow_service.approve_request (เรียงตาม code เหมือนกัน) ไม่งั้น deadlock ได้จริงเวลา bulk-adjust ชุดหนึ่ง
+    ชนกับอนุมัติคำขอยืมอีกชุดที่แตะอุปกรณ์รุ่นเดียวกันคาบเกี่ยวกันพร้อมกันคนละลำดับ
+
+    holders_map ต้องอ่าน "หลัง" ล็อกแถวเสร็จแล้วเท่านั้น (ไม่ใช่ก่อน) — ไม่งั้นมี race window แคบๆ ที่ approve_request
+    อีก transaction หนึ่ง commit คั่นกลางระหว่างอ่าน holders กับตอนล็อกแถวจริง ทำให้ outstanding_qty ที่อ่านมาเก่ากว่า
+    ความจริง แล้ว upper_bound คำนวณสูงเกินไป กลับไปเจอบั๊กเดิมที่ docstring ด้านบนอธิบายไว้แบบแคบลง
+    """
+    ids = list(dict.fromkeys(equipment_ids))  # dedupe รักษาลำดับเดิม — id ซ้ำในคำขอเดียวไม่ควรโดน delta ซ้ำ
+
+    rows = (await db.execute(
+        select(Equipment).where(Equipment.id.in_(ids))
+        .order_by(Equipment.code)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalars().all()
+    rows_by_id = {eq.id: eq for eq in rows}
+
+    holders_map = await get_holders_map(db, ids)  # อ่านหลังล็อกแถวเสร็จ กัน race กับ transaction อื่นที่แก้ไข
+                                                   # ระหว่างทาง (ดู docstring ด้านบน) — ยังครั้งเดียวก่อน loop กัน N+1
+
+    failed: list[BulkDeleteFailure] = []
+    updated_ids: list[uuid.UUID] = []
+    for eq_id in ids:
+        eq = rows_by_id.get(eq_id)
+        if eq is None:
+            failed.append(BulkDeleteFailure(equipment_id=eq_id, reason="Equipment not found."))
+            continue
+        outstanding_qty = sum(h.quantity for h in holders_map.get(eq_id, []))
+        old_available = eq.quantity_available
+        upper_bound = eq.quantity_total - outstanding_qty
+        new_available = max(0, min(upper_bound, old_available + delta))
+        eq.quantity_available = new_available
+        await audit_service.log_action(db, admin, "bulk_adjust_stock", "equipment", eq.id, {
+            "code": eq.code, "name": eq.name,
+            "old_available": old_available, "new_available": new_available,
+            "delta": delta, "reason": reason,
+        })
+        updated_ids.append(eq.id)
+    await db.commit()
+    result = await db.execute(
+        select(Equipment).where(Equipment.id.in_(updated_ids)).options(selectinload(Equipment.categories))
+    )
+    return BulkAdjustStockResult(updated=list(result.scalars().all()), failed=failed)
 
 
 _STOCK_ACTIONS = {"receipt": "create_equipment", "disposal": "retire_equipment"}

@@ -209,6 +209,7 @@ async def create_request(
             equipment_name=eq.name,
             equipment_code=eq.code,
             equipment_unit=eq.unit,
+            equipment_serial_number=eq.serial_number,
         ))
 
     # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
@@ -430,6 +431,7 @@ async def approve_request(db: AsyncSession, admin: User, request_id: uuid.UUID) 
         item.equipment_name = chosen.name
         item.equipment_code = chosen.code
         item.equipment_unit = chosen.unit
+        item.equipment_serial_number = chosen.serial_number
 
     req.status = "approved"
     req.approved_by = admin.id
@@ -866,6 +868,9 @@ async def generate_preview_pdf(
             equipment_name=(eq_map[it.equipment_id].name if it.equipment_id in eq_map else None),
             equipment_code=(eq_map[it.equipment_id].code if it.equipment_id in eq_map else None),
             equipment_unit=(eq_map[it.equipment_id].unit if it.equipment_id in eq_map else None),
+            equipment_serial_number=(
+                eq_map[it.equipment_id].serial_number if it.equipment_id in eq_map else None
+            ),
             equipment_value=(
                 float(eq_map[it.equipment_id].unit_value)
                 if it.equipment_id in eq_map and eq_map[it.equipment_id].unit_value is not None

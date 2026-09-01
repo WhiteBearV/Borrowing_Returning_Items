@@ -1,0 +1,97 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-25
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา) ร่วมกับ Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้แบ่งเป็น 2 ช่วงใหญ่: (1) เช้า-บ่าย แก้บั๊กเล็ก 3 ข้อที่ผู้ใช้รายงานมา + เพิ่มฟีเจอร์เสริม 2 อย่าง deploy ขึ้น production ไปแล้ว (2) บ่าย-ค่ำ สำรวจระบบเดิมของคณะ (Snipe-IT ที่ IP `172.16.46.64`) เทียบหาไอเดียที่เอามาปรับใช้ได้ วางแผนผ่าน Plan Mode แล้ว implement ครบ 4 initiative ในรอบเดียว รวม 6 commit วันนี้ (`677785b` → `f05fbd5`) เทสรวม 241 ตัวผ่านหมด verify ผ่านเบราว์เซอร์จริงครบทุก initiative
+
+### ช่วงที่ 1 — แก้บั๊ก 3 ข้อ + ฟีเจอร์เสริม 2 อย่าง (deploy แล้ว, commit `677785b`)
+
+**Backend**
+- **`app/services/equipment_service.py` — `update_equipment`**: บั๊กจริงที่ผู้ใช้รายงาน — แก้สถานะจาก "ไม่อนุญาตให้ยืม" กลับเป็น "ให้ยืม" แล้ว `quantity_available` ไม่คืนค่า ค้าง 0 ตลอดไป (ไม่มีช่องแก้ตรง ๆ ที่ไหนเลย) สาเหตุคือ `update_equipment` มีแต่ down-clamp ไม่มี up-restore แก้ให้ (1) เพิ่ม `quantity_total` แล้วคืนค่าคงเหลือตามส่วนต่างอัตโนมัติ (2) แก้ `status` กลับเป็น `available` จากของหาย/เสีย (`quantity_total==1`) คืนค่าคงเหลือให้ครบ
+- **`app/services/import_service.py` — `commit_import` (action=update)**: พบต้นตอบั๊กสต็อกเพี้ยนของ `Sw_Push001`/`LED-7_Segment_Common_Cathod01` ที่ผู้ใช้รายงานว่าแยกเป็นรายชิ้น/ยืมไม่ได้ — นำเข้าทะเบียนซ้ำแล้วจำนวนรวมเปลี่ยน เดิมตั้งค่า `quantity_available` ทับตรง ๆ (`= row.quantity` หรือ `0`) ทิ้งจำนวนที่ยืมอยู่จริง ณ ตอนนั้นไป แก้เป็นขยับตามส่วนต่าง (delta) แทน — จุดนี้สำคัญเพราะเป็นจุดเดียวกับที่จะโดนซ้ำตอนนำเข้าไฟล์ Excel คลังเดิมตามแผนที่ค้างไว้ (CLAUDE.md ข้อ 10)
+- **`app/services/equipment_service.py` — เพิ่ม `restock_equipment`**: ฟีเจอร์ใหม่ตามคำขอ — พิมพ์แค่ "จะเพิ่มกี่ชิ้น" ระบบตัดสินเองว่าบวกเข้าแถวเดิม (วัสดุสิ้นเปลือง/วัสดุก้อนที่ยังไม่แยกรายชิ้น) หรือสร้างแถวใหม่แยกรหัส (ครุภัณฑ์/วัสดุที่แยกแล้ว) แก้ปัญหาที่ฟอร์มแก้ไขเดิมเป็นค่าสัมบูรณ์ พิมพ์ผิดแล้วสต็อกหายได้
+- **`app/services/equipment_service.py` — เพิ่ม `bulk_retire_equipment`**: ปลดระวางหลายรายการพร้อมกันแบบ best-effort (ตามคำขอ ปุ่มคั่นกลาง "แก้ไขหลายรายการ"/"ลบถาวรที่เลือก")
+- **`app/routers/equipment.py`**: เพิ่ม `POST /equipment/{id}/restock`, `POST /equipment/bulk-retire`
+- **`app/schemas/equipment.py`**: เพิ่ม `RestockRequest`, `BulkRetireRequest`, `BulkRetireResult`
+
+**Frontend**
+- **`pages/admin/EquipmentManagePage.jsx`**: (1) แก้ checkbox "ตัวกระตุ้น" ในฟอร์มแก้ไขอุปกรณ์ — เดิมซ่อนอยู่จนกว่าจะติ๊ก "สมาชิกชุด" ก่อน แต่ตัวกระตุ้นจริงไม่ใช่สมาชิก (`included=false` เสมอ) เลยไม่มีทางเห็น/ถอดออกได้ ทำให้ปลดระวาง/ลบติดค้างถาวร — บั๊กที่ผู้ใช้รายงานว่าจัดชุดแล้วลบของไม่ได้ (2) เพิ่มปุ่ม "+ เพิ่มจำนวน" (`RestockModal`) และ "ปลดระวางที่เลือก" ในทุกแถว/toolbar
+
+### ช่วงที่ 2 — 4 initiative จากไอเดียเทียบกับ Snipe-IT (ยังไม่ deploy, commit `67f6b75` → `f05fbd5`)
+
+สำรวจ Snipe-IT ของคณะผ่าน browser จริง เทียบแล้วเลือก 3 ไอเดียที่คุ้มทำ + ผู้ใช้ขอเพิ่มเรื่องปรับหน้าตาอีก 1 ข้อ วางแผนผ่าน Plan Mode (ยืนยัน 4 คำถามกับผู้ใช้: QR เข้ารหัสเป็น URL, รอบตรวจนับ 180 วัน, รูปหลักฐานไม่บังคับ, แจ้งเตือนรายสัปดาห์) แล้ว implement ครบ
+
+**Initiative 1 — เปิดใช้งาน QR code (`67f6b75`)**
+- **`app/utils/qrcode_gen.py`**: `generate_qr_png` เปลี่ยนจากเข้ารหัส `code` เฉย ๆ เป็น URL เต็ม
+- **`app/services/equipment_service.py` — `generate_qr`**: เปลี่ยนเป็น `f"{settings.FRONTEND_URL}/equipment/{eq.id}"` — สแกนแล้วเห็นสถานะ/ผู้ถือครองสดได้ทันที (เดิม backend มี endpoint อยู่แล้วแต่ frontend ไม่เคยเรียกใช้เลย)
+- **`components/equipment/QrCodeModal.jsx`** (ใหม่): โชว์รูป + ดาวน์โหลด — ต่อปุ่ม "QR" ในหน้าจัดการอุปกรณ์
+
+**Initiative 4 — รวม component ที่นิยามซ้ำ (`66ee08d`)**
+- **`components/equipment/StatusBadge.jsx`**, **`components/borrow/BorrowStatusBadge.jsx`**, **`components/common/EmptyState.jsx`** (ใหม่ทั้ง 3): รวมป้ายสถานะอุปกรณ์/สถานะคำขอยืม/ข้อความ loading-empty ที่เดิมนิยามซ้ำ 3, 2, 18 จุดตามลำดับ คำไทยไม่ตรงกัน ("พร้อม" vs "พร้อมให้ยืม") — 10 หน้าแก้ไขให้ import จากที่เดียว ไม่แตะสีธีม/ฟอนต์เดิม
+
+**Initiative 2 — Audit log โชว์ diff (`6ea8647`)**
+- **`app/services/audit_service.py`**: เพิ่ม `diff_fields()` helper กลาง + `list_logs` รองรับ `date_from`/`date_to`
+- **`app/services/equipment_service.py` — `update_equipment`**: ใช้ `diff_fields` เก็บ before/after ทุกฟิลด์ (รวม `category_ids`) แทนที่จะเก็บแค่ชื่อฟิลด์อย่างเดิม
+- **`app/services/equipment_service.py` — `bulk_update_equipment`**: เก็บ `"set"` (ค่าที่ตั้ง) แทน `"fields"`
+- **`app/services/import_service.py`**: แก้บรรทัดเดียว ใช้ `ref["changes"]` ที่คำนวณไว้แล้วจริง ๆ แทนที่จะทิ้งไปเหลือแค่ชื่อฟิลด์
+- **`app/services/bundle_service.py` — `update_bundle`**: เพิ่ม diff (เดิมไม่มีเลย)
+- **`app/routers/audit.py`**: เพิ่ม `date_from`/`date_to` query param
+- **`pages/admin/AuditLogPage.jsx`**: `DetailModal` โชว์ "field: เดิม → ใหม่" เมื่อมี `changes` ไม่งั้น fallback JSON เหมือนเดิม, เพิ่ม `ACTION_LABEL` 5 รายการที่หายไป, เพิ่มตัวกรอง action + ช่วงวันที่
+
+**Initiative 3 — ตรวจนับอุปกรณ์ทางกายภาพ (`617d1fe`, ฟีเจอร์ใหม่)**
+- **`alembic/versions/0021_equipment_last_audited_at.py`** (ใหม่): เพิ่ม `equipment.last_audited_at` + seed setting `audit_interval_days=180`
+- **`app/models/equipment.py`**: เพิ่มคอลัมน์ `last_audited_at`
+- **`app/services/equipment_service.py`**: เพิ่ม `physical_audit_equipment()` (บันทึกผ่าน `audit_logs` เดิม ไม่สร้างตารางแยก), เพิ่ม filter `due_for_audit` ใน `_apply_status_filter` + semantics "any member due" สำหรับกลุ่มหลายหน่วย (mirror `borrowed` filter เดิม)
+- **`app/routers/equipment.py`**: เพิ่ม `POST /equipment/{id}/audit`
+- **`app/utils/scheduler.py`**: เพิ่ม `_check_audit_due()` — แจ้งเตือนแอดมิน digest รายสัปดาห์ (จันทร์เที่ยงคืน ไม่ใช่รายวัน เพราะไม่มี flag กันแจ้งซ้ำแบบ `BorrowRequest.is_overdue`)
+- **`app/services/dashboard_service.py`**, **`app/schemas/dashboard.py`**: เพิ่ม `due_for_audit_items`
+- **`components/equipment/AuditModal.jsx`** (ใหม่), **`pages/admin/EquipmentManagePage.jsx`**, **`pages/admin/DashboardPage.jsx`**: ปุ่ม "ตรวจนับแล้ว" + โชว์วันที่ตรวจล่าสุด + dashboard tile
+
+**บั๊กที่เจอระหว่างทดสอบผ่านเบราว์เซอร์จริง (`f05fbd5`)**
+- action `physical_audit` ไม่มีป้ายภาษาไทยใน `AuditLogPage.jsx` (เพิ่ม action นี้ทีหลังรอบแก้ audit log ไปแล้ว) — แก้เป็น "ตรวจนับอุปกรณ์"
+
+### เทส
+เพิ่มไฟล์เทสใหม่ 10 ไฟล์ (`test_equipment_restock.py`, `test_equipment_bulk_retire.py`, `test_equipment_qrcode.py`, `test_audit_log_diff.py`, `test_audit_log_filters.py`, `test_physical_audit.py`, `test_audit_due_filter.py`, `test_scheduler_audit_due.py`, `test_dashboard_due_for_audit.py` + แก้ `test_equipment_edit_code_item_type.py`/`test_equipment_status_filters.py` ที่เดิม assert shape เก่า) รวมทั้งชุด **241 ผ่านหมด**
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| แก้สถานะกลับเป็น "ให้ยืม" แล้วค่าคงเหลือไม่คืน | `update_equipment` มีแต่ down-clamp ไม่มี up-restore | แก้แล้ว (`677785b`) |
+| `Sw_Push001`/`LED-7_Segment` แยกเป็นรายชิ้น/ยืมไม่ได้ | `import_service.commit_import` ตั้งค่า `quantity_available` ทับตรง ๆ ตอนนำเข้าซ้ำ ทิ้งของที่ยืมอยู่จริงไป | แก้ต้นตอโค้ดแล้ว (`677785b`); ตัวเลขจริงใน prod DB **ผู้ใช้แก้เองแล้ว** |
+| จัดชุดแล้วลบของที่เป็นตัวกระตุ้นไม่ได้ | checkbox "ตัวกระตุ้น" ในฟอร์มถูกซ่อนไว้เพราะเงื่อนไข render ผิด | แก้แล้ว (`677785b`) |
+| Browser tooling หลุด/ค้างซ้ำหลายรอบช่วงทดสอบ initiative 2-3 | ผู้ใช้ย้ายเครือข่าย IP LAN เดิม (`172.20.57.146`) ใช้ไม่ได้แล้ว ไม่ใช่บั๊กจริง | แก้โดยเข้าผ่าน `localhost:5173` แทน (Vite proxy `/api` same-origin อยู่แล้ว ไม่ติด CORS) |
+| action `physical_audit` ไม่มีป้ายไทยใน Audit Log | เพิ่ม action ใหม่ทีหลังรอบแก้ `ACTION_LABEL` ไปแล้ว | แก้แล้ว (`f05fbd5`) |
+| 4 initiative (`67f6b75`→`f05fbd5`) ยังไม่ deploy | รอ confirm จากผู้ใช้ตอนจบวัน | พรุ่งนี้ deploy รอบแรกเป็นอย่างแรก |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Deploy commit `67f6b75` → `f05fbd5` ขึ้น production — **รอบนี้มี migration ใหม่ (`0021`)** ต้องรัน `alembic upgrade head` บนเครื่อง prod ด้วย ไม่ใช่แค่ build ใหม่เฉย ๆ เหมือนรอบก่อน (`677785b` ไม่มี schema change deploy สำเร็จไปแล้วระหว่างวัน)
+2. [ ] หลัง deploy: เช็ค dashboard tile "ครบกำหนดตรวจนับ" บน prod จริง (คาดว่าจะขึ้นเลขสูงมากช่วงแรกเพราะของทั้งคลังยังไม่เคยถูกตรวจนับเลย — เป็นเรื่องปกติ ไม่ใช่บั๊ก)
+3. [ ] รอ digest แจ้งเตือนแอดมินรอบแรกวันจันทร์หน้า (`_check_audit_due` ตั้ง cron ไว้ที่ `day_of_week="mon"`) ยืนยันว่า email/in-app แจ้งจริง
+4. [ ] พิจารณาว่าจะยืนยัน `audit_interval_days` (ตอนนี้ default 180 วัน/ทุกเทอม) กับอาจารย์ที่ปรึกษาว่าตรงกับรอบตรวจครุภัณฑ์จริงของคณะไหม
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% เสร็จ — ฟีเจอร์หลักครบ วันนี้เพิ่ม 2 ฟีเจอร์เสริม (restock, bulk-retire) + 1 ฟีเจอร์ใหม่ (ตรวจนับกายภาพ) บน mvp เดิม
+**Frontend:** ~99% เสร็จ — เก็บ UX consistency (status badge, empty state) + ต่อฟีเจอร์ backend ที่มีอยู่แล้วแต่ไม่เคยโชว์ (QR code)
+**ระยะรวม:** ระบบใช้งานจริงบน production คู่ขนานกับมีผู้ใช้จริงยืม-คืนอยู่ วันนี้ปิดงาน bug-report ค้างครบ 3 ข้อ + เริ่มเฟสใหม่ "เอาไอเดียจากระบบเก่ามาปรับใช้" ทำครบ 4 initiative ในวันเดียว รอ deploy รอบใหญ่พรุ่งนี้
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Migration ใหม่ (`0021`)**: deploy พรุ่งนี้ต้อง backup DB ก่อนเสมอ (ตามแนวทางเดิมที่เคยทำตอน migration `0020`) แม้จะเป็นแค่เพิ่มคอลัมน์ nullable ความเสี่ยงต่ำ แต่เป็น production DB ที่มีผู้ใช้จริง
+- **`audit_interval_days=180` เป็นค่า default ที่ยืนยันกับผู้ใช้แล้วในบทสนทนา** แต่ยังไม่ได้ยืนยันอย่างเป็นทางการกับอาจารย์ที่ปรึกษาหรือฝ่ายพัสดุของคณะว่าตรงกับรอบตรวจครุภัณฑ์จริงหรือไม่ — ปรับได้ทีหลังในหน้า Settings โดยไม่ต้อง migration ใหม่ ความเสี่ยงต่ำ
+- **ฟีเจอร์ตรวจนับกายภาพเป็นของใหม่ทั้งหมด**: อุปกรณ์ทุกชิ้นในคลัง (~1,455 รายการนับทั้งกลุ่ม) จะขึ้น "ครบกำหนดตรวจนับ" พร้อมกันหมดตั้งแต่วันแรกที่ deploy เพราะไม่เคยมีการบันทึกตรวจนับมาก่อนเลย — คาดว่า dashboard tile จะโชว์เลขใหญ่ผิดปกติช่วงแรก ควรอธิบายให้ผู้ใช้/แอดมินเข้าใจก่อนตกใจว่าเป็นบั๊ก
+- **Snipe-IT เก่า (172.16.46.64)**: สำรวจแล้วพบว่ามีฟีเจอร์อื่นที่ยังไม่ได้เอามาใช้ (เช่น bulk checkout, maintenance log) ซึ่งประเมินว่ายังไม่คุ้ม/นอกขอบเขตเฟสนี้ (ตรง CLAUDE.md ข้อ 11 เรื่องขอบเขต) — ถ้าอยากทำต่อควรแยกเป็นแผนใหม่

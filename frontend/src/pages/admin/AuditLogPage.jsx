@@ -18,6 +18,7 @@ const ACTION_LABEL = {
   restock_equipment: 'เติมของเข้าคลัง',
   adjust_stock: 'ปรับยอดคงเหลือ',
   bulk_update_equipment: 'แก้ไขหลายรายการ',
+  bulk_adjust_stock: 'ปรับยอดคงเหลือ (หลายรายการ)',
   create_bundle: 'สร้างชุดอุปกรณ์',
   update_bundle: 'แก้ไขชุดอุปกรณ์',
   delete_bundle: 'ลบชุดอุปกรณ์',

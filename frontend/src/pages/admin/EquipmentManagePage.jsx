@@ -7,9 +7,8 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
 import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
-import AuditModal from '../../components/equipment/AuditModal.jsx'
 import AdjustStockModal from '../../components/equipment/AdjustStockModal.jsx'
-import { formatDate } from '../../utils/formatDate.js'
+import BulkAdjustStockModal from '../../components/equipment/BulkAdjustStockModal.jsx'
 import StatusBadge from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { openPdf } from '../../utils/openPdf.js'
@@ -113,6 +112,21 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const removeImage = (url) => setForm((f) => ({ ...f, image_urls: f.image_urls.filter((u) => u !== url) }))
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  // พิมพ์/วางรหัสครบ 15 หลัก (นับเฉพาะตัวเลข) ตอนเพิ่มใหม่ → เดาประเภทเป็น "ครุภัณฑ์" ให้อัตโนมัติ (แค่ค่าเริ่มต้น
+  // แนะนำ ไม่ล็อก dropdown ยังกดเปลี่ยนเป็นวัสดุ/วัสดุสิ้นเปลืองได้ปกติ) — เฉพาะตอนสร้างใหม่ ไม่แตะของเดิมตอนแก้ไข
+  const setCode = (e) => {
+    const code = e.target.value
+    setForm((f) => {
+      const next = { ...f, code }
+      // แปลงเข้า durable อัตโนมัติ ต้องเคลียร์ unit เดิม (ที่กรอกไว้ตอนยังเป็นวัสดุสิ้นเปลือง) ทิ้งเหมือนกับ
+      // ตอนเปลี่ยน dropdown เอง (setItemType) ไม่งั้น unit ค้างที่ไม่มีความหมายกับครุภัณฑ์หลุดไปด้วย
+      if (!isEdit && code.replace(/\D/g, '').length === 15) {
+        next.item_type = 'durable'
+        next.unit = ''
+      }
+      return next
+    })
+  }
   // เปลี่ยนออกจาก consumable แล้ว unit เดิม (ที่กรอกไว้ตอนเป็นวัสดุสิ้นเปลือง) ไม่มีความหมายแล้ว — เคลียร์ทิ้ง
   const setItemType = (e) => setForm((f) => ({
     ...f, item_type: e.target.value, unit: e.target.value === 'consumable' ? f.unit : '',
@@ -136,11 +150,13 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
       const payload = {
         ...form,
         quantity_total: Number(form.quantity_total),
-        description: form.description || undefined,
-        serial_number: form.serial_number || undefined,
-        location: form.location || undefined,
-        unit: form.unit || undefined,
-        unit_value: form.unit_value === '' || form.unit_value == null ? undefined : Number(form.unit_value),
+        // null (ไม่ใช่ undefined) เพื่อให้แก้ไขล้างค่าฟิลด์เดิมได้จริง (เช่น SN ที่กรอกผิด) — undefined ถูก
+        // JSON.stringify ตัดคีย์ทิ้งไปเลย ฝั่ง backend (exclude_unset) จะเห็นเหมือนไม่ได้ส่งมา เลยล้างค่าไม่ได้
+        description: form.description || null,
+        serial_number: form.serial_number || null,
+        location: form.location || null,
+        unit: form.unit || null,
+        unit_value: form.unit_value === '' || form.unit_value == null ? null : Number(form.unit_value),
         image_urls: form.image_urls,
       }
       if (isEdit) {
@@ -178,7 +194,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 {label}
                 {tip && <Tooltip text={tip} />}
               </label>
-              <input type="text" required={required} disabled={disabled} value={form[key]} onChange={set(key)}
+              <input type="text" required={required} disabled={disabled} value={form[key]} onChange={key === 'code' ? setCode : set(key)}
                 placeholder={placeholder}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400" />
             </div>
@@ -359,7 +375,18 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const toggleField = (key) => setEnabled((e) => ({ ...e, [key]: !e[key] }))
+  // เปิดใช้ฟิลด์ type select/bool ต้องตั้งค่าเริ่มต้นจริงลง values ทันที ไม่ปล่อยเป็น undefined รอ onChange
+  // (undefined โดน JSON.stringify ตัดคีย์ทิ้งตอน submit → ติ๊ก enable แล้วไม่ไปคลิก dropdown เอง กลายเป็นไม่ส่งฟิลด์
+  // นี้ไปเลย แก้ไม่ได้ทั้งที่แอดมินคิดว่าติ๊กแล้ว — เจอบั๊กจริงกับ is_borrowable)
+  const toggleField = (key) => {
+    const turningOn = !enabled[key]
+    setEnabled((e) => ({ ...e, [key]: turningOn }))
+    if (turningOn && values[key] === undefined) {
+      const field = BULK_FIELDS.find((f) => f.key === key)
+      if (field?.type === 'select') setVal(key, field.options[0][0])
+      if (field?.type === 'bool') setVal(key, true)
+    }
+  }
   const setVal = (key, v) => setValues((s) => ({ ...s, [key]: v }))
   const toggleCategory = (id) => setVal(
     'category_ids',
@@ -526,8 +553,8 @@ export default function EquipmentManagePage() {
   const [bulkResult, setBulkResult] = useState(null) // { deleted, failed } — โชว์สรุปหลังลบหลายรายการ
   const [restock, setRestock] = useState(null) // { id, name, groupId } — เติมของ (ซื้อเพิ่ม)
   const [qrTarget, setQrTarget] = useState(null) // { id, name } — โชว์ QR code ของหน่วยนี้
-  const [auditTarget, setAuditTarget] = useState(null) // { id, name, groupId } — ตรวจนับกายภาพ
   const [adjustTarget, setAdjustTarget] = useState(null) // { id, name, available, total, groupId } — ปรับยอดคงเหลือ
+  const [bulkAdjustStock, setBulkAdjustStock] = useState(false) // ปรับยอดคงเหลือหลายรายการพร้อมกัน (delta)
   const [showCats, setShowCats] = useState(false)
   const [showDocs, setShowDocs] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -737,7 +764,7 @@ export default function EquipmentManagePage() {
   const unitDisplayStatus = (u) => (u.status === 'available' && u.is_currently_borrowed ? 'borrowed' : u.status)
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="px-6 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-light text-gray-800">จัดการอุปกรณ์</h1>
         <div className="flex flex-wrap gap-2">
@@ -822,11 +849,10 @@ export default function EquipmentManagePage() {
           <option value="damaged">เสียหาย</option>
           <option value="under_repair">ซ่อมอยู่</option>
           <option value="retired">ปลดระวาง</option>
-          {/* 3 ตัวนี้ derive จากเกณฑ์/ตารางอื่น ไม่ใช่ equipment.status ตรงๆ (ดู equipment_service._apply_status_filter)
+          {/* 2 ตัวนี้ derive จากเกณฑ์/ตารางอื่น ไม่ใช่ equipment.status ตรงๆ (ดู equipment_service._apply_status_filter)
               เดิมดูได้แค่กดเข้ามาจาก dashboard เฉยๆ ไม่มี filter ให้กรองต่อ */}
           <option value="low_stock">สต็อกต่ำ</option>
           <option value="borrowed">ถูกยืมอยู่</option>
-          <option value="due_for_audit">ครบกำหนดตรวจนับ</option>
         </select>
       </div>
 
@@ -836,6 +862,10 @@ export default function EquipmentManagePage() {
           <button onClick={() => setShowBulkEdit(true)}
             className="rounded-full border border-primary-300 bg-white px-3 py-1 text-xs font-medium text-primary-700 hover:bg-primary-100">
             แก้ไขหลายรายการ
+          </button>
+          <button onClick={() => setBulkAdjustStock(true)}
+            className="rounded-full border border-rose-300 bg-white px-3 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50">
+            ปรับยอดคงเหลือ
           </button>
           <button onClick={bulkRetireSelected}
             className="rounded-full border border-orange-300 bg-white px-3 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50">
@@ -900,16 +930,17 @@ export default function EquipmentManagePage() {
                       {/* การ์ดกลุ่มหลายหน่วย (grouped) สถานะ "available" มาจาก backend แปลว่ามีหน่วยว่างอย่างน้อย 1 ชิ้นอยู่แล้ว
                           (ดู _build_group_response) ไม่ derive ซ้ำตรงนี้ — derive เฉพาะแถวเดี่ยว 1 หน่วยที่ค่า quantity เป็นของหน่วยนั้นจริง */}
                       <td className="px-4 py-2.5">
-                        <StatusBadge status={grouped ? eq.status : unitDisplayStatus(eq)} />
-                        {!eq.is_borrowable && <span className="ml-1 text-xs text-gray-500">· ของประจำห้อง</span>}
-                        {!grouped && eq.holder && (
+                        <StatusBadge status={grouped ? eq.status : unitDisplayStatus(eq)} isBorrowable={eq.is_borrowable} />
+                        {/* โชว์ผู้ยืมทุกคนที่ถืออยู่พร้อมกันได้ (holders มาจาก get_holders_map ที่คืนได้หลายคน
+                            ต่อแถวเสมอ) — ไม่ gate ด้วย item_type: consumable ยืมพร้อมกันได้หลายคนคนละจำนวน
+                            อยู่แล้ว แต่ material ที่ยังไม่แยกเป็นรายชิ้น (quantity_total > 1 อยู่แถวเดียว) ก็มี
+                            หลายคนถือพร้อมกันได้เหมือนกัน ส่วน durable/หน่วยเดี่ยว holders จะมีแค่ 0-1 รายการ
+                            พอดีอยู่แล้ว โค้ดเดียวจึงครอบคลุมทุกกรณีโดยไม่ต้องมี path เดี่ยวแยกอีก */}
+                        {!grouped && eq.holders?.length > 0 && (
                           <div className="font-normal text-gray-400 text-xs">
-                            {eq.holder.holder_name}{eq.holder.student_number ? ` (${eq.holder.student_number})` : ''}
-                          </div>
-                        )}
-                        {!grouped && (
-                          <div className="font-normal text-gray-400 text-xs">
-                            ตรวจนับล่าสุด: {eq.last_audited_at ? formatDate(eq.last_audited_at) : 'ยังไม่เคย'}
+                            {eq.holders.map((h, i) => (
+                              <div key={i}>{h.holder_name}{h.student_number ? ` (${h.student_number})` : ''} ×{h.quantity}</div>
+                            ))}
                           </div>
                         )}
                       </td>
@@ -925,7 +956,6 @@ export default function EquipmentManagePage() {
                           <div className="flex gap-3">
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
-                            <button onClick={() => setAuditTarget({ id: eq.id, name: eq.name })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                             <button onClick={() => setAdjustTarget({ id: eq.id, name: eq.name, available: eq.quantity_available, total: eq.quantity_total })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
@@ -958,21 +988,17 @@ export default function EquipmentManagePage() {
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
                         <td className="px-4 py-1.5">
-                          <StatusBadge status={unitDisplayStatus(u)} />
+                          <StatusBadge status={unitDisplayStatus(u)} isBorrowable={u.is_borrowable} />
                           {u.holder && (
                             <div className="font-normal text-gray-400">
                               {u.holder.holder_name}{u.holder.student_number ? ` (${u.holder.student_number})` : ''}
                             </div>
                           )}
-                          <div className="font-normal text-gray-400">
-                            ตรวจนับล่าสุด: {u.last_audited_at ? formatDate(u.last_audited_at) : 'ยังไม่เคย'}
-                          </div>
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
-                            <button onClick={() => setAuditTarget({ id: u.id, name: eq.name, groupId: eq.id })} className="text-xs text-teal-600 hover:underline">ตรวจนับแล้ว</button>
                             <button onClick={() => setAdjustTarget({ id: u.id, name: eq.name, available: u.quantity_available, total: u.quantity_total, groupId: eq.id })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
@@ -1008,21 +1034,6 @@ export default function EquipmentManagePage() {
         <QrCodeModal id={qrTarget.id} name={qrTarget.name} onClose={() => setQrTarget(null)} />
       )}
 
-      {auditTarget && (
-        <AuditModal
-          id={auditTarget.id}
-          name={auditTarget.name}
-          onClose={() => setAuditTarget(null)}
-          onSave={async (note, photoUrls) => {
-            await equipmentApi.audit(auditTarget.id, note, photoUrls)
-            const groupId = auditTarget.groupId
-            setAuditTarget(null)
-            load()
-            if (groupId) refreshExpanded(groupId)
-          }}
-        />
-      )}
-
       {restock && (
         <RestockModal
           name={restock.name}
@@ -1053,6 +1064,25 @@ export default function EquipmentManagePage() {
         />
       )}
 
+      {bulkAdjustStock && (
+        <BulkAdjustStockModal
+          count={selected.size}
+          onClose={() => setBulkAdjustStock(false)}
+          onSave={async (delta, reason) => {
+            const result = await equipmentApi.bulkAdjustStock([...selected], delta, reason)
+            setBulkAdjustStock(false)
+            setSelected(new Set())
+            // id ที่ไม่มีจริงถูกข้ามแบบ best-effort (ดู BulkAdjustStockResult.failed ฝั่ง backend) — โชว์สรุป
+            // เหมือน bulk-delete/bulk-retire/bulk-update ให้รู้ว่าแถวไหนไม่ผ่านบ้าง ไม่ใช่แค่เงียบ ๆ หายไป
+            if (result.failed?.length > 0) {
+              setBulkResult({ title: 'ผลการปรับยอดคงเหลือหลายรายการ', succeeded: result.updated.map((u) => u.id), failed: result.failed })
+            }
+            load()
+            Object.keys(expanded).forEach(refreshExpanded)
+          }}
+        />
+      )}
+
       {confirm && (
         <ConfirmModal
           title={confirm.title}
@@ -1070,9 +1100,14 @@ export default function EquipmentManagePage() {
           categories={categories}
           onClose={() => setShowBulkEdit(false)}
           onSave={async (update) => {
-            await equipmentApi.bulkUpdate([...selected], update)
+            const result = await equipmentApi.bulkUpdate([...selected], update)
             setShowBulkEdit(false)
             setSelected(new Set())
+            // เปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลักถูกข้ามแบบ best-effort (ดู BulkUpdateResult.failed ฝั่ง
+            // backend) — โชว์สรุปเหมือน bulk-delete/bulk-retire ให้รู้ว่าแถวไหน/รหัสอะไรไม่ผ่านบ้าง
+            if (result.failed?.length > 0) {
+              setBulkResult({ title: 'ผลการแก้ไขหลายรายการ', succeeded: result.updated.map((u) => u.id), failed: result.failed })
+            }
             load()
             Object.keys(expanded).forEach(refreshExpanded)
           }}

@@ -28,6 +28,7 @@ class BorrowItem(Base):
     equipment_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     equipment_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     equipment_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    equipment_serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     returned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     condition_on_return: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ok / damaged / lost

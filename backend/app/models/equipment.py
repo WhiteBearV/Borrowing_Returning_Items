@@ -46,9 +46,6 @@ class Equipment(Base):
     is_borrowable: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
-    # ตรวจนับล่าสุดว่าเจอของจริงตรงตำแหน่งที่บันทึกไว้ไหม (physical audit) — แค่ตัวชี้ล่าสุดใช้ query
-    # "ครบกำหนดตรวจนับ" ได้เร็ว ประวัติแต่ละครั้งจริง ๆ อยู่ใน audit_logs (action=physical_audit) อยู่แล้ว
-    last_audited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

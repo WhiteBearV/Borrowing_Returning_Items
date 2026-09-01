@@ -1,0 +1,83 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-27
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา) ร่วมกับ Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้ implement 3 ฟีเจอร์ใหม่ตามที่ผู้ใช้ขอ (วางแผนผ่าน Plan Mode ก่อน) → เขียนเทสคู่กันทุกจุด → รัน **Full QA จำลอง 3 persona** ทั้งระบบก่อน commit → เจอบั๊กจริง 1 ตัวระหว่าง QA แล้วแก้ทัน → commit 2 ครั้ง + push ขึ้น `origin/main` แล้ว (`42e4091`, `b7bd9b5`) **ยังไม่ deploy ขึ้น production**
+
+### Backend
+
+**1. ต่อเวลาแบบขออนุมัติ** (เปลี่ยน business rule เดิมทั้งหมด — ดู CLAUDE.md หัวข้อ "การต่อเวลา" ที่แก้ไปด้วย)
+- **`app/models/borrow_item.py`**: เพิ่ม 5 คอลัมน์ `renew_requested`, `renew_requested_at`, `renew_requested_date`, `renew_reason`, `renew_rejected_reason`
+- **`alembic/versions/0022_renew_request_fields.py`** (ใหม่): เพิ่มคอลัมน์ข้างต้น + data migration แก้ description ของ setting `max_renew_days` ให้ตรงความหมายใหม่
+- **`app/services/borrow_service.py`**: ลบ `renew_item()` เดิม (ต่อทันทีทีเดียว) แทนด้วย `request_renew_item()` (นักศึกษายื่นคำขอ เช็ค `max_renew_count` ตอนขอทันที + เพดานวันล่วงหน้าจาก `max_renew_days`), `approve_renew_item()`, `reject_renew_item()` (admin เท่านั้น) — เพิ่ม helper `_find_item()`/`_recompute_overdue()` ใช้ร่วม 3 ฟังก์ชัน
+- **`app/routers/borrow.py`**: ลบ `POST .../renew` แทนด้วย `POST .../renew-request`, `POST .../renew-approve`, `POST .../renew-reject`
+- **`app/schemas/borrow.py`**: เพิ่ม `RenewRequestCreate`, `RenewRejectRequest`, เพิ่ม 5 ฟิลด์ใน `BorrowItemResponse`
+
+**2. Search bar หน้าประวัติการยืม**
+- **`app/services/borrow_service.py` — `list_requests()`**: เพิ่ม param `search` — join `User` ค้น `full_name`/`student_id` + EXISTS subquery ค้น `BorrowItem.equipment_name` ผ่าน `ilike`
+- **`app/routers/borrow.py`**: เพิ่ม query param `search` ใน `GET /borrow-requests`
+
+**3. ปุ่ม "ปรับยอดคงเหลือ"** (แยกจาก "+ เพิ่มจำนวน" เดิมที่ยังทำงานแบบเดิมไม่แตะ)
+- **`app/services/equipment_service.py`**: เพิ่ม `adjust_stock()` — SET `quantity_available` ตรง ๆ (ไม่บวกเพิ่มแบบ restock) guard ไม่เกิน `quantity_total`, บังคับเหตุผล, ล็อกแถวด้วย `with_for_update()`
+- **`app/routers/equipment.py`**: เพิ่ม `POST /equipment/{id}/adjust-stock`
+- **`app/schemas/equipment.py`**: เพิ่ม `AdjustStockRequest`
+
+### Frontend
+
+- **`components/borrow/RenewModal.jsx`** (ใหม่): ฟอร์มเลือกวันที่+เหตุผลตอนขอต่อเวลา
+- **`pages/student/MyBorrowsPage.jsx`**: ปุ่ม "ต่อเวลา" เปิด `RenewModal` แทนยิง API ตรง, โชว์สถานะ "รอ Admin อนุมัติต่อเวลา" / "ต่อเวลาถูกปฏิเสธ: ..."
+- **`pages/admin/BorrowRequestsPage.jsx`**: เพิ่มหมวด "รอต่อเวลา" (ปุ่มอนุมัติ/ปฏิเสธ), แก้ `returnItems`/`needsAttentionCheck` ให้แม่นขึ้นหลังเพิ่มหมวดที่ 3 (กันคำขอที่มีแค่ renew_requested โผล่ผิดหมวด "แจ้งขอคืน")
+- **`pages/admin/AllBorrowsPage.jsx`**: เพิ่ม search input
+- **`components/equipment/AdjustStockModal.jsx`** (ใหม่), **`pages/admin/EquipmentManagePage.jsx`**: ปุ่ม+modal "ปรับยอดคงเหลือ"
+- **`components/layout/NotificationBell.jsx`**: เพิ่ม routing สำหรับ noti type `renew_requested_admin`
+- **`pages/admin/AuditLogPage.jsx`**: เพิ่มป้ายไทย `approve_renew`/`reject_renew`/`adjust_stock`
+- **`api/borrowApi.js`**, **`api/equipmentApi.js`**: wrapper ใหม่ตามฟีเจอร์ข้างบน
+
+### บั๊กที่เจอระหว่าง Full QA แล้วแก้ (`b7bd9b5`)
+
+- **`hooks/useBorrowCart.js` — `addBundle()`**: toast "เพิ่มชุดลงตะกร้าแล้ว — ยกเว้น ..." ไม่เคยขึ้นจริงตั้งแต่แรก แม้ของในชุดจะหมดสต็อกจริง สาเหตุ: เดิม push รายการที่ข้ามเข้า `skipped` array **ข้างใน** callback ที่ส่งให้ `setCart()` แต่ React ไม่เรียก callback นั้นทันที (รอตอน re-render) → `return skipped` ข้างนอกได้ array ว่างเปล่าเสมอ แก้โดยแยกคำนวณเป็นฟังก์ชันบริสุทธิ์ `bundleSkippedNames()` ใน **`hooks/cartRules.js`** ที่รันก่อนเรียก `setCart` เสมอ
+
+### เทส + QA
+
+- เพิ่มเทส backend ใหม่ 3 ไฟล์ (`test_borrow_renew_workflow.py`, `test_borrow_search_filter.py`, `test_equipment_adjust_stock.py`) รวม 14 เคส + เทส frontend ใหม่ 2 เคสใน `cartRules.test.mjs` — รวมทั้งชุด pytest **253 ผ่านหมด**
+- **Full QA จำลอง 3 persona** (นักศึกษา 2 คนสมัครใหม่ + admin จริง) ทดสอบผ่านทั้ง API และเบราว์เซอร์จริง: boundary เพดานวันต่อเวลา (7 วันผ่าน/8 วันบล็อก), `max_renew_count` หมดโควต้าบล็อกทันทีตอนยื่นคำขอ, search bar ร่วมกับ filter สถานะ (AND ถูกต้อง), guard ปรับยอดคงเหลือเกิน total, regression dashboard stats/bundle auto-add/QR code/ตรวจนับกายภาพ/quota คำขอ active — ไม่พบบั๊กใหม่นอกจากบั๊ก bundle toast ข้างต้น ลบข้อมูลทดสอบ + คืนสต็อกครบหลัง QA (บันทึกละเอียดใน memory `project-qa-simulation-2026-08-27`)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| Toast "ยกเว้น..." ตอนเพิ่มชุดที่ของบางชิ้นหมดสต็อกไม่เคยขึ้นจริง | `setCart()` updater callback ไม่ได้รันทันทีที่เรียก แต่โค้ดเดิมพึ่ง side-effect ข้างในแล้ว return ทันที | แก้แล้ว (`b7bd9b5`) — แยกเป็นฟังก์ชันบริสุทธิ์ที่รันก่อน setCart เสมอ |
+| บันเดิลจริงในระบบ ("ชุดUnoR3") มี item "สายUSB-C" หมดสต็อก (`quantity_available=0`) มาก่อนแล้ว | ของเดิมในคลังหมดจากการใช้งานจริง ไม่เกี่ยวกับบั๊กโค้ด | ไม่ใช่ปัญหาระบบ — แจ้งให้ผู้ดูแลคลังทราบว่าต้องเติมของถ้าต้องการให้ยืมชุดนี้ได้ครบ |
+| commit วันนี้ (`42e4091`, `b7bd9b5`) ยังไม่ deploy ขึ้น production | รอ confirm จากผู้ใช้ตอนจบวัน (เหมือนรอบ 25 ส.ค.) | พรุ่งนี้ deploy — มี migration ใหม่ (`0022`) ต้องรัน `alembic upgrade head` บนเครื่อง prod ด้วย |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Deploy commit `42e4091` → `b7bd9b5` ขึ้น production (backup DB ก่อนเสมอ เพราะมี migration `0022`)
+2. [ ] หลัง deploy: สังเกตการใช้งานจริงของฟีเจอร์ "ต่อเวลาแบบขออนุมัติ" — เป็น breaking change ต่อ workflow เดิมที่นักศึกษาคุ้นเคย (เคยกดต่อทันที ตอนนี้ต้องรอ admin อนุมัติ) ควรแจ้งผู้ใช้จริงล่วงหน้า
+3. [ ] พิจารณาว่าจะแจ้งผู้ดูแลคลังให้เติมสต็อก "สายUSB-C" (0/1) ที่เจอระหว่าง QA ไหม เพื่อให้บันเดิล "ชุดUnoR3" ยืมได้ครบทุกชิ้นอีกครั้ง
+4. [ ] Pending เดิมจาก CLAUDE.md ข้อ 10 ยังค้างเหมือนเดิม (ไฟล์ Excel คลังอุปกรณ์เดิม, ยืนยัน `ALLOWED_EMAIL_DOMAINS`, LINE OA) — ยังไม่มีความคืบหน้าใหม่วันนี้
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% เสร็จ — เพิ่ม 3 ฟีเจอร์ใหม่บน MVP เดิมสำเร็จ, เทสครบ 253 ผ่าน
+**Frontend:** ~99% เสร็จ — ต่อ UI ครบทุกฟีเจอร์ใหม่ + แก้บั๊กเดิม 1 จุดที่เจอระหว่าง QA
+**ระยะรวม:** ระบบใช้งานจริงบน production คู่ขนานกับมีคนยืม-คืนอยู่ วันนี้ปิดงานฟีเจอร์ใหม่ 3 อย่างที่วางแผนไว้ครบ ผ่าน QA เต็มรูปแบบก่อน push ขึ้น main แล้ว รอ deploy รอบใหญ่พรุ่งนี้
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Migration ใหม่ (`0022`)**: deploy พรุ่งนี้ต้อง backup DB ก่อนเสมอ — เพิ่มคอลัมน์ nullable ทั้งหมด (ความเสี่ยงต่ำ) แต่มี data migration แก้ description ของ setting `max_renew_days` ด้วย ต้องเช็คว่า apply สำเร็จหลัง deploy
+- **Breaking change ที่ workflow ต่อเวลา**: นักศึกษาที่คุ้นเคยกับปุ่ม "ต่อเวลา" แบบกดแล้วได้ทันที จะเจอ UX ใหม่ที่ต้องรอ admin อนุมัติ — ควรมีการสื่อสารล่วงหน้าก่อน deploy จริง ไม่ใช่แค่ deploy เงียบ ๆ
+- **`max_renew_days` เปลี่ยนความหมาย**: จาก "จำนวนวันที่บวกอัตโนมัติ" (ตอนนี้กลายเป็น "เพดานวันล่วงหน้าที่ขอได้") — ค่าเดิม `7` ยังใช้ได้พอดีโดยไม่ต้องปรับ แต่ถ้าแอดมินเคยเข้าใจความหมายเดิมของ setting นี้ ควรอธิบายใหม่ให้ตรงกับ description ที่แก้ในหน้า Settings แล้ว
+- **Pending items เดิมจาก CLAUDE.md ข้อ 10** ยังไม่มีความคืบหน้าเพิ่มวันนี้ (ไฟล์ Excel คลังอุปกรณ์เดิมรอทีมอื่นส่ง, ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง, LINE OA ยังเป็น stretch goal)

@@ -57,7 +57,7 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
     req_id = None
     try:
         r = await client.post("/equipment", json={
-            "code": f"DELUSR-{uuid.uuid4().hex[:6].upper()}", "name": "อุปกรณ์ทดสอบลบบัญชี",
+            "code": f"{uuid.uuid4().int % 10**15:015d}", "name": "อุปกรณ์ทดสอบลบบัญชี",
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
             "image_urls": ["/uploads/test.jpg"],
         }, headers=h_admin)
@@ -88,6 +88,12 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
         r = await client.delete(f"/users/{throwaway_admin.id}", headers=h_admin)
         assert r.status_code == 204, r.text
     finally:
+        # ลบผ่าน API ข้างบนเป็น happy path เท่านั้น — ถ้า assert ไหนพังก่อนถึงบรรทัดลบจริง throwaway_student/
+        # throwaway_admin จะค้างอยู่ในคลังถาวร (เจอเคสจริง 27 ส.ค. 2569: เศษบัญชี deltest_* 2 แถวค้างจาก run
+        # ที่เคยพังกลางทาง) — ลบซ้ำตรงนี้เผื่อไว้เสมอ ลบซ้ำสองรอบไม่เป็นไร (WHERE id ไม่เจอแถวก็แค่ no-op)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.id.in_([throwaway_student.id, throwaway_admin.id])))
+            await db.commit()
         if req_id:
             async with AsyncSessionLocal() as db:
                 await db.execute(delete(Notification).where(Notification.borrow_request_id == uuid.UUID(req_id)))

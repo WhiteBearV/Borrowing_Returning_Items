@@ -228,11 +228,21 @@ def _build_form(req: object, kind: str) -> bytes:
         # ร่าง/พรีวิว (ยังไม่อนุมัติ): ห้ามโชว์รหัสหน่วยเจาะจง เพราะระบบเลือก "หน่วยว่างรหัสต่ำสุด" ใหม่ทุกครั้ง
         # ที่เรียก ยังไม่ sync กันระหว่างตะกร้า/คำขอ/อนุมัติ รหัสที่เห็นตอนร่างอาจไม่ตรงของจริงตอนอนุมัติ
         # เขียนบอกตรง ๆ ว่า "รออนุมัติ" แทน "-" เฉย ๆ กันผู้ยืมสับสนว่าทำไมไม่มีรหัส
-        code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
+        # วัสดุสิ้นเปลือง: รหัสเป็นแค่ชื่อ+เลขลำดับที่ระบบสร้างเอง ไม่มีความหมายจริง (ดู
+        # equipment_service._generate_consumable_code) โชว์บนใบยืมจะซ้ำซ้อนกับชื่อและดูเหมือนรหัสครุภัณฑ์จริง
+        if itype == "consumable":
+            code_display = "-"
+        else:
+            code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
+        # SN (ถ้ามี) ต่อท้ายชื่อในวงเล็บ — ร่างยังไม่รู้ว่าจะได้หน่วยไหนจริง จึงโชว์ "รออนุมัติ" เหมือนคอลัมน์รหัส
+        name_display = getattr(item, "equipment_name", None) or "-"
+        sn = getattr(item, "equipment_serial_number", None)
+        if sn:
+            name_display += f"(SN:{'รออนุมัติ' if draft else sn})"
         cells = [
             Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
             Paragraph(code_display, _style(f"c{i}", fontSize=9, alignment=1)),
-            Paragraph(getattr(item, "equipment_name", None) or "-", _style(f"n{i}", fontSize=10)),
+            Paragraph(name_display, _style(f"n{i}", fontSize=10)),
             Paragraph(_ITEM_TYPE_TH.get(itype, "-"), _style(f"t{i}", fontSize=9, alignment=1)),
             Paragraph(f"{qty} {unit}", _style(f"q{i}", fontSize=10, alignment=1)),
         ]

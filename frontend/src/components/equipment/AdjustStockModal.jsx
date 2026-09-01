@@ -4,7 +4,7 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
 // ปรับ quantity_available ให้ตรงกับที่นับได้จริง — ต่างจาก "+ เพิ่มจำนวน" (restock) ที่บวกเพิ่ม อันนี้ SET
-// ตรง ๆ (เช่นของหายไปโดยไม่มีบันทึกยืม) เหตุผลจึงบังคับ (ต่างจาก AuditModal ที่โน้ตไม่บังคับ) รูปยังไม่บังคับ
+// ตรง ๆ (เช่นของหายไปโดยไม่มีบันทึกยืม) เหตุผลจึงบังคับ รูปยังไม่บังคับ
 export default function AdjustStockModal({ id, name, currentAvailable, currentTotal, onClose, onSave }) {
   const [newAvailable, setNewAvailable] = useState(String(currentAvailable))
   const [reason, setReason] = useState('')

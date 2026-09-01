@@ -248,7 +248,7 @@ async def test_create_and_retire_equipment_write_audit(
     h = auth(admin_token)
     suffix = uuid.uuid4().hex[:6]
     r = await client.post("/equipment", json={
-        "code": f"AUD-{suffix}", "name": "อุปกรณ์ทดสอบ audit",
+        "code": f"{uuid.uuid4().int % 10**15:015d}", "name": "อุปกรณ์ทดสอบ audit",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
         "image_urls": ["/uploads/test.jpg"],
     }, headers=h)

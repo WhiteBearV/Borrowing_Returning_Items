@@ -60,13 +60,15 @@ class EquipmentResponse(BaseModel):
     is_borrowable: bool
     created_at: datetime
     updated_at: datetime
-    last_audited_at: datetime | None = None
     # หน่วยนี้มีคำขอ approved ที่ยังไม่คืนอยู่จริงไหม — คำนวณจาก borrow_items ไม่ใช่ column บน equipment
     # (status="available" แปลว่า "ยืมได้" เฉยๆ ไม่ใช่ "ไม่มีใครถือ" ดู equipment_service._apply_status_filter)
     # ต้องแยกจาก quantity_available < quantity_total เพราะช่องว่างนั้นเกิดจากของเสีย/สูญหายที่คืนไปแล้วได้ด้วย
     # ไม่ได้แปลว่ามีคนถือของอยู่จริงเสมอไป — ปล่อยให้ derive ผิดจากตัวเลขจะเห็น "ถูกยืม" ทั้งที่ไม่มีใครยืมจริง
     is_currently_borrowed: bool = False
     holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีความหมายเฉพาะแถวหน่วยเดียว ดู _build_group_response)
+    # ผู้ถือทุกคน (ไม่ใช่แค่คนแรก) — มีความหมายจริงเฉพาะ consumable ที่แถวเดียวยืมพร้อมกันได้หลายคนคนละจำนวน
+    # (ดู get_holders_map) ส่งมาเสมอทุก response ไม่ใช่แค่ตอน detail เพื่อให้ตารางจัดการอุปกรณ์โชว์ได้ตรง ๆ
+    holders: list[HolderInfo] = []
 
     model_config = {"from_attributes": True}
 
@@ -112,7 +114,6 @@ class EquipmentUnitSummary(BaseModel):
     is_borrowable: bool
     is_currently_borrowed: bool = False
     holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีค่าก็ต่อเมื่อ is_currently_borrowed)
-    last_audited_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -147,11 +148,6 @@ class EquipmentCreate(BaseModel):
 
 class RestockRequest(BaseModel):
     count: int = Field(..., gt=0)
-
-
-class PhysicalAuditRequest(BaseModel):
-    note: str | None = None
-    photo_urls: list[str] = []
 
 
 class AdjustStockRequest(BaseModel):
@@ -267,3 +263,24 @@ class BulkUpdateRequest(BaseModel):
 
 class BulkUpdateResult(BaseModel):
     updated: list[EquipmentResponse]
+    # แถวที่เปลี่ยนเข้า durable แต่รหัสไม่ครบ 15 หลัก (ดู equipment_service._validate_durable_code) ถูกข้ามแบบ
+    # best-effort ไม่ทำให้ทั้ง batch ล้ม — ต่างจากฟิลด์อื่นที่ยังคง all-or-nothing เหมือนเดิม
+    failed: list[BulkDeleteFailure] = []
+
+
+class BulkAdjustStockRequest(BaseModel):
+    """ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — ต่างจาก AdjustStockRequest เดี่ยวที่
+    SET ค่า absolute เพราะแต่ละแถวที่เลือก quantity_total ไม่เท่ากัน ตั้งเลขเดียวทับทุกแถวไม่มีความหมาย
+    แต่ละแถว clamp ไม่ให้เกิน quantity_total ลบจำนวนที่ถูกยืมออกไปจริง หรือต่ำกว่า 0 ของแถวนั้นเอง
+    (ดู docstring equipment_service.bulk_adjust_stock)
+    """
+    equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
+    delta: int
+    reason: str = Field(..., min_length=1)
+
+
+class BulkAdjustStockResult(BaseModel):
+    updated: list[EquipmentResponse]
+    # id ที่ไม่มีจริงถูกข้ามแบบ best-effort ไม่ทำให้ทั้ง batch ล้ม (mirror BulkUpdateResult.failed) —
+    # ดู equipment_service.bulk_adjust_stock
+    failed: list[BulkDeleteFailure] = []

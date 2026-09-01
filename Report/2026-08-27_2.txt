@@ -1,0 +1,94 @@
+# รายงานความคืบหน้า — วันที่ 2026-08-27 (รอบที่ 2)
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Claude Code (ผู้ช่วยพัฒนา) ร่วมกับ Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+Session ที่ 2 ของวันนี้ (ต่อจาก `Report/2026-08-27.txt` ที่เป็นงานเช้า — ต่อเวลาขออนุมัติ/search/ปรับยอดคงเหลือเดี่ยว
+ที่ commit ไปแล้ว `42e4091`/`b7bd9b5`) ผู้ใช้รายงานบั๊ก 8 จุดจากการใช้งานจริงหน้า "จัดการอุปกรณ์" → เข้าไปเช็คผ่าน
+เว็บจริง (login admin) ยืนยันสาเหตุระดับโค้ดทีละจุด → วางแผนผ่าน Plan Mode → รันลูป **Sonnet implement → Opus
+review → pytest gate จริง → retry** 2 รอบจนผ่าน → ปิดท้ายด้วย **Full QA จำลองผ่านเว็บจริง 8/8 ผ่านหมด** ไม่พบบั๊กใหม่
+**ยังไม่ commit/push — รอคำสั่งผู้ใช้**
+
+### Backend
+
+**1. ลบระบบตรวจนับอุปกรณ์ทางกายภาพทั้งหมด** (ผู้ใช้ยืนยันไม่ได้ใช้จริง ไม่จำเป็น)
+- **`app/models/equipment.py`**: ลบคอลัมน์ `last_audited_at`
+- **`app/services/equipment_service.py`**: ลบ `_audit_cutoff()`, `_is_due_for_audit()`, `physical_audit_equipment()`, branch `due_for_audit` ใน `_apply_status_filter`/`list_equipment_grouped`
+- **`app/routers/equipment.py`**: ลบ `POST /equipment/{id}/audit`
+- **`app/schemas/equipment.py`**, **`app/schemas/dashboard.py`**: ลบ `PhysicalAuditRequest`, `last_audited_at`, `due_for_audit_items`
+- **`app/services/dashboard_service.py`**: ลบ query+field `due_for_audit_items`
+- **`app/utils/scheduler.py`**: ลบ job `_check_audit_due` (แจ้งเตือน digest รายสัปดาห์)
+- **`alembic/versions/0023_remove_physical_audit.py`** (ใหม่): drop column + ลบ setting `audit_interval_days`, downgrade ย้อนกลับได้ — เขียน migration ใหม่แทนแก้ `0021` เดิม (ไม่ใช่ head แล้ว)
+- ลบไฟล์เทส 4 ไฟล์: `test_physical_audit.py`, `test_audit_due_filter.py`, `test_dashboard_due_for_audit.py`, `test_scheduler_audit_due.py`
+- **คงไว้ตั้งใจ**: label ไทย `physical_audit: 'ตรวจนับอุปกรณ์'` ใน `AuditLogPage.jsx` เพราะ log เก่าห้ามลบ/ต้องอ่านได้
+
+**2. บังคับรหัสครุภัณฑ์ 15 หลักตอนเปลี่ยนเป็น "ครุภัณฑ์"**
+- **`app/services/equipment_service.py`**: เพิ่ม `_validate_durable_code()` (นับเฉพาะตัวเลขในรหัส ต้องได้ 15 หลักพอดี) เรียกใช้ใน `create_equipment`, `update_equipment` (เฉพาะตอนเปลี่ยน**เข้า**ครุภัณฑ์เท่านั้น ไม่เช็คของเดิมที่เป็นครุภัณฑ์อยู่แล้ว), `bulk_update_equipment` (partial-success — แถวไหนรหัสไม่ผ่านถูกใส่ลง `failed[]` ไม่ทำให้ทั้ง batch ล้ม)
+- **`app/schemas/equipment.py`**: เพิ่ม `failed: list[BulkDeleteFailure]` ใน `BulkUpdateResult`
+
+**3. รวม `is_borrowable` เข้ากับสถานะที่กรอง/แสดง** (แก้บั๊ก "ของประจำห้องขึ้นพร้อมให้ยืม")
+- **`app/services/equipment_service.py` — `_apply_status_filter`**: `available` ต้องเช็ค `is_borrowable=True` ควบด้วย, `unavailable` เป็น `status=="unavailable" OR is_borrowable=False`
+
+**4. แก้บั๊กผู้ยืมพร้อมกันหลายคนถูกทับเหลือคนเดียว (consumable)**
+- **`app/services/equipment_service.py` — `get_holders_map`**: เปลี่ยน return type `dict[UUID, HolderInfo]` → `dict[UUID, list[HolderInfo]]` (ของเดิม dict comprehension ทับกันเหลือคนสุดท้าย) + เพิ่ม `.order_by(User.full_name, BorrowItem.id)` ให้ลำดับ deterministic — อัปเดตทุกจุดที่เรียกใช้ (`list_equipment`, `_build_group_response`, `get_equipment_group_detail`)
+- **`app/schemas/equipment.py`**: เพิ่ม `holders: list[HolderInfo]` ใน `EquipmentResponse`
+
+**5. เพิ่ม endpoint ปรับยอดคงเหลือหลายรายการแบบ delta**
+- **`app/services/equipment_service.py` — `bulk_adjust_stock()`** (ใหม่): บวก/ลบเท่ากันทุกแถวที่เลือก, clamp ต่อแถว `0 <= available <= quantity_total - outstanding_qty` (หักจำนวนที่ถูกยืมออกไปจริงด้วย ไม่ใช่แค่ `quantity_total` เฉยๆ — **จุดนี้ Opus code review เจอเป็นบั๊ก HIGH ก่อน commit จริง**: ถ้าไม่หัก ตอนคืนของทีหลังจะชน DB CHECK constraint คืนไม่ได้เลย), ล็อกแถวเรียงตาม `Equipment.code` ให้ตรงกับ `borrow_service.approve_request` กัน deadlock, dedupe id ซ้ำ, partial-success (`failed[]`) เหมือน bulk อื่น
+- **`app/schemas/equipment.py`**: `BulkAdjustStockRequest`/`BulkAdjustStockResult`
+- **`app/routers/equipment.py`**: เพิ่ม `PATCH /equipment/bulk-adjust-stock` (`require_admin`)
+- เพิ่มไฟล์เทสใหม่ 4 ไฟล์: `test_equipment_durable_code_validation.py`, `test_equipment_is_borrowable_filter.py`, `test_equipment_multiple_holders.py`, `test_equipment_bulk_adjust_stock.py`
+
+**6. แก้เศษข้อมูลทดสอบค้างที่เจอระหว่าง QA**
+- **`tests/test_user_delete.py`**: `test_delete_admin_who_approved_other_students_request` cleanup เดิมอยู่ใน happy path เท่านั้น (ลบ user ผ่าน API ใน try block) ถ้า assert พังกลางทางจะค้างถาวร — เพิ่ม fallback ลบซ้ำใน `finally` เจอ+ลบเศษบัญชีค้างจริง 2 แถว (`deltest_*`) ออกจาก dev DB แล้ว (เช็คไม่มี FK อ้างอิงก่อนลบ)
+
+### Frontend
+
+- **`pages/admin/EquipmentManagePage.jsx`**: เอา `max-w-5xl mx-auto` ออกให้เต็มจอ, แก้ `BulkEditModal` ให้ field `select`/`bool` ตั้งค่า default ทันทีตอน toggle เปิดใช้ (บั๊กเดิม: ติ๊กเปิดฟิลด์ "อนุญาตให้ยืม" แต่ไม่แตะ dropdown → ค่าเป็น `undefined` → `JSON.stringify` ตัดทิ้ง → ไม่มีอะไรถูกแก้จริง), เพิ่ม auto-detect `item_type` จากความยาวรหัส 15 หลัก (เฉพาะตอนเพิ่มใหม่ ไม่ล็อก dropdown), เพิ่มปุ่ม+เรียก modal "ปรับยอดคงเหลือ" แบบ bulk, แสดง `eq.holders` ครบทุกคนแทน `eq.holder` เดี่ยว (ทุก item_type ที่มีคนยืมพร้อมกันหลายคน ไม่ใช่แค่ consumable)
+- **`components/equipment/StatusBadge.jsx`**: เพิ่ม prop `isBorrowable` บังคับ badge เป็น "ไม่อนุญาตให้ยืม" เมื่อ `is_borrowable=false` ไม่ว่า `status` จะเป็นอะไร
+- **`components/equipment/BulkAdjustStockModal.jsx`** (ใหม่): ฟอร์มกรอก delta + เหตุผล
+- **`components/equipment/AuditModal.jsx`**: ลบไฟล์ทั้งไฟล์
+- **`pages/admin/AuditLogPage.jsx`**: เพิ่ม label `bulk_adjust_stock: 'ปรับยอดคงเหลือ (หลายรายการ)'`, คง label `physical_audit` ไว้
+- **`pages/admin/DashboardPage.jsx`**: ลบ tile "ครบกำหนดตรวจนับ"
+- **`api/equipmentApi.js`**: ลบ `audit()`, เพิ่ม wrapper `bulkAdjustStock()`
+
+### อื่น ๆ
+- **`alembic/versions/0023_remove_physical_audit.py`** (ใหม่) — ยืนยัน `alembic upgrade head` ขึ้นถึง 0023 สำเร็จบน dev DB จริงแล้ว
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| `bulk_adjust_stock` clamp เพดานผิด (HIGH — เจอตอน code review ก่อน commit) | ลืมหักจำนวนที่ถูกยืมออกไปจริงจากเพดานบน ใช้แค่ `quantity_total` เฉยๆ → ปรับยอดว่างทับจำนวนที่ยังอยู่ในมือคนยืมได้ → ตอนคืนของจริงจะชน DB CHECK constraint คืนไม่ได้เลย | แก้แล้วในรอบเดียวกัน (retry 2/5 ของ implement loop) — ทดสอบ end-to-end ผ่านเว็บจริงแล้วว่าคืนของได้ปกติไม่พัง |
+| เศษบัญชีทดสอบค้างถาวร (`deltest_*`) ใน dev DB | `test_user_delete.py` cleanup อยู่ใน happy-path try block เท่านั้น ไม่มี fallback ใน `finally` ถ้า assert พังกลางทาง | แก้ไฟล์เทสให้ลบซ้ำใน `finally` เสมอ + ลบ 2 แถวที่ค้างจริงออกจาก DB แล้ว |
+| แถวหน่วยย่อยที่กางดูในการ์ดกลุ่ม (unit_count>1) ยังโชว์ผู้ยืมได้แค่คนเดียว ไม่ใช่ list ครบ (known limitation เล็ก ไม่บล็อก) | `EquipmentUnitSummary` schema ยังไม่มี field `holders` เป็น list (มีแค่ `holder` เดี่ยว) — เกิดเฉพาะกรณี material ที่แยกรายชิ้นบางส่วนแล้ว restock ทับแถวเดิมจนมี `quantity_total>1` ในหน่วยเดียว (พบไม่บ่อย) | ยังไม่แก้ — รอผู้ใช้ตัดสินใจว่าต้องการเพิ่มหรือไม่ (นอกเหนือจากที่ขอไว้ตรงๆ คือ "วัสดุสิ้นเปลือง" ซึ่งแก้ครบแล้ว) |
+| งานทั้งหมดของ session นี้ยังไม่ commit/push | รอคำสั่งยืนยันจากผู้ใช้ตามกฎที่ห้าม commit เองโดยไม่ถาม | รอผู้ใช้สั่ง — โค้ดผ่านทุกชั้นแล้ว (pytest 271 ผ่าน, Opus review 2 รอบ, Full QA จริงบนเว็บ 8/8) พร้อม commit ทันที |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] Commit + push งานชุดนี้ (รอผู้ใช้ยืนยันก่อน)
+2. [ ] Deploy ขึ้น production — ต้อง `alembic upgrade head` ถึง `0023` บน VM ด้วยเพราะมี migration ใหม่ (ถามผู้ใช้ IP ปัจจุบันก่อนเสมอ ดู `project-remote-server-deploy` ใน memory)
+3. [ ] พิจารณาว่าจะแก้ known limitation "ผู้ยืมหลายคนในแถวหน่วยย่อยของการ์ดกลุ่ม" เพิ่มหรือไม่
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** งานเฉพาะแผนแก้บั๊กหน้าจัดการอุปกรณ์วันนี้เสร็จ 100% (implement + review + test ครบ) — รอ commit/deploy
+**Frontend:** เช่นเดียวกัน 100% พร้อม commit
+**ระยะรวม:** โปรเจคอยู่ในช่วงขัดเกลา UX/แก้บั๊กจากการใช้งานจริงหลัง MVP หลักเสร็จสมบูรณ์แล้ว (ดู `Report/2026-08-27.txt` งานเช้าของวันเดียวกัน)
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- Pending items จาก CLAUDE.md หัวข้อ 10 (ไฟล์ Excel คลังเดิม, ยืนยัน `ALLOWED_EMAIL_DOMAINS`, LINE OA) ยังไม่มีความคืบหน้าใหม่วันนี้ ไม่เกี่ยวกับงานรอบนี้
+- migration `0023` ต้องรันบน production ตอน deploy รอบหน้า (drop column `equipment.last_audited_at` + ลบ setting `audit_interval_days`) — ยืนยันแล้วว่า `upgrade`/`downgrade` symmetric และ apply ได้สะอาดบน dev DB จริง
+- dev DB มีการใช้งานจริงคู่ขนาน (ผู้ใช้อื่นอาจ login ใช้งานอยู่) — ทุกการทดสอบ Full QA รอบนี้สร้าง/ลบอุปกรณ์+บัญชีทดสอบชั่วคราวเองครบ ยืนยันแล้วว่าไม่กระทบข้อมูลจริงในคลัง

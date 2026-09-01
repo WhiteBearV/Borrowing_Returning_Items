@@ -24,6 +24,7 @@ class BorrowItemResponse(BaseModel):
     equipment_name: str | None = None
     equipment_code: str | None = None
     equipment_unit: str | None = None
+    equipment_serial_number: str | None = None
     equipment_value: float | None = None
     item_type_snapshot: str
     quantity: int
