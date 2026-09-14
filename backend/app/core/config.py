@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # ไฟล์ที่นี่คือทะเบียนครุภัณฑ์ทั้งคณะที่แอดมินอัปมา ห้ามให้โหลดได้จากภายนอก
     # ponytail: ไม่ต้อง mount volume — ไฟล์อยู่แค่ช่วง preview→commit รีสตาร์ตแล้วอัปใหม่ได้
     IMPORT_DIR: str = "./import_tmp"
+    # ใบยืมที่ผู้ยืมเซ็นชื่อแล้ว — มีลายเซ็น + ชื่อ + รหัสประจำตัวอยู่ในไฟล์ (ข้อมูลส่วนบุคคลตาม PDPA)
+    # ต้องอยู่นอก UPLOAD_DIR เพราะ UPLOAD_DIR ถูก mount เป็น StaticFiles ที่ใครรู้ URL ก็เปิดได้
+    # เข้าถึงได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อนส่งไฟล์
+    PRIVATE_UPLOAD_DIR: str = "./private_uploads"
     ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th,student.cdti.ac.th"
 
     # Dev

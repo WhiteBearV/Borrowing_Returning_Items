@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
-    JSON, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric,
+    JSON, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric,
     String, Table, Text, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -27,6 +27,11 @@ class Equipment(Base):
     # SN จากผู้ผลิต — คนละอย่างกับ code (เลขครุภัณฑ์/รหัสวัสดุที่ระบบออกเอง) ไม่บังคับกรอก ใช้ตรวจนับของจริง
     serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # ผู้ผลิต + รุ่น (เฟส 8) — แยกออกจาก name ตามมาตรฐานการตั้งชื่อครุภัณฑ์ (docs/naming-convention.md)
+    # ชื่อ = ป้ายให้คนอ่าน ("เซ็นเซอร์อุณหภูมิและความชื้น DHT11") · รุ่น = ค่าที่เหมือนกันทุกชิ้น ("DHT11")
+    # ต่างจาก serial_number (ไม่ซ้ำรายชิ้น) และ code (รหัสทะเบียนที่ระบบออกให้)
+    manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / material / consumable
     # durable = ครุภัณฑ์ (ทะเบียน), material = วัสดุใช้ซ้ำ (บอร์ด/คิต), consumable = วัสดุสิ้นเปลือง (ใช้หมด)
     # material ยืมแบบจำนวน (เหมือน consumable) แต่คืนแบบ ok/damaged/lost (เหมือน durable)
@@ -36,6 +41,13 @@ class Equipment(Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เฉพาะ consumable
     unit_value: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # มูลค่า/ราคาต่อหน่วย (บาท) — โชว์ในใบยืม
+    # วันที่ได้มา/รับเข้าทะเบียน — ห้ามใช้ created_at แทนเด็ดขาด เพราะ split/restock สร้างแถวใหม่
+    # ทำให้วันที่รีเซ็ต และของ 704 แถวที่ seed ครั้งแรกมี created_at เท่ากันหมด (ดู migration 0026)
+    acquired_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # อายุการใช้งาน (ปี) เฉพาะชิ้นนี้ — ว่าง = ใช้ค่ากลาง depreciation_years_default จาก settings
+    useful_life_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # มูลค่าตามบัญชีที่แอดมินกรอกทับค่าคำนวณ — มีค่าเมื่อไหร่ชนะสูตรค่าเสื่อมเสมอ (ดู equipment_service.book_value)
+    book_value_override: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     quantity_total: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     quantity_available: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     low_stock_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -55,6 +67,8 @@ class Equipment(Base):
         "EquipmentCategory", secondary=equipment_category_links, back_populates="equipment"
     )
     borrow_items = relationship("BorrowItem", back_populates="equipment")
+    # ชิ้นส่วนที่ติดตั้ง/เคยติดตั้งกับหน่วยนี้ (ดู EquipmentPart) — ลบอุปกรณ์ถาวรแล้วชิ้นส่วนหายตาม (CASCADE)
+    parts = relationship("EquipmentPart", back_populates="equipment", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_equipment_item_type", "item_type"),

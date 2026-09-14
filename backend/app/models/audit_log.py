@@ -19,6 +19,9 @@ class AuditLog(Base):
     )
     actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actor_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)  # เลขนศ./username
+    # สิทธิ์ ณ ตอนที่ทำ — role ของบัญชีเปลี่ยนได้ภายหลัง ประวัติต้องบอกสิทธิ์ตอนนั้น ไม่ใช่สิทธิ์ปัจจุบัน
+    # (แถวก่อน migration 0029 เป็น null — เดาย้อนหลังไม่ได้ ไม่งั้น log จะโกหก)
+    actor_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     # approve_request / reject_request / confirm_return / create_equipment / update_equipment
     target_table: Mapped[str] = mapped_column(String(100), nullable=False)

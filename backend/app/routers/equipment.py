@@ -1,7 +1,8 @@
+import ipaddress
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, UploadFile
+from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +28,13 @@ from app.schemas.equipment import (
     ImportCommitRequest,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
+    PartCreate,
+    PartRemove,
+    PartResponse,
+    PartUpdate,
     RestockRequest,
 )
-from app.services import equipment_service, import_service
+from app.services import equipment_part_service, equipment_service, import_service
 
 router = APIRouter(tags=["equipment"])
 
@@ -144,7 +149,8 @@ async def bulk_update_equipment(
 ) -> BulkUpdateResult:
     """แก้ไขฟิลด์ปลอดภัย (location/description/status ฯลฯ) ของหลายหน่วยพร้อมกัน — all-or-nothing
     (ยกเว้นเปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลัก ซึ่งข้ามแบบ best-effort ใส่ลง failed แทน)"""
-    return await equipment_service.bulk_update_equipment(db, admin, body.equipment_ids, body.update)
+    return await equipment_service.bulk_update_equipment(
+        db, admin, body.equipment_ids, body.update, body.status_reason)
 
 
 @router.patch("/equipment/bulk-adjust-stock", response_model=BulkAdjustStockResult)
@@ -252,14 +258,103 @@ async def delete_equipment_permanent(
     return Response(status_code=204)
 
 
+def _is_lan_host(host: str) -> bool:
+    """host (รูปแบบ "ip" หรือ "ip:port") ต้องเป็น localhost หรือ IP ในวง LAN/loopback เท่านั้น
+
+    X-Forwarded-Host เป็นค่าที่ client ปลอมส่งเองได้ — ถ้าเชื่อดื้อ ๆ จะโดนยัดโดเมนภายนอกมาให้ระบบสร้าง QR
+    ชี้ไปเว็บฟิชชิ่งได้ จำกัดไว้แค่ address ในวง LAN จึงยังพอใช้งาน dev ที่ IP เปลี่ยนบ่อยได้ แต่ฝัง URL
+    สาธารณะไม่ได้ (โดเมนจริงของ prod ก็ไม่เข้าเงื่อนไขนี้ ตกไปใช้ settings.FRONTEND_URL คงที่ตามเดิม
+    ซึ่งเป็นสิ่งที่ prod ต้องการอยู่แล้วเพราะ IP/โดเมนไม่เปลี่ยน)
+
+    หมายเหตุ: เช็คจากค่าใน header ไม่ใช่ request.client.host เพราะ uvicorn เปิด proxy-headers เป็นค่าเริ่มต้น
+    แล้วเขียน request.client ทับด้วย IP ของ "ผู้ใช้ต้นทาง" ที่อ่านจาก X-Forwarded-For (เช่น IP มือถือที่สแกน)
+    ไม่ใช่ IP ของ proxy จึงใช้ยืนยันว่ามาจาก proxy บนเครื่องเดียวกันไม่ได้
+    """
+    hostname, _, port = host.partition(":")
+    if port and not (port.isdigit() and 0 < int(port) < 65536):
+        return False
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_private
+    except ValueError:
+        return False
+
+
+def _forwarded_frontend_origin(request: Request) -> str | None:
+    forwarded_host = request.headers.get("x-forwarded-host", "")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "http")
+    if not forwarded_host or forwarded_proto not in ("http", "https"):
+        return None
+    if not _is_lan_host(forwarded_host):
+        return None
+    return f"{forwarded_proto}://{forwarded_host}"
+
+
+# ── ชิ้นส่วน / การอัพเกรด ──────────────────────────────────────────────────────
+# nest ใต้ /equipment/{id} เสมอ ไม่ทำ /equipment/parts/{part_id} แยก เพราะ "parts" จะชนกับ
+# path /equipment/{equipment_id} ที่ความลึกเดียวกัน (ไม่ใช่ UUID → 422) ต้องพึ่งลำดับการประกาศแทน
+
+@router.get("/equipment/{equipment_id}/parts", response_model=list[PartResponse])
+async def list_parts(
+    equipment_id: uuid.UUID,
+    include_removed: bool = Query(True),
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[PartResponse]:
+    """ชิ้นส่วนของอุปกรณ์ชิ้นนี้ พร้อมอายุ/มูลค่าของแต่ละชิ้นแยกจากเครื่องหลัก"""
+    return await equipment_part_service.list_parts(db, equipment_id, include_removed)
+
+
+@router.post("/equipment/{equipment_id}/parts", response_model=PartResponse, status_code=201)
+async def install_part(
+    equipment_id: uuid.UUID,
+    body: PartCreate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PartResponse:
+    """ติดตั้งชิ้นส่วน (อัพเกรด) — อายุของชิ้นส่วนเริ่มนับจากวันที่ติดตั้ง ไม่ใช่อายุเครื่องหลัก"""
+    return await equipment_part_service.install_part(db, admin, equipment_id, body)
+
+
+@router.patch("/equipment/{equipment_id}/parts/{part_id}", response_model=PartResponse)
+async def update_part(
+    equipment_id: uuid.UUID,
+    part_id: uuid.UUID,
+    body: PartUpdate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PartResponse:
+    return await equipment_part_service.update_part(db, admin, equipment_id, part_id, body)
+
+
+@router.post("/equipment/{equipment_id}/parts/{part_id}/remove", response_model=PartResponse)
+async def remove_part(
+    equipment_id: uuid.UUID,
+    part_id: uuid.UUID,
+    body: PartRemove,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PartResponse:
+    """ถอดชิ้นส่วนออก — เก็บเป็นประวัติ ไม่ลบทิ้ง และไม่แตะสต็อกในคลัง"""
+    return await equipment_part_service.remove_part(db, admin, equipment_id, part_id, body)
+
+
 @router.get("/equipment/{equipment_id}/qrcode")
 async def get_qrcode(
     equipment_id: uuid.UUID,
+    request: Request,
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    png_bytes = await equipment_service.generate_qr(db, equipment_id)
-    return Response(content=png_bytes, media_type="image/png")
+    # เครื่อง dev เปลี่ยน IP บ่อย (ทดสอบสแกน QR จากมือถือในวง LAN) — ใช้ X-Forwarded-Host/-Proto ที่
+    # vite proxy (dev, ดู frontend/vite.config.js xfwd:true) ใส่มาให้แทน settings.FRONTEND_URL คงที่
+    # (เชื่อเฉพาะตอนมาจาก loopback ดู _forwarded_frontend_origin) ไม่งั้น fallback ไปใช้ FRONTEND_URL เดิม
+    frontend_origin = _forwarded_frontend_origin(request)
+    png_bytes = await equipment_service.generate_qr(db, equipment_id, frontend_origin)
+    # ห้าม browser cache รูปนี้ — URL ที่ฝังใน QR เปลี่ยนได้ตาม host ที่ request เข้ามา (เครื่อง dev IP เปลี่ยนบ่อย)
+    # cache ไว้จะโชว์ QR ที่ชี้ไป host เก่าซ้ำ ทั้งที่ IP เปลี่ยนไปแล้วจริง
+    return Response(content=png_bytes, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/equipment-categories", response_model=list[CategoryResponse])

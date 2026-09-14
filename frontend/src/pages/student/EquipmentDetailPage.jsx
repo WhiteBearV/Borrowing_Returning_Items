@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { bundleApi } from '../../api/bundleApi.js'
 import { useCart } from '../../context/CartContext.jsx'
-import { formatDate } from '../../utils/formatDate.js'
+import { useAuthContext } from '../../context/AuthContext.jsx'
+import { isStaff } from '../../utils/role.js'
+import { formatAge, formatDate, formatMoney } from '../../utils/formatDate.js'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 
@@ -15,14 +17,20 @@ export default function EquipmentDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { cart, addItem, addBundle } = useCart()
+  const { user } = useAuthContext()
+  const isAdmin = isStaff(user)
   const [eq, setEq] = useState(null)
   const [bundles, setBundles] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeImg, setActiveImg] = useState(0)
+  // สเปกปัจจุบันจากชิ้นส่วนที่ยังติดตั้งอยู่ (เฟส 8, ข้อ 17) — ผู้ยืมต้องรู้ว่าเครื่องนี้ RAM/SSD เท่าไหร่
+  // ก่อนตัดสินใจยืม ไม่ใช่เห็นแค่ชื่อรุ่นแล้วไปลุ้นเอาหน้างาน
+  const [parts, setParts] = useState([])
 
   useEffect(() => {
     equipmentApi.getGrouped(id).then(setEq).catch(() => navigate('/equipment')).finally(() => setLoading(false))
     bundleApi.list().then(setBundles).catch(() => {})
+    equipmentApi.listParts(id, false).then(setParts).catch(() => setParts([]))
   }, [id])
 
   if (loading) return <EmptyState>กำลังโหลด…</EmptyState>
@@ -95,9 +103,17 @@ export default function EquipmentDetailPage() {
                 // ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — spread แบบมีเงื่อนไข เพราะ ['label', undefined] ไม่ falsy
                 ...(eq.unit_count === 1 ? [['รหัสอุปกรณ์', eq.code]] : []),
                 ['ประเภท', TYPE_LABEL[eq.item_type]],
+                // รุ่น/ผู้ผลิต — คนที่รู้จักแต่ชื่อรุ่น ("DHT11") ต้องยืนยันได้ว่าใช่ตัวที่ตามหา
+                ...(eq.model_number ? [['รุ่น', eq.model_number]] : []),
+                ...(eq.manufacturer ? [['ผู้ผลิต', eq.manufacturer]] : []),
                 ['หมวดหมู่', (eq.categories ?? []).map((c) => c.name).join(', ') || '—'],
                 ['ที่เก็บ', eq.location ?? '—'],
                 ['เหลือให้ยืม', `${eq.quantity_available} ${eq.unit ?? 'ชิ้น'}`],
+                // นักศึกษาเห็นอายุได้ (ช่วยตัดสินใจว่าจะยืมรุ่นไหน) แต่ไม่ต้องเห็นราคา/มูลค่าทางบัญชี — แอดมินเห็นครบ
+                ...(eq.acquired_at ? [['อายุการใช้งาน', `${formatAge(eq.acquired_at)} (ได้มา ${formatDate(eq.acquired_at)})`]] : []),
+                ...(isAdmin && eq.unit_value != null
+                  ? [['มูลค่า', `แท้จริง ${formatMoney(eq.unit_value)} / ตามบัญชี ${formatMoney(eq.book_value)} บ.`]]
+                  : []),
               ].filter(Boolean).map(([label, val]) => (
                 <tr key={label}>
                   <td className="py-2 pr-4 font-medium text-gray-500 w-28">{label}</td>
@@ -115,6 +131,23 @@ export default function EquipmentDetailPage() {
                   <li key={i} className="flex justify-between">
                     <span>{h.holder_name}{h.quantity > 1 ? ` ×${h.quantity}` : ''}</span>
                     <span className="text-gray-400">{h.due_date ? `กำหนดคืน ${formatDate(h.due_date)}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {parts.length > 0 && (
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium text-gray-500 mb-2">สเปกปัจจุบัน (ชิ้นส่วนที่ติดตั้งอยู่)</p>
+              <ul className="space-y-1 text-sm text-gray-600">
+                {parts.map((p) => (
+                  <li key={p.id} className="flex justify-between gap-3">
+                    <span>{p.name}</span>
+                    <span className="text-gray-400 text-xs shrink-0">
+                      ติดตั้ง {formatDate(p.acquired_at)}
+                      {p.replaces_part_name ? ` · แทน ${p.replaces_part_name}` : ''}
+                    </span>
                   </li>
                 ))}
               </ul>

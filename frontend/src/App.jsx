@@ -26,6 +26,11 @@ import AllBorrowsPage from './pages/admin/AllBorrowsPage.jsx'
 import UsersPage from './pages/admin/UsersPage.jsx'
 import AuditLogPage from './pages/admin/AuditLogPage.jsx'
 import SettingsPage from './pages/admin/SettingsPage.jsx'
+import ChangeRequestsPage from './pages/admin/ChangeRequestsPage.jsx'
+import SystemCheckPage from './pages/admin/SystemCheckPage.jsx'
+import UtilizationPage from './pages/admin/UtilizationPage.jsx'
+import FinesPage from './pages/admin/FinesPage.jsx'
+import EligibleStudentsPage from './pages/admin/EligibleStudentsPage.jsx'
 
 export default function App() {
   return (
@@ -61,9 +66,22 @@ export default function App() {
             <Route path="/admin/bundles" element={<BundleManagePage />} />
             <Route path="/admin/borrow-requests" element={<BorrowRequestsPage />} />
             <Route path="/admin/borrows" element={<AllBorrowsPage />} />
+            <Route path="/admin/utilization" element={<UtilizationPage />} />
+            <Route path="/admin/fines" element={<FinesPage />} />
+            <Route path="/admin/my-borrows" element={<MyBorrowsPage />} />
             <Route path="/admin/users" element={<UsersPage />} />
+            <Route path="/admin/eligible-students" element={<EligibleStudentsPage />} />
             <Route path="/admin/audit" element={<AuditLogPage />} />
+            <Route path="/admin/change-requests" element={<ChangeRequestsPage />} />
+          </Route>
+
+          {/* เฉพาะผู้ดูแลระบบสูงสุด — ต้องกันที่ route ด้วย ไม่ใช่แค่ซ่อนเมนู (พิมพ์ URL ตรงก็เข้าได้) */}
+          <Route element={<ProtectedRoute role="admin" />}>
+            {/* ผู้ดูแลคลังเข้าได้ แต่แก้ได้เฉพาะค่ากลุ่มงานประจำ (backend กันรายคีย์ ดู ADMIN_EDITABLE_KEYS) */}
             <Route path="/admin/settings" element={<SettingsPage />} />
+          </Route>
+          <Route element={<ProtectedRoute role="superadmin" />}>
+            <Route path="/admin/system-check" element={<SystemCheckPage />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/login" replace />} />

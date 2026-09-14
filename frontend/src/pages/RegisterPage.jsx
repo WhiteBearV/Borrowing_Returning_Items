@@ -16,25 +16,36 @@ export default function RegisterPage() {
     last_name: '',
     student_id: '',
     email: '',
+    phone: '',
     password: '',
+    confirm_password: '',
     major: '',
+    pdpa_consent: false,
   })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    if (form.password !== form.confirm_password) {
+      setError('รหัสผ่านทั้งสองช่องไม่ตรงกัน')
+      return
+    }
     setLoading(true)
     try {
       await authApi.register({
         full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
         student_id: form.student_id.trim(),
         email: form.email.trim(),
+        phone: form.phone.trim(),
         password: form.password,
+        pdpa_consent: form.pdpa_consent,
         major: form.major,
       })
       setSuccess(true)
@@ -155,17 +166,71 @@ export default function RegisterPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              รหัสผ่าน <span className="text-red-500">*</span>
+              เบอร์โทรศัพท์ <span className="text-red-500">*</span>
             </label>
             <input
-              type="password"
+              type="tel"
               required
-              minLength={8}
-              value={form.password}
-              onChange={set('password')}
+              pattern="0\d{9}"
+              value={form.phone}
+              onChange={set('phone')}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="อย่างน้อย 8 ตัวอักษร"
+              placeholder="08XXXXXXXX"
             />
+            <p className="mt-1 text-xs text-gray-400">กรอกตัวเลข 10 หลัก ไม่ต้องใส่ขีด</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              รหัสผ่าน <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={8}
+                value={form.password}
+                onChange={set('password')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="อย่างน้อย 8 ตัวอักษร"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              ยืนยันรหัสผ่าน <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                required
+                minLength={8}
+                value={form.confirm_password}
+                onChange={set('confirm_password')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="กรอกรหัสผ่านอีกครั้ง"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-label={showConfirm ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showConfirm ? '🙈' : '👁️'}
+              </button>
+            </div>
+            {form.confirm_password && form.password !== form.confirm_password && (
+              <p className="mt-1 text-xs text-red-500">รหัสผ่านต้องตรงกัน</p>
+            )}
           </div>
 
           <div>
@@ -183,6 +248,42 @@ export default function RegisterPage() {
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+            {/* เฟส 9: ระบบยึดสาขาตามรายชื่อที่สาขารับรอง — บอกไว้ตั้งแต่ตอนกรอก
+                กันความเข้าใจผิดว่าเลือกอะไรก็ได้ และกันคนตกใจตอนเห็นสาขาในโปรไฟล์ไม่ตรงที่เลือก */}
+            <p className="mt-1 text-xs text-gray-400">
+              ระบบจะยืนยันชื่อและสาขากับรายชื่อที่สาขาส่งให้อีกครั้ง
+              ถ้าไม่พบรหัสของคุณในรายชื่อ จะสมัครได้แต่ต้องรอเจ้าหน้าที่อนุมัติก่อนเข้าใช้งาน
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <details className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-500">
+              <summary className="cursor-pointer select-none font-medium text-gray-600">
+                คำชี้แจงเกี่ยวกับการใช้ข้อมูลส่วนบุคคล
+              </summary>
+              <p className="mt-2 leading-relaxed">
+                ข้อมูลที่ท่านให้ไว้ในแบบประเมินฉบับนี้จะถูกใช้เพื่อวัตถุประสงค์ในการประเมินผลและปรับปรุงกระบวนการรับสมัครนักศึกษาเท่านั้น
+                โดยจะมีการเก็บรักษาข้อมูลอย่างเหมาะสมและไม่เปิดเผยต่อบุคคลภายนอกโดยไม่ได้รับอนุญาต ทั้งนี้
+                รายละเอียดเกี่ยวกับการคุ้มครองข้อมูลส่วนบุคคลสามารถศึกษาเพิ่มเติมได้ที่{' '}
+                <a
+                  href="https://www.cdti.ac.th/protection-of-personal-information"
+                  target="_blank" rel="noreferrer"
+                  className="text-primary-600 hover:underline"
+                >
+                  https://www.cdti.ac.th/protection-of-personal-information
+                </a>
+              </p>
+            </details>
+            <label className="flex items-start gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                required
+                checked={form.pdpa_consent}
+                onChange={(e) => setForm({ ...form, pdpa_consent: e.target.checked })}
+                className="mt-0.5 rounded border-gray-300"
+              />
+              <span>ข้าพเจ้าได้อ่านและยอมรับคำชี้แจงเกี่ยวกับการใช้ข้อมูลส่วนบุคคลข้างต้น <span className="text-red-500">*</span></span>
+            </label>
           </div>
 
           <button

@@ -23,7 +23,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบ filter {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -82,6 +82,7 @@ async def test_borrowed_filter_tracks_active_loan(client: AsyncClient, admin_tok
         assert eq_id not in {i["id"] for i in r.json()["items"]}
 
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -110,6 +111,7 @@ async def test_borrowed_filter_also_works_on_grouped_listing(client: AsyncClient
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -135,6 +137,7 @@ async def test_return_damaged_syncs_equipment_status_for_single_unit(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -165,6 +168,7 @@ async def test_return_lost_syncs_equipment_status_to_unavailable(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -197,6 +201,7 @@ async def test_edit_status_back_to_available_restores_quantity(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -212,7 +217,7 @@ async def test_edit_status_back_to_available_restores_quantity(
         eq = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()
         assert eq["status"] == "unavailable" and eq["quantity_available"] == 0
 
-        r = await client.patch(f"/equipment/{eq_id}", json={"status": "available"}, headers=h_admin)
+        r = await client.patch(f"/equipment/{eq_id}", json={"status": "available", "status_reason": "ซ่อมเสร็จแล้ว"}, headers=h_admin)
         assert r.status_code == 200, r.text
         assert r.json()["quantity_available"] == 1
     finally:
@@ -230,6 +235,7 @@ async def test_return_damaged_does_not_flip_status_for_unsplit_batch(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -261,6 +267,7 @@ async def test_grouped_detail_shows_holder_name_and_student_number(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -291,6 +298,7 @@ async def test_is_currently_borrowed_false_after_damaged_return_despite_stock_ga
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -330,6 +338,7 @@ async def test_borrowed_filter_grouped_totals_reflect_whole_group_not_just_borro
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_a, "quantity": 1}],
         })

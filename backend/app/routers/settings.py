@@ -21,7 +21,7 @@ async def list_settings(
 async def update_setting(
     key: str,
     body: SettingUpdate,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> SettingResponse:
-    return await settings_service.update_setting(db, key, body.value)
+    return await settings_service.update_setting(db, admin, key, body.value)

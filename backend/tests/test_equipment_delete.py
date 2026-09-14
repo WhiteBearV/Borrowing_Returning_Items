@@ -30,7 +30,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบลบถาวร {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -58,11 +58,11 @@ async def _cleanup(eq_id: str, req_id: str | None = None) -> None:
         await db.commit()
 
 
-async def test_delete_equipment_blocked_when_not_retired(client: AsyncClient, admin_token: str):
+async def test_delete_equipment_blocked_when_not_retired(client: AsyncClient, admin_token: str, superadmin_token: str):
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
     try:
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 400
         assert "ปลดระวาง" in r.json()["detail"]
     finally:
@@ -71,13 +71,13 @@ async def test_delete_equipment_blocked_when_not_retired(client: AsyncClient, ad
 
 async def test_delete_equipment_blocked_with_pending_request(
     client: AsyncClient, admin_token: str, student_token: str
-):
+, superadmin_token: str):
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
     req_id = await _make_request(client, auth(student_token), eq_id)
     try:
         assert (await client.delete(f"/equipment/{eq_id}", headers=h)).status_code == 204  # retire
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 400
         assert "ยังไม่คืน" in r.json()["detail"]
     finally:
@@ -86,14 +86,14 @@ async def test_delete_equipment_blocked_with_pending_request(
 
 async def test_delete_equipment_blocked_with_approved_unreturned_request(
     client: AsyncClient, admin_token: str, student_token: str
-):
+, superadmin_token: str):
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
     req_id = await _make_request(client, auth(student_token), eq_id)
     try:
         assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h)).status_code == 200
         assert (await client.delete(f"/equipment/{eq_id}", headers=h)).status_code == 204  # retire
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 400
         assert "ยังไม่คืน" in r.json()["detail"]
     finally:
@@ -102,7 +102,7 @@ async def test_delete_equipment_blocked_with_approved_unreturned_request(
 
 async def test_delete_equipment_succeeds_after_completed_request(
     client: AsyncClient, admin_token: str, student_token: str
-):
+, superadmin_token: str):
     """ยืมจนคืนครบ (completed) แล้วปลดระวาง → ลบถาวรได้จริง และประวัติการยืมต้องยังอ่านชื่อ/รหัสเดิมได้"""
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
@@ -112,7 +112,7 @@ async def test_delete_equipment_succeeds_after_completed_request(
         assert (await client.post(f"/borrow-requests/{req_id}/return-all", headers=h)).status_code == 200
         assert (await client.delete(f"/equipment/{eq_id}", headers=h)).status_code == 204  # retire
 
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 204, r.text
 
         async with AsyncSessionLocal() as db:
@@ -144,7 +144,7 @@ async def test_delete_equipment_succeeds_after_completed_request(
 
 async def test_delete_equipment_succeeds_after_rejected_request(
     client: AsyncClient, admin_token: str, student_token: str
-):
+, superadmin_token: str):
     """reject ไม่เคยเซ็ต returned=True — ถ้า guard เช็คแค่ returned==False จะพังผิดเป็นบล็อกตลอดกาล"""
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
@@ -155,7 +155,7 @@ async def test_delete_equipment_succeeds_after_rejected_request(
         assert r.status_code == 200, r.text
         assert (await client.delete(f"/equipment/{eq_id}", headers=h)).status_code == 204  # retire
 
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 204, r.text
     finally:
         await _cleanup(eq_id, req_id)
@@ -163,17 +163,17 @@ async def test_delete_equipment_succeeds_after_rejected_request(
 
 async def test_delete_equipment_succeeds_after_cancelled_request(
     client: AsyncClient, admin_token: str, student_token: str
-):
+, superadmin_token: str):
     """cancel (นักศึกษายกเลิกเอง) ก็ไม่เคยเซ็ต returned=True เหมือนกัน — ต้องลบได้เช่นกัน"""
     h_admin = auth(admin_token)
     h_student = auth(student_token)
     eq_id = await _make_equipment(client, h_admin)
     req_id = await _make_request(client, h_student, eq_id)
     try:
-        assert (await client.patch(f"/borrow-requests/{req_id}/cancel", headers=h_student)).status_code == 200
+        assert (await client.patch(f"/borrow-requests/{req_id}/cancel", headers=h_student, json={"reason": "ทดสอบยกเลิก"})).status_code == 200
         assert (await client.delete(f"/equipment/{eq_id}", headers=h_admin)).status_code == 204  # retire
 
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h_admin)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 204, r.text
     finally:
         await _cleanup(eq_id, req_id)
@@ -181,7 +181,7 @@ async def test_delete_equipment_succeeds_after_cancelled_request(
 
 async def test_delete_equipment_blocked_when_referenced_by_bundle(
     client: AsyncClient, admin_token: str
-):
+, superadmin_token: str):
     """อุปกรณ์ที่เป็นสมาชิกชุดอุปกรณ์ (bundle) ต้องลบไม่ได้ ด้วย 400 อ่านเข้าใจ ไม่ใช่ 500"""
     h = auth(admin_token)
     eq_id = await _make_equipment(client, h)
@@ -195,7 +195,7 @@ async def test_delete_equipment_blocked_when_referenced_by_bundle(
         bundle_id = r.json()["id"]
 
         assert (await client.delete(f"/equipment/{eq_id}", headers=h)).status_code == 204  # retire
-        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=h)
+        r = await client.delete(f"/equipment/{eq_id}/permanent", headers=auth(superadmin_token))
         assert r.status_code == 400
         assert "ชุดอุปกรณ์" in r.json()["detail"]
     finally:

@@ -250,7 +250,7 @@ async def test_create_and_retire_equipment_write_audit(
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": "อุปกรณ์ทดสอบ audit",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 201, r.text
     eq_id = r.json()["id"]
@@ -278,7 +278,7 @@ async def test_create_and_retire_equipment_write_audit(
 
 async def test_delete_user_preserves_audit_trail(
     client: AsyncClient, admin_token: str
-):
+, superadmin_token: str):
     """ลบ user แล้ว audit log ต้องยังอยู่ (ห้ามลบ audit trail ด้วยการลบบัญชี)
 
     หลังลบ: actor_id ถูก SET NULL แต่ actor_name/identifier snapshot ยังอยู่ → ยังรู้ว่าใครทำ
@@ -302,7 +302,7 @@ async def test_delete_user_preserves_audit_trail(
 
     try:
         # ลบผ่าน API ด้วย admin จริง — ต้องได้ 204 ไม่ใช่ 500 FK error
-        assert (await client.delete(f"/users/{uid}", headers=auth(admin_token))).status_code == 204
+        assert (await client.delete(f"/users/{uid}", headers=auth(superadmin_token))).status_code == 204
         async with AsyncSessionLocal() as db:
             assert await db.get(User, uid) is None
             log = (await db.execute(

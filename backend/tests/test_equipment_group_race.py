@@ -110,9 +110,12 @@ async def test_two_pending_requests_pinned_to_same_unit_both_approve_to_differen
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_returned_unit_becomes_lowest_available_again(test_admin, test_student, three_unit_group):
-    """A ยืม → ได้ unit ต่ำสุด (1) · B ยืม → ได้ unit ถัดไป (2) เพราะ 1 ไม่ว่าง · A คืน 1 ·
-    C ยืม → ต้องได้ unit 1 กลับมา (ไม่ใช่ 3) เพราะ 1 เป็นเลขต่ำสุดที่ว่างอยู่ ณ ตอนนั้น"""
+async def test_returned_unit_goes_to_back_of_queue(test_admin, test_student, three_unit_group):
+    """A ยืม → ได้ unit 1 · B ยืม → ได้ unit 2 เพราะ 1 ไม่ว่าง · A คืน 1 ·
+    C ยืม → ต้องได้ unit **3** (ยังไม่เคยถูกใช้) ไม่ใช่ unit 1 ที่เพิ่งถูกใช้ไป
+
+    เปลี่ยนจากกฎเดิม "รหัส/อายุต่ำสุดที่ว่าง" เป็น "ถูกใช้มาน้อยสุดก่อน" ตาม feedback อาจารย์ 5 ก.ย. 69 ข้อ 9
+    — กฎเดิมทำให้ชิ้นเดิมถูกหยิบซ้ำจนพังอยู่ชิ้นเดียวขณะที่ชิ้นอื่นแทบไม่ถูกแตะ"""
     unit_1, unit_2, unit_3 = three_unit_group
 
     req_a = await _make_pending_request(test_student, unit_1)
@@ -129,7 +132,7 @@ async def test_returned_unit_becomes_lowest_available_again(test_admin, test_stu
         await borrow_service.approve_request(db, admin, req_b)
     async with AsyncSessionLocal() as db:
         item_b = (await db.execute(select(BorrowItem).where(BorrowItem.borrow_request_id == req_b))).scalar_one()
-        assert item_b.equipment_id == unit_2, "unit_1 ถูกยืมไปแล้ว ต้องได้ unit_2 (รหัสต่ำสุดที่ว่างถัดไป)"
+        assert item_b.equipment_id == unit_2, "unit_1 ถูกยืมไปแล้ว ต้องได้ unit_2 (ยังไม่เคยถูกใช้ รหัสต่ำสุด)"
 
     # A คืน unit_1
     async with AsyncSessionLocal() as db:
@@ -145,7 +148,7 @@ async def test_returned_unit_becomes_lowest_available_again(test_admin, test_stu
         await borrow_service.approve_request(db, admin, req_c)
     async with AsyncSessionLocal() as db:
         item_c = (await db.execute(select(BorrowItem).where(BorrowItem.borrow_request_id == req_c))).scalar_one()
-        assert item_c.equipment_id == unit_1, "unit_1 คืนแล้วต้องเป็นตัวเลือกแรกอีกครั้ง ไม่ใช่ unit_3"
+        assert item_c.equipment_id == unit_3, "unit_1 เพิ่งถูกใช้ไป ต้องได้ unit_3 ที่ยังไม่เคยถูกใช้เลย"
 
 
 async def _approve_in_own_session(admin_id: uuid.UUID, req_id: uuid.UUID):
@@ -218,6 +221,7 @@ async def test_create_request_ignores_retired_representative_unit(test_student, 
         resp = await borrow_service.create_request(
             db, student,
             BorrowRequestCreate(
+                purpose="ทดสอบระบบ",
                 requested_due_date=date.today() + timedelta(days=7),
                 items=[BorrowItemRequest(equipment_id=unit_1, quantity=1)],
             ),

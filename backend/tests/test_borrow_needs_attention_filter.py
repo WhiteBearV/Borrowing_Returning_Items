@@ -4,6 +4,7 @@
 ไม่ต้องสลับไปหน้า "ประวัติทั้งหมด" แยกต่างหาก
 """
 import uuid
+from datetime import datetime, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import delete
@@ -16,13 +17,17 @@ from app.models.equipment import Equipment
 from app.models.notification import Notification
 from tests.conftest import auth
 
+# นัดคืนบังคับกรอกตั้งแต่เฟส 4 — ใช้พรุ่งนี้บ่ายโมงเป็นค่ามาตรฐานของไฟล์นี้
+APPOINT_AT = (datetime.now() + timedelta(days=1)).replace(hour=13, minute=0, second=0,
+                                                          microsecond=0).isoformat()
+
 
 async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
     suffix = uuid.uuid4().hex[:6].upper()
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบ needs_attention {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -30,6 +35,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
 
 async def _make_request(client: AsyncClient, student_header: dict, eq_id: str) -> str:
     r = await client.post("/borrow-requests", headers=student_header, json={
+        "purpose": "ทดสอบระบบ",
         "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": eq_id, "quantity": 1}],
     })
@@ -74,7 +80,7 @@ async def test_needs_attention_includes_approved_with_return_requested(
         assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
         item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
         r = await client.post(f"/borrow-requests/{req_id}/request-return",
-                               headers=h_student, json={"item_ids": [item_id]})
+                               headers=h_student, json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
         assert r.status_code == 200, r.text
 
         assert req_id in await _needs_attention_ids(client, h_admin)
@@ -107,7 +113,7 @@ async def test_needs_attention_drops_after_return_confirmed(
         assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
         item_id = (await client.get(f"/borrow-requests/{req_id}", headers=h_admin)).json()["items"][0]["id"]
         assert (await client.post(f"/borrow-requests/{req_id}/request-return",
-                                   headers=h_student, json={"item_ids": [item_id]})).status_code == 200
+                                   headers=h_student, json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})).status_code == 200
         assert req_id in await _needs_attention_ids(client, h_admin)
 
         r = await client.post(

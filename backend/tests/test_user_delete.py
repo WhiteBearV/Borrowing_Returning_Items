@@ -36,6 +36,18 @@ async def _make_user(role: str) -> User:
     return user
 
 
+async def _cleanup_throwaway_audit() -> None:
+    """ลบ audit log ที่บัญชี throwaway ของไฟล์นี้เป็นคนทำ
+
+    ลบบัญชีผ่าน API แล้ว audit_logs ไม่หายตาม (ตั้งใจ — ห้ามลบ audit trail ด้วยการลบบัญชี) และ
+    actor_id กลายเป็น NULL ทำให้ _delete_user_cascade ของ conftest ตามเก็บไม่ได้ ต้องลบด้วยชื่อ
+    snapshot ที่ตั้งไว้เฉพาะไฟล์นี้ ไม่งั้นทุกครั้งที่รันเทสจะทิ้งขยะสะสมใน DB dev ถาวร
+    """
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AuditLog).where(AuditLog.actor_name.like("ทดสอบลบบัญชี%")))
+        await db.commit()
+
+
 async def _cleanup_equipment(eq_id: str) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(delete(BorrowItem).where(BorrowItem.equipment_id == uuid.UUID(eq_id)))
@@ -44,7 +56,7 @@ async def _cleanup_equipment(eq_id: str) -> None:
         await db.commit()
 
 
-async def test_delete_admin_who_approved_other_students_request(client: AsyncClient, admin_token: str):
+async def test_delete_admin_who_approved_other_students_request(client: AsyncClient, admin_token: str, superadmin_token: str):
     """admin ที่เคย approve คำขอของ student คนอื่น (ไม่ใช่บัญชีตัวเอง) ต้องลบได้ ไม่ใช่ 500"""
     h_admin = auth(admin_token)
     throwaway_admin = await _make_user("admin")
@@ -59,12 +71,13 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
         r = await client.post("/equipment", json={
             "code": f"{uuid.uuid4().int % 10**15:015d}", "name": "อุปกรณ์ทดสอบลบบัญชี",
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h_admin)
         assert r.status_code == 201, r.text
         eq_id = r.json()["id"]
 
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
@@ -81,13 +94,14 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
 
         # ลบ throwaway_student ก่อน (เจ้าของคำขอ) กันชน FK จากอีกทาง แล้วค่อยลบ admin ที่อนุมัติ/รับคืน
         assert (await client.patch(f"/users/{throwaway_student.id}/status", json={"is_active": False}, headers=h_admin)).status_code == 200
-        assert (await client.delete(f"/users/{throwaway_student.id}", headers=h_admin)).status_code == 204
+        assert (await client.delete(f"/users/{throwaway_student.id}", headers=auth(superadmin_token))).status_code == 204
         req_id = None  # cascade ลบคำขอไปพร้อมกับ student แล้ว ไม่ต้อง cleanup ซ้ำ
 
         assert (await client.patch(f"/users/{throwaway_admin.id}/status", json={"is_active": False}, headers=h_admin)).status_code == 200
-        r = await client.delete(f"/users/{throwaway_admin.id}", headers=h_admin)
+        r = await client.delete(f"/users/{throwaway_admin.id}", headers=auth(superadmin_token))
         assert r.status_code == 204, r.text
     finally:
+        await _cleanup_throwaway_audit()
         # ลบผ่าน API ข้างบนเป็น happy path เท่านั้น — ถ้า assert ไหนพังก่อนถึงบรรทัดลบจริง throwaway_student/
         # throwaway_admin จะค้างอยู่ในคลังถาวร (เจอเคสจริง 27 ส.ค. 2569: เศษบัญชี deltest_* 2 แถวค้างจาก run
         # ที่เคยพังกลางทาง) — ลบซ้ำตรงนี้เผื่อไว้เสมอ ลบซ้ำสองรอบไม่เป็นไร (WHERE id ไม่เจอแถวก็แค่ no-op)
@@ -104,13 +118,14 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
             await _cleanup_equipment(eq_id)
 
 
-async def test_delete_user_requires_deactivation_first(client: AsyncClient, admin_token: str):
+async def test_delete_user_requires_deactivation_first(client: AsyncClient, admin_token: str, superadmin_token: str):
     h_admin = auth(admin_token)
     throwaway = await _make_user("student")
     try:
-        r = await client.delete(f"/users/{throwaway.id}", headers=h_admin)
+        r = await client.delete(f"/users/{throwaway.id}", headers=auth(superadmin_token))
         assert r.status_code == 400
     finally:
+        await _cleanup_throwaway_audit()
         async with AsyncSessionLocal() as db:
             await db.execute(delete(User).where(User.id == throwaway.id))
             await db.commit()
@@ -123,6 +138,7 @@ async def test_delete_user_forbidden_for_student(client: AsyncClient, student_to
         r = await client.delete(f"/users/{throwaway.id}", headers=auth(student_token))
         assert r.status_code == 403
     finally:
+        await _cleanup_throwaway_audit()
         async with AsyncSessionLocal() as db:
             await db.execute(delete(User).where(User.id == throwaway.id))
             await db.commit()

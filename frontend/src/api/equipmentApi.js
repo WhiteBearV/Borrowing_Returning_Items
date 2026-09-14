@@ -29,7 +29,9 @@ export const equipmentApi = {
   // ลบถาวรหลายรายการพร้อมกันแบบ best-effort — คืน { deleted: [id], failed: [{equipment_id, reason}] }
   bulkDelete: (equipment_ids) => api.post('/equipment/bulk-delete', { equipment_ids }).then((r) => r.data),
   // แก้ไขฟิลด์ปลอดภัยของหลายหน่วยพร้อมกัน (all-or-nothing) — คืน { updated: [...] }
-  bulkUpdate: (equipment_ids, update) => api.patch('/equipment/bulk-update', { equipment_ids, update }).then((r) => r.data),
+  // status_reason บังคับเมื่อ update.status ถูกส่งมา (เฟส 8 — เปลี่ยนสถานะต้องอธิบายได้เสมอ)
+  bulkUpdate: (equipment_ids, update, status_reason) =>
+    api.patch('/equipment/bulk-update', { equipment_ids, update, status_reason }).then((r) => r.data),
   // ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — clamp อิสระต่อแถว คืน { updated: [...] }
   bulkAdjustStock: (equipment_ids, delta, reason) =>
     api.patch('/equipment/bulk-adjust-stock', { equipment_ids, delta, reason }).then((r) => r.data),
@@ -49,6 +51,12 @@ export const equipmentApi = {
     return api.post('/equipment/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
   },
   qrcode: (id) => api.get(`/equipment/${id}/qrcode`, { responseType: 'blob' }).then((r) => r.data),
+  // ชิ้นส่วน/การอัพเกรด — อายุและมูลค่าของแต่ละชิ้นแยกจากเครื่องหลัก (ถอดออกแล้วยังอยู่เป็นประวัติ)
+  listParts: (id, includeRemoved = true) =>
+    api.get(`/equipment/${id}/parts`, { params: { include_removed: includeRemoved } }).then((r) => r.data),
+  addPart: (id, data) => api.post(`/equipment/${id}/parts`, data).then((r) => r.data),
+  updatePart: (id, partId, data) => api.patch(`/equipment/${id}/parts/${partId}`, data).then((r) => r.data),
+  removePart: (id, partId, data) => api.post(`/equipment/${id}/parts/${partId}/remove`, data).then((r) => r.data),
   listCategories: () => api.get('/equipment-categories').then((r) => r.data),
   createCategory: (data) => api.post('/equipment-categories', data).then((r) => r.data),
   updateCategory: (id, data) => api.patch(`/equipment-categories/${id}`, data).then((r) => r.data),

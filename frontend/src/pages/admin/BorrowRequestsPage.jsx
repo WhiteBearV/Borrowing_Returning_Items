@@ -4,8 +4,23 @@ import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { ReturnModal } from '../../components/borrow/ReturnModal.jsx'
+import ReasonModal, { REJECT_REASONS } from '../../components/common/ReasonModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
-import { formatDate } from '../../utils/formatDate.js'
+import { formatDate, formatDateTime } from '../../utils/formatDate.js'
+import UnitPickerModal from '../../components/borrow/UnitPickerModal.jsx'
+import { settingsApi } from '../../api/settingsApi.js'
+import { apiErrorMessage } from '../../utils/apiError.js'
+
+// ค่าเริ่มต้นช่อง datetime-local = พรุ่งนี้ตามเวลาใน settings — ประกอบสตริงเอง ไม่ผ่าน toISOString
+// เพราะ toISOString แปลงเป็น UTC แล้วช่องจะขึ้นเวลาเพี้ยนไป 7 ชั่วโมง
+const tomorrowAt = (hhmm = '13:00') => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  const [h, m] = hhmm.split(':')
+  d.setHours(Number(h) || 13, Number(m) || 0, 0, 0)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 // คำขอต้อง "ทำอะไรสักอย่าง" ถ้ายัง pending (รออนุมัติ) หรือ approved ที่มี item แจ้งขอคืนแล้ว/ขอต่อเวลาแล้ว
 const needsAttentionCheck = (req) =>
@@ -20,6 +35,17 @@ export default function BorrowRequestsPage() {
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(highlightId)
   const [rejectId, setRejectId] = useState(null)
+  // คำตัดสินรายชิ้นตอนอนุมัติ (เฟส 3) — { [itemId]: { approved, equipment_id, rejection_reason } }
+  // ว่าง = อนุมัติทั้งใบตามวันที่นักศึกษาขอ (พฤติกรรมเดิม) แอดมินแตะเฉพาะแถวที่อยากเปลี่ยน
+  // วันคืนไม่มีให้แก้ที่หน้านี้แล้ว (เผลอปัดโดนแล้วอนุมัติไม่ผ่าน) — API ยังรับ due_date รายชิ้นได้เหมือนเดิม
+  const [decisions, setDecisions] = useState({})
+  const [unitPicker, setUnitPicker] = useState(null) // item ที่กำลังเลือกหน่วยจ่ายเอง
+  // รหัสหน่วยที่แอดมินเลือกไว้ ({ [itemId]: code }) — แยกจาก decisions เพราะ decisions ถูกส่งขึ้น API ตรง ๆ
+  const [pickedCodes, setPickedCodes] = useState({})
+  // นัดรับของ (เฟส 4) — โมดัลถามก่อนยืนยันอนุมัติ เว้นว่างได้ = จ่ายทันทีหน้าเคาน์เตอร์
+  const [pickupTarget, setPickupTarget] = useState(null)  // คำขอที่กำลังจะอนุมัติ
+  const [pickup, setPickup] = useState({ at: '', location: '', note: '' })
+  const [defaults, setDefaults] = useState({ location: '', time: '13:00' })
   const [rejectReason, setRejectReason] = useState('')
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, item }
   const [renewRejectTarget, setRenewRejectTarget] = useState(null) // { requestId, item }
@@ -37,12 +63,13 @@ export default function BorrowRequestsPage() {
 
   // poll ทุก 4 วิ mirror NotificationBell.jsx — หยุด poll ระหว่างมี modal เปิดอยู่ (reject/return)
   // กันโดน re-render ทับตอนแอดมินกำลังกรอกฟอร์ม (เช่น เลือกสภาพ/อัปโหลดรูปค้างอยู่)
+  const editingItems = Object.keys(decisions).length > 0
   useEffect(() => {
-    if (rejectId || returnTarget || renewRejectTarget) return
+    if (rejectId || returnTarget || renewRejectTarget || pickupTarget || editingItems) return
     load(true)
     const id = setInterval(() => load(false), 4000)
     return () => clearInterval(id)
-  }, [page, rejectId, returnTarget, renewRejectTarget])
+  }, [page, rejectId, returnTarget, renewRejectTarget, pickupTarget, editingItems])
 
   // มาจากลิงก์แจ้งเตือน "คำขอใหม่"/"แจ้งขอคืน" — ถ้าคำขอถูกจัดการไปแล้ว (อนุมัติ/ปฏิเสธ/รับคืนครบ) จนไม่ต้อง
   // ทำอะไรอีกแล้ว หน้านี้จะไม่มีให้ดู ส่งไปหน้าประวัติทั้งหมดแทน
@@ -65,32 +92,53 @@ export default function BorrowRequestsPage() {
     }
   }, [highlightId, data.items])
 
-  const approve = async (id) => {
+  // ค่าเริ่มต้นของนัดรับของมาจาก settings (superadmin แก้ได้) ไม่ hardcode ในหน้าเว็บ
+  useEffect(() => {
+    settingsApi.list().then((rows) => {
+      const get = (k) => rows.find((s) => s.key === k)?.value
+      setDefaults({ location: get('default_pickup_location') ?? '', time: get('default_pickup_time') || '13:00' })
+    }).catch(() => {})
+  }, [])
+
+  const openPickup = (req) => {
+    setPickup({ at: tomorrowAt(defaults.time), location: defaults.location, note: '' })
+    setPickupTarget(req)
+  }
+
+  const setDecision = (itemId, patch) =>
+    setDecisions((d) => ({ ...d, [itemId]: { ...(d[itemId] ?? { approved: true }), ...patch } }))
+
+  const approve = async (req) => {
+    const items = req.items
+      .filter((i) => decisions[i.id])
+      .map((i) => ({ item_id: i.id, ...decisions[i.id] }))
+    // ไม่อนุมัติต้องมีเหตุผล — บอกที่หน้าจอก่อนยิง ไม่ต้องรอ 400 กลับมา
+    const missing = items.find((i) => !i.approved && !(i.rejection_reason ?? '').trim())
+    if (missing) {
+      setActionError('กรุณาระบุเหตุผลของรายการที่ไม่อนุมัติ')
+      return
+    }
     setActionError('')
     try {
-      await borrowApi.approve(id)
+      await borrowApi.approve(req.id, items.length ? items : undefined, {
+        pickup_at: pickup.at || null,
+        pickup_location: pickup.location.trim() || null,
+        pickup_note: pickup.note.trim() || null,
+      })
+      setDecisions({})
+      setPickedCodes({})
+      setPickupTarget(null)
       load()
     } catch (err) {
       // เช่น ของบางชิ้นสต็อกหมดระหว่างรออนุมัติ — ต้องบอกแอดมิน ไม่ใช่เงียบ
-      setActionError(err?.response?.data?.detail ?? 'อนุมัติไม่สำเร็จ')
+      // ปิดโมดัลด้วย ไม่งั้นข้อความ error อยู่ใต้ overlay แล้วแอดมินไม่เห็นว่าทำไมกดแล้วไม่ไปไหน
+      setPickupTarget(null)
+      setActionError(apiErrorMessage(err, 'อนุมัติไม่สำเร็จ'))
     }
   }
 
   // เปิดใบร่างฉบับเดียวกับที่นักศึกษาส่งมา (backend ออกใบร่างให้เองเมื่อคำขอยัง pending)
   const viewDraft = async (id) => openPdf(await borrowApi.downloadPdf(id))
-
-  const reject = async () => {
-    if (!rejectReason.trim()) return
-    setActionError('')
-    try {
-      await borrowApi.reject(rejectId, rejectReason)
-      setRejectId(null)
-      setRejectReason('')
-      load()
-    } catch (err) {
-      setActionError(err?.response?.data?.detail ?? 'ปฏิเสธไม่สำเร็จ')
-    }
-  }
 
   const approveRenew = async (reqId, itemId) => {
     setActionError('')
@@ -98,7 +146,7 @@ export default function BorrowRequestsPage() {
       await borrowApi.renewApprove(reqId, itemId)
       load()
     } catch (err) {
-      setActionError(err?.response?.data?.detail ?? 'อนุมัติต่อเวลาไม่สำเร็จ')
+      setActionError(apiErrorMessage(err, 'อนุมัติต่อเวลาไม่สำเร็จ'))
     }
   }
 
@@ -111,7 +159,7 @@ export default function BorrowRequestsPage() {
       setRenewRejectReason('')
       load()
     } catch (err) {
-      setActionError(err?.response?.data?.detail ?? 'ปฏิเสธต่อเวลาไม่สำเร็จ')
+      setActionError(apiErrorMessage(err, 'ปฏิเสธต่อเวลาไม่สำเร็จ'))
     }
   }
 
@@ -119,7 +167,16 @@ export default function BorrowRequestsPage() {
   // เฉพาะคำขอที่มี item แจ้งขอคืนแล้วจริง — ไม่ใช่แค่ "ไม่ pending" เฉย ๆ เพราะตอนนี้ needs_attention
   // รวมคำขอต่อเวลาด้วย ถ้ายังใช้ status !== 'pending' เฉย ๆ คำขอที่มีแค่ renew_requested (ไม่มี return_requested)
   // จะโผล่มาในหมวด "แจ้งขอคืน" แบบว่างเปล่า
-  const returnItems = data.items.filter((r) => r.items.some((i) => i.return_requested && !i.returned))
+  // เวลานัดคืนที่เร็วที่สุดของใบนั้น — ใช้เรียงคิว "วันนี้ใครจะมาคืนก่อน" ไม่ใช่เรียงตามลำดับที่ระบบส่งมา
+  const nextAppoint = (req) => {
+    const times = req.items
+      .filter((i) => i.return_requested && !i.returned && i.return_appoint_at)
+      .map((i) => new Date(i.return_appoint_at).getTime())
+    return times.length ? Math.min(...times) : Infinity   // ไม่ได้นัด (คำขอเก่าก่อนเฟส 4) ไปท้ายคิว
+  }
+  const returnItems = data.items
+    .filter((r) => r.items.some((i) => i.return_requested && !i.returned))
+    .sort((a, b) => nextAppoint(a) - nextAppoint(b))
   const renewItems = data.items.filter((r) => r.items.some((i) => i.renew_requested))
 
   return (
@@ -167,18 +224,61 @@ export default function BorrowRequestsPage() {
                         </p>
 
                         <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
-                          {req.items.map((item) => (
-                            <div key={item.id} className="flex justify-between px-3 py-2 text-sm text-gray-700">
-                              <span>
-                                {/* รหัสหน่วยเจาะจงยังไม่นิ่งจนกว่าจะอนุมัติ — โชว์เฉพาะคำขอที่ไม่ pending แล้ว */}
-                                {item.equipment_code && req.status !== 'pending' && (
-                                  <span className="mr-2 font-mono text-xs text-gray-400">{item.equipment_code}</span>
-                                )}
-                                {item.equipment_name ?? item.equipment_id}
-                              </span>
-                              <span className="text-gray-400">×{item.quantity}</span>
-                            </div>
-                          ))}
+                          {req.items.map((item) => {
+                            const d = decisions[item.id]
+                            const ok = d ? d.approved : true
+                            return (
+                              <div key={item.id} className="px-3 py-2 text-sm text-gray-700 space-y-1.5">
+                                <div className="flex justify-between gap-2">
+                                  <span className={ok ? '' : 'line-through text-gray-400'}>
+                                    {/* รหัสหน่วยเจาะจงยังไม่นิ่งจนกว่าจะอนุมัติ — โชว์เฉพาะคำขอที่ไม่ pending แล้ว */}
+                                    {item.equipment_code && req.status !== 'pending' && (
+                                      <span className="mr-2 font-mono text-xs text-gray-400">{item.equipment_code}</span>
+                                    )}
+                                    {item.equipment_name ?? item.equipment_id}
+                                  </span>
+                                  <span className="text-gray-400 shrink-0">×{item.quantity}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-xs">
+                                  <label className="flex items-center gap-1.5 text-gray-600">
+                                    <input
+                                      type="checkbox"
+                                      checked={ok}
+                                      onChange={(e) => setDecision(item.id, { approved: e.target.checked })}
+                                      className="rounded border-gray-300"
+                                    />
+                                    อนุมัติรายการนี้
+                                  </label>
+                                  {ok ? (
+                                    // อ่านอย่างเดียว — เดิมเป็นช่องวันที่ที่เผลอปัดโดนแล้วอนุมัติไม่ผ่าน
+                                    // (ล้างค่า = ส่งวันว่างไป 422 / เลื่อนไปอดีต = 400) วันคืนใช้ที่นักศึกษาขอมา
+                                    <span className="text-gray-600">
+                                      กำหนดคืน{' '}
+                                      <span className="font-medium text-gray-700">
+                                        {formatDate(item.requested_due_date ?? req.requested_due_date)}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={d?.rejection_reason ?? ''}
+                                      onChange={(e) => setDecision(item.id, { rejection_reason: e.target.value })}
+                                      placeholder="เหตุผลที่ไม่อนุมัติรายการนี้…"
+                                      className="flex-1 min-w-[12rem] rounded border border-red-200 px-2 py-0.5"
+                                    />
+                                  )}
+                                  {/* ปกติระบบเลือกหน่วยที่ถูกใช้น้อยสุดให้ — ปุ่มนี้ไว้เลือกทับตอนต้องจ่ายเครื่องที่อยู่ตรงหน้า */}
+                                  {ok && item.equipment_id && (
+                                    <button type="button" onClick={() => setUnitPicker({ ...item, requestId: req.id })}
+                                      className="text-primary-600 hover:underline">
+                                      {d?.equipment_id ? `จ่ายหน่วย ${pickedCodes[item.id] ?? ''} (เปลี่ยน)` : 'เลือกหน่วยเอง'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
 
                         <div className="flex gap-3 pt-1">
@@ -189,10 +289,12 @@ export default function BorrowRequestsPage() {
                             ดูใบร่าง PDF
                           </button>
                           <button
-                            onClick={() => approve(req.id)}
+                            onClick={() => openPickup(req)}
                             className="rounded-full bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
                           >
-                            อนุมัติ
+                            {req.items.some((i) => decisions[i.id]?.approved === false)
+                              ? `อนุมัติเฉพาะที่ติ๊กไว้ (${req.items.filter((i) => decisions[i.id]?.approved !== false).length}/${req.items.length})`
+                              : 'อนุมัติ'}
                           </button>
                           <button
                             onClick={() => { setRejectId(req.id); setRejectReason('') }}
@@ -227,6 +329,12 @@ export default function BorrowRequestsPage() {
                           <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
                           <span className="text-xs text-gray-500">ผู้ยืม: {req.student_name ?? '—'}</span>
                         </div>
+                        {/* เวลานัดคืนที่เร็วที่สุดของใบ — แอดมินกวาดตาดูคิวได้โดยไม่ต้องกางทุกใบ */}
+                        {Number.isFinite(nextAppoint(req)) && (
+                          <span className="text-xs font-medium text-emerald-700">
+                            นัดคืน {formatDateTime(new Date(nextAppoint(req)).toISOString())}
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-gray-400">{expanded === req.id ? '▲' : '▼'}</span>
                     </button>
@@ -234,7 +342,7 @@ export default function BorrowRequestsPage() {
                     {expanded === req.id && (
                       <div className="border-t px-4 py-3 space-y-3">
                         <div className="rounded-lg border border-gray-100 overflow-hidden divide-y divide-gray-100">
-                          {req.items.filter((i) => !i.returned).map((item) => {
+                          {req.items.filter((i) => !i.returned && i.item_status !== 'rejected').map((item) => {
                             const isConsumable = item.item_type_snapshot === 'consumable'
                             return (
                               <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
@@ -243,12 +351,13 @@ export default function BorrowRequestsPage() {
                                   <span className="ml-2 text-gray-400">×{item.quantity}</span>
                                   {item.return_requested && (
                                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
-                                      นักศึกษาแจ้งขอคืนแล้ว
+                                      นัดคืน {item.return_appoint_at ? formatDateTime(item.return_appoint_at) : 'แล้ว'}
+                                      {item.return_appoint_location ? ` · ${item.return_appoint_location}` : ''}
                                     </span>
                                   )}
                                 </div>
                                 <button
-                                  onClick={() => setReturnTarget({ requestId: req.id, item })}
+                                  onClick={() => setReturnTarget({ requestId: req.id, item, req })}
                                   className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
                                 >
                                   {isConsumable ? 'สรุปผล' : 'รับคืน'}
@@ -339,31 +448,78 @@ export default function BorrowRequestsPage() {
 
       <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
 
-      {/* Reject modal */}
-      {rejectId && (
+      {unitPicker && (
+        <UnitPickerModal
+          item={unitPicker}
+          selectedId={decisions[unitPicker.id]?.equipment_id ?? null}
+          onPick={(equipmentId, code) => {
+            setDecision(unitPicker.id, { equipment_id: equipmentId })
+            setPickedCodes((c) => ({ ...c, [unitPicker.id]: code }))
+            setUnitPicker(null)
+          }}
+          onClose={() => setUnitPicker(null)}
+        />
+      )}
+
+      {/* นัดรับของ — ถามก่อนยืนยันอนุมัติ (เว้นว่างได้ถ้าจ่ายทันทีหน้าเคาน์เตอร์) */}
+      {pickupTarget && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <h2 className="font-bold text-gray-800 mb-3">ระบุเหตุผลที่ปฏิเสธ</h2>
-            <textarea
-              autoFocus
-              rows={3}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="เหตุผล…"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
-            />
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setRejectId(null)} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
-              <button
-                disabled={!rejectReason.trim()}
-                onClick={reject}
-                className="flex-1 rounded-full bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                ยืนยันปฏิเสธ
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h2 className="font-bold text-gray-800">นัดรับของ</h2>
+            <p className="text-sm text-gray-500">
+              {pickupTarget.request_code} — ผู้ยืมจะเห็นวัน-เวลา-สถานที่นี้ในแจ้งเตือน อีเมล และใบยืม
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">วัน-เวลาที่ให้มารับ</label>
+              <input type="datetime-local" value={pickup.at}
+                onChange={(e) => setPickup({ ...pickup, at: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">สถานที่</label>
+              <input type="text" value={pickup.location}
+                onChange={(e) => setPickup({ ...pickup, location: e.target.value })}
+                placeholder="เช่น ห้อง 15310"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ (ถ้ามี)</label>
+              <input type="text" value={pickup.note}
+                onChange={(e) => setPickup({ ...pickup, note: e.target.value })}
+                placeholder="เช่น ติดต่อเจ้าหน้าที่หน้าห้อง"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setPickupTarget(null)}
+                className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button onClick={() => setPickup({ at: '', location: '', note: '' })}
+                className="rounded-full border px-3 py-2 text-xs text-gray-500 hover:bg-gray-50"
+                title="จ่ายของทันทีหน้าเคาน์เตอร์ ไม่ต้องนัด">ไม่นัด</button>
+              <button onClick={() => approve(pickupTarget)}
+                className="flex-1 rounded-full bg-green-600 py-2 text-sm font-semibold text-white hover:bg-green-700">
+                ยืนยันอนุมัติ
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* ปฏิเสธคำขอ — ใช้โมดัลเดียวกับฝั่งผู้ยืมยกเลิก (มีเหตุผลสำเร็จรูปให้เลือก + "อื่น ๆ") */}
+      {rejectId && (
+        <ReasonModal
+          title="ปฏิเสธคำขอยืม"
+          message="เหตุผลนี้จะถูกส่งให้ผู้ยืมเห็นในหน้าคำขอของเขา และถูกบันทึกลงประวัติการใช้งาน"
+          presets={REJECT_REASONS}
+          confirmLabel="ยืนยันปฏิเสธ"
+          danger
+          onCancel={() => setRejectId(null)}
+          onConfirm={async (reason) => {
+            await borrowApi.reject(rejectId, reason)
+            setRejectId(null)
+            setRejectReason('')
+            load()
+          }}
+        />
       )}
 
       {/* Reject renewal modal */}
@@ -397,6 +553,7 @@ export default function BorrowRequestsPage() {
         <ReturnModal
           requestId={returnTarget.requestId}
           item={returnTarget.item}
+          req={returnTarget.req}
           onClose={() => setReturnTarget(null)}
           onDone={() => { setReturnTarget(null); load() }}
         />

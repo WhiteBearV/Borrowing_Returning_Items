@@ -19,7 +19,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบปลดระวางหลายรายการ {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     return r.json()["id"]

@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
-import { bundleApi } from '../../api/bundleApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+import { isSuperadmin } from '../../utils/role.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import Tooltip from '../../components/common/Tooltip.jsx'
@@ -11,9 +11,26 @@ import AdjustStockModal from '../../components/equipment/AdjustStockModal.jsx'
 import BulkAdjustStockModal from '../../components/equipment/BulkAdjustStockModal.jsx'
 import StatusBadge from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import AuditTimeline from '../../components/audit/AuditTimeline.jsx'
+import PartsPanel from '../../components/equipment/PartsPanel.jsx'
 import { openPdf } from '../../utils/openPdf.js'
+import { formatAge, formatMoney } from '../../utils/formatDate.js'
 
-const EMPTY_FORM = { code: '', serial_number: '', name: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', quantity_total: 1, image_urls: [], is_borrowable: true }
+const today = () => new Date().toISOString().slice(0, 10)
+
+const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
+// วันแบบสั้นสำหรับป้ายเล็ก ๆ ในตาราง (8 ก.ย. 69) — ใช้ toLocaleDateString ไทยตรง ๆ พอ ไม่ต้องมี util ใหม่
+const formatThaiShort = (d) => new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+
+const EMPTY_FORM = { code: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true }
+
+// แบ่งฟอร์มตาม "ความเสี่ยง/วงจรชีวิต" ไม่ใช่ "รายละเอียด vs อื่นๆ" (เฟส 8, feedback ข้อ 15)
+// ข้อมูลประจำตัว = แก้ได้อิสระ · สถานะ = เป็น action ที่ต้องมีเหตุผล · ทะเบียน/การเงิน = กระทบตัวเลขย้อนหลัง
+const FORM_TABS = [
+  { key: 'identity', label: 'ข้อมูลประจำตัว' },
+  { key: 'status', label: 'สถานะ & การใช้งาน' },
+  { key: 'finance', label: 'ทะเบียน & การเงิน' },
+]
 
 // ไอคอนสถานที่ (แทนอีโมจิหมุด 📍 เดิม) — เส้นสไตล์เดียวกับไอคอนอื่นในระบบ (currentColor, stroke)
 const LocationIcon = ({ className = 'w-3.5 h-3.5' }) => (
@@ -39,59 +56,17 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const [form, setForm] = useState(
     isEdit
       ? { ...initial, image_urls: initial.image_urls ?? (initial.image_url ? [initial.image_url] : []), category_ids: (initial.categories ?? []).map((c) => c.id) }
-      : EMPTY_FORM,
+      // ของที่เพิ่งเพิ่มเข้าระบบส่วนใหญ่คือของที่เพิ่งได้มา — เติมวันนี้ให้ก่อน แก้ได้ถ้าเป็นของเก่า
+      : { ...EMPTY_FORM, acquired_at: today() },
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
-
-  // ชุดอุปกรณ์ที่อุปกรณ์ชิ้นนี้เป็นสมาชิกอยู่ — แก้ไขได้ตรงนี้แทนที่จะต้องไปหน้า "ชุดอุปกรณ์" แยก
-  // เฉพาะตอนแก้ไข (มี id แล้ว) ของใหม่ยังไม่มี id ให้ผูกกับชุดไม่ได้
-  const [bundles, setBundles] = useState([])
-  const [bundleMembership, setBundleMembership] = useState({}) // { [bundleId]: { included, trigger } }
-
-  useEffect(() => {
-    if (!isEdit) return
-    bundleApi.list().then((list) => {
-      setBundles(list)
-      const membership = {}
-      for (const b of list) {
-        membership[b.id] = {
-          included: b.items.some((i) => i.equipment_id === initial.id),
-          trigger: b.trigger_equipment_id === initial.id,
-        }
-      }
-      setBundleMembership(membership)
-    }).catch(() => {})
-  }, [])
-
-  // ห้ามเป็นทั้งสมาชิกและตัวกระตุ้นพร้อมกัน (backend บังคับ) — ต้องเช็คค่า "ใหม่" ของ included ไม่ใช่ค่าเดิม
-  // ไม่งั้นติ๊กเข้าเป็นสมาชิกทั้งที่ยังเป็นตัวกระตุ้นอยู่ได้ (เจอบั๊กจริง — บันทึกแล้ว 400 ทุกครั้งเพราะชนกัน)
-  const toggleBundleIncluded = (bundleId) => setBundleMembership((m) => {
-    const included = !m[bundleId].included
-    return { ...m, [bundleId]: { included, trigger: included ? false : m[bundleId].trigger } }
-  })
-  const toggleBundleTrigger = (bundleId) => setBundleMembership((m) => {
-    const trigger = !m[bundleId].trigger
-    return { ...m, [bundleId]: { included: trigger ? false : m[bundleId].included, trigger } }
-  })
-
-  // บันทึกชุดที่สมาชิกภาพ/ตัวกระตุ้นเปลี่ยนไปจากตอนเปิดฟอร์ม — เรียกหลัง equipment บันทึกสำเร็จแล้ว
-  const saveBundleChanges = async (equipmentId) => {
-    for (const b of bundles) {
-      const m = bundleMembership[b.id]
-      const wasIncluded = b.items.some((i) => i.equipment_id === equipmentId)
-      const wasTrigger = b.trigger_equipment_id === equipmentId
-      if (m.included === wasIncluded && m.trigger === wasTrigger) continue
-      const items = m.included
-        ? (wasIncluded ? b.items : [...b.items, { equipment_id: equipmentId, quantity: 1 }])
-        : b.items.filter((i) => i.equipment_id !== equipmentId)
-      await bundleApi.update(b.id, {
-        trigger_equipment_id: m.trigger ? equipmentId : (wasTrigger ? null : b.trigger_equipment_id),
-        items: items.map(({ equipment_id, quantity }) => ({ equipment_id, quantity })),
-      })
-    }
-  }
+  const [tab, setTab] = useState('identity')
+  const { user } = useAuthContext()
+  // ตัวเลขทะเบียน/การเงินแก้ได้เฉพาะ superadmin ตอนแก้ไขของเดิม (backend กั้นด้วย — ดู FINANCE_FIELDS)
+  // ตอนสร้างใหม่ผู้ดูแลคลังกรอกได้ตามปกติ เพราะของทุกชิ้นต้องมีราคา+วันที่ได้มาตั้งแต่รับเข้าทะเบียน
+  const canEditFinance = !isEdit || isSuperadmin(user)
 
   const uploadImage = async (e) => {
     const files = Array.from(e.target.files ?? [])
@@ -139,11 +114,25 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         : [...f.category_ids, id],
     }))
 
+  const statusChanged = isEdit && form.status !== initial.status
+
+  // ฟิลด์บังคับอยู่คนละแท็บกัน → ตรวจเองแล้วพาไปแท็บที่ยังกรอกไม่ครบ (input ที่ไม่ได้ mount
+  // จะไม่ถูก HTML validate ให้ ถ้าไม่ตรวจเองผู้ใช้จะเจอ 422 จาก backend โดยไม่รู้ว่าขาดอะไร)
+  const missingField = () => {
+    if (form.category_ids.length === 0) return ['identity', 'เลือกหมวดหมู่อย่างน้อย 1 หมวด']
+    if (!isEdit && form.image_urls.length === 0) return ['identity', 'แนบรูปอุปกรณ์อย่างน้อย 1 รูป']
+    if (!form.name?.trim()) return ['identity', 'กรอกชื่ออุปกรณ์']
+    if (form.item_type !== 'consumable' && !form.code?.trim()) return ['identity', 'กรอกรหัสอุปกรณ์']
+    if (!isEdit && !form.unit_value) return ['finance', 'กรอกมูลค่าแท้จริง / ราคาที่ซื้อ']
+    if (!isEdit && !form.acquired_at) return ['finance', 'กรอกวันที่ได้มา']
+    if (statusChanged && !form.status_reason?.trim()) return ['status', 'ระบุเหตุผลที่เปลี่ยนสถานะอุปกรณ์']
+    return null
+  }
+
   const submit = async (e) => {
     e.preventDefault()
-    if (form.category_ids.length === 0) { setError('เลือกหมวดหมู่อย่างน้อย 1 หมวด'); return }
-    // บังคับรูปเฉพาะตอนเพิ่มใหม่ ของเดิมที่นำเข้าจากทะเบียนยังไม่มีรูป ต้องแก้ไขได้อยู่
-    if (!isEdit && form.image_urls.length === 0) { setError('แนบรูปอุปกรณ์อย่างน้อย 1 รูป'); return }
+    const missing = missingField()
+    if (missing) { setTab(missing[0]); setError(missing[1]); return }
     setError('')
     setLoading(true)
     try {
@@ -157,11 +146,18 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         location: form.location || null,
         unit: form.unit || null,
         unit_value: form.unit_value === '' || form.unit_value == null ? null : Number(form.unit_value),
+        acquired_at: form.acquired_at || null,
+        useful_life_years: form.useful_life_years === '' || form.useful_life_years == null ? null : Number(form.useful_life_years),
+        // ส่ง null = ล้างค่าที่กรอกทับ กลับไปใช้มูลค่าที่ระบบคำนวณ (backend ตั้งใจให้ล้างได้ ต่างจาก unit_value)
+        book_value_override: form.book_value_override === '' || form.book_value_override == null ? null : Number(form.book_value_override),
         image_urls: form.image_urls,
+        manufacturer: form.manufacturer || null,
+        model_number: form.model_number || null,
+        // ส่งเฉพาะตอนสถานะเปลี่ยนจริง — backend บังคับให้มีเหตุผลเฉพาะกรณีนั้น
+        ...(statusChanged ? { status_reason: form.status_reason } : {}),
       }
       if (isEdit) {
         await equipmentApi.update(initial.id, payload)
-        await saveBundleChanges(initial.id)
       } else {
         await equipmentApi.create(payload)
       }
@@ -177,16 +173,36 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
       {/* กว้างขึ้น + 2 คอลัมน์ — เดิมคอลัมน์เดียวยาวลงมากเพราะฟิลด์เพิ่มขึ้นเรื่อยๆ (code/item_type แก้ได้, สถานะ, ชุดอุปกรณ์) */}
       <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl">
-        <h2 className="font-bold text-gray-800 mb-4">{isEdit ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์ใหม่'}</h2>
+        <h2 className="font-bold text-gray-800 mb-3">{isEdit ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์ใหม่'}</h2>
+        {/* แยกแท็บตามความเสี่ยง — ฟอร์มเดิมเป็นกำแพงช่องกรอก 20 ช่องปนกันหมด (feedback ข้อ 15) */}
+        <div className="flex gap-1 border-b border-gray-200 mb-4">
+          {FORM_TABS.map((t) => (
+            <button type="button" key={t.key} onClick={() => setTab(t.key)}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === t.key ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
         {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        {/* ลำดับช่องตามทะเบียนพัสดุ/มาตรฐานสากล (Snipe-IT, ทะเบียนครุภัณฑ์ไทย): รหัส (ตัวระบุ) มาก่อนเสมอ
+            แล้วค่อยชื่อที่คนอ่าน → ผู้ผลิต/รุ่น (ตัวตนของสินค้า) → SN (เฉพาะเครื่อง) → สถานที่
+            ดู docs/naming-convention.md — คนกรอกจากเอกสารทะเบียนจะไล่ตามลำดับนี้พอดี ไม่ต้องกระโดดไปมา */}
         <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+          {tab === 'identity' && <>
           {[
             { label: `รหัสอุปกรณ์${form.item_type === 'consumable' ? '' : ' *'}`, key: 'code',
               required: form.item_type !== 'consumable', disabled: false,
               placeholder: form.item_type === 'consumable' ? 'เว้นว่างได้ ระบบจะออกรหัสให้อัตโนมัติ' : undefined },
+            { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true,
+              placeholder: 'เช่น เซ็นเซอร์อุณหภูมิและความชื้น DHT11',
+              tip: 'ตั้งชื่อแบบ ประเภท + คุณสมบัติ + รุ่น เช่น «เซ็นเซอร์อุณหภูมิและความชื้น DHT11»\nไม่ใช่ «DHT11» เฉย ๆ — ไม่งั้นคนที่ไม่รู้จักรุ่นค้นหาไม่เจอ (ดู docs/naming-convention.md)' },
+            { label: 'ผู้ผลิต', key: 'manufacturer', placeholder: 'เช่น Aosong, Dell (ไม่บังคับ)' },
+            { label: 'รุ่น (Model)', key: 'model_number', placeholder: 'เช่น DHT11, Latitude 5400 (ไม่บังคับ)',
+              tip: 'ชื่อรุ่นที่เหมือนกันทุกชิ้นของรุ่นนี้ — คนละอย่างกับ SN (ไม่ซ้ำรายชิ้น) และรหัสอุปกรณ์ (ระบบออกให้)\nกรอกไว้แล้วค้นด้วยชื่อรุ่นก็เจอ แม้ชื่ออุปกรณ์จะเป็นภาษาไทย' },
             { label: 'SN (Serial Number ผู้ผลิต)', key: 'serial_number', placeholder: 'เลขที่ผู้ผลิตติดมากับเครื่อง (ไม่บังคับ)',
-              tip: 'เลขประจำเครื่องจากผู้ผลิต คนละอย่างกับรหัสอุปกรณ์ด้านบน — ใช้ยืนยันว่าเป็นเครื่องจริงตอนตรวจนับอุปกรณ์' },
-            { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true },
+              tip: 'เลขประจำเครื่องจากผู้ผลิต ไม่ซ้ำกันรายชิ้น — คนละอย่างกับรหัสอุปกรณ์ (ทะเบียนออกให้) และรุ่น (เหมือนกันทุกชิ้น)' },
             { label: 'สถานที่เก็บ', key: 'location', placeholder: 'เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)' },
           ].map(({ label, key, required, disabled, placeholder, tip }) => (
             <div key={key}>
@@ -238,6 +254,12 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </div>
           </div>
 
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1">คำอธิบาย</label>
+            <textarea rows={2} value={form.description} onChange={set('description')}
+              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">ประเภท *</label>
             <select value={form.item_type} onChange={setItemType}
@@ -248,30 +270,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             </select>
           </div>
 
-          {isEdit && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">สถานะ</label>
-              <select value={form.status} onChange={set('status')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-                <option value="available">พร้อมให้ยืม</option>
-                <option value="unavailable">ไม่อนุญาตให้ยืม</option>
-                <option value="damaged">เสียหาย</option>
-                <option value="under_repair">ซ่อมอยู่</option>
-                <option value="retired">ปลดระวาง</option>
-              </select>
-            </div>
-          )}
-
-          <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <input type="checkbox" checked={!form.is_borrowable} className="mt-0.5"
-              onChange={(e) => setForm({ ...form, is_borrowable: !e.target.checked })} />
-            <span className="text-xs text-gray-600">
-              <span className="font-medium text-gray-700">ของประจำห้อง — ห้ามยืมออก</span>
-              <br />เช่น โต๊ะ ตู้ ทีวี เครื่องที่ติดตั้งประจำที่ — นักศึกษาจะเห็นแต่ยืมไม่ได้
-            </span>
-          </label>
-
-          <div className={form.item_type === 'consumable' ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-2 gap-3'}>
+          <div className={form.item_type === 'consumable' ? 'grid grid-cols-2 gap-3' : ''}>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">จำนวนทั้งหมด *</label>
               <input type="number" min={1} required value={form.quantity_total} onChange={set('quantity_total')}
@@ -284,53 +283,93 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
             )}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่า/ชิ้น (บาท)</label>
-              <input type="number" min={0} step="0.01" value={form.unit_value ?? ''} onChange={set('unit_value')}
-                placeholder="เช่น 200 (เว้นว่างได้)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-            </div>
           </div>
 
-          {isEdit && bundles.length > 0 && (
-            <div className="md:col-span-2">
-              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
-                ชุดอุปกรณ์
-                <Tooltip text={'ติ๊กชื่อชุด = อุปกรณ์นี้เป็นสมาชิกของชุดนั้น\nติ๊ก "ตัวกระตุ้น" เพิ่ม = กด "+ เพิ่มในตะกร้า" บนอุปกรณ์ตัวนี้แล้วจะได้อุปกรณ์ทั้งชุดมาในตะกร้าอัตโนมัติ (เลือกตัวกระตุ้นได้ชุดละ 1 ชิ้น)'} />
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-300 p-2 max-h-32 overflow-y-auto">
-                {bundles.map((b) => {
-                  const m = bundleMembership[b.id]
-                  if (!m) return null
-                  return (
-                    <div key={b.id} className="flex items-center gap-2 text-xs">
-                      <label className="flex items-center gap-1.5 flex-1 min-w-0">
-                        <input type="checkbox" checked={m.included} onChange={() => toggleBundleIncluded(b.id)} />
-                        <span className="truncate text-gray-700">{b.name}</span>
-                      </label>
-                      {/* โชว์ตลอดแม้ยังไม่ติ๊ก "สมาชิก" เพราะตัวกระตุ้นของชุด included=false เสมอ (คนละสถานะกับสมาชิก)
-                          — เดิมซ่อนไว้จนกว่าจะติ๊กสมาชิกก่อน ทำให้แก้ไข/ถอดความเป็นตัวกระตุ้นไม่ได้เลย (เจอบั๊กจริง) */}
-                      {(m.included || m.trigger) && (
-                        <label className="flex items-center gap-1 shrink-0 text-gray-500">
-                          <input type="checkbox" checked={m.trigger} onChange={() => toggleBundleTrigger(b.id)} />
-                          ตัวกระตุ้น
-                        </label>
-                      )}
-                    </div>
-                  )
-                })}
+          </>}
+
+          {tab === 'status' && <>
+            {isEdit && <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">สถานะ</label>
+              <select value={form.status} onChange={set('status')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                <option value="available">พร้อมให้ยืม</option>
+                <option value="unavailable">ไม่อนุญาตให้ยืม</option>
+                <option value="damaged">เสียหาย</option>
+                <option value="under_repair">ซ่อมอยู่</option>
+                <option value="retired">ปลดระวาง</option>
+              </select>
+            </div>}
+            {/* เปลี่ยนสถานะเป็น action ที่ต้องอธิบายได้ ไม่ใช่แค่แก้ค่าในฟอร์ม — เหตุผลลง audit (backend บังคับด้วย) */}
+            {statusChanged && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  เหตุผลที่เปลี่ยนสถานะ <span className="text-red-500">*</span>
+                </label>
+                <input type="text" value={form.status_reason ?? ''} onChange={set('status_reason')}
+                  placeholder="เช่น ส่งซ่อมศูนย์บริการ / ชำรุดจากการใช้งาน"
+                  className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
-              <p className="mt-1 text-xs text-gray-400">
-                ติ๊ก "ตัวกระตุ้น" = กด "+ เพิ่มในตะกร้า" บนอุปกรณ์นี้แล้วได้ทั้งชุดอัตโนมัติ
-              </p>
-            </div>
+            )}
+
+          <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <input type="checkbox" checked={!form.is_borrowable} className="mt-0.5"
+              onChange={(e) => setForm({ ...form, is_borrowable: !e.target.checked })} />
+            <span className="text-xs text-gray-600">
+              <span className="font-medium text-gray-700">ของประจำห้อง — ห้ามยืมออก</span>
+              <br />เช่น โต๊ะ ตู้ ทีวี เครื่องที่ติดตั้งประจำที่ — นักศึกษาจะเห็นแต่ยืมไม่ได้
+            </span>
+          </label>
+
+          {isEdit && (
+            <PartsPanel equipmentId={initial.id} equipmentValue={initial.unit_value}
+              equipmentBookValue={initial.book_value} />
           )}
 
-          <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">คำอธิบาย</label>
-            <textarea rows={2} value={form.description} onChange={set('description')}
-              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500" />
-          </div>
+          {/* ชุดอุปกรณ์ถูกย้ายไปจัดการที่หน้า "ชุดอุปกรณ์" อย่างเดียว (8 ก.ย. 69) — มี 2 ทางเข้าที่แก้ของ
+              เดียวกันแล้วสับสน และหน้าชุดอุปกรณ์เห็นภาพรวมทั้งชุดพร้อมตัวกระตุ้นได้ดีกว่าฟอร์มรายชิ้น */}
+          </>}
+
+          {tab === 'finance' && <>
+            {!canEditFinance && (
+              <p className="md:col-span-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                ตัวเลขทะเบียน/การเงินแก้ได้เฉพาะ<b>ผู้ดูแลระบบสูงสุด</b> เพราะกระทบค่าเสื่อม มูลค่าในใบยืมเก่า
+                และค่าเสียหายที่เรียกเก็บย้อนหลัง — ถ้าต้องแก้ ให้ยื่น "คำขอแก้ไขข้อมูล" พร้อมเหตุผล
+              </p>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่าแท้จริง / ราคาที่ซื้อ (บาท) *</label>
+              <input type="number" min={0} step="0.01" disabled={!canEditFinance}
+                value={form.unit_value ?? ''} onChange={set('unit_value')} placeholder="เช่น 2000"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-500" />
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                วันที่ได้มา *
+                <Tooltip text={'วันที่ได้รับของเข้าทะเบียนจริง (คนละอย่างกับวันที่บันทึกเข้าระบบ)\nใช้คำนวณอายุอุปกรณ์และค่าเสื่อมราคา'} />
+              </label>
+              <input type="date" disabled={!canEditFinance}
+                value={(form.acquired_at ?? '').slice(0, 10)} onChange={set('acquired_at')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-500" />
+              {form.acquired_at && <p className="text-xs text-gray-400 mt-1">อายุ {formatAge(form.acquired_at)}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">อายุการใช้งาน (ปี)</label>
+              <input type="number" min={1} disabled={!canEditFinance}
+                value={form.useful_life_years ?? ''} onChange={set('useful_life_years')}
+                placeholder="เว้นว่าง = ใช้ค่ากลางใน Settings"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-500" />
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                มูลค่าตามบัญชี (บาท)
+                <Tooltip text={'ปกติระบบคำนวณให้เองแบบเส้นตรงจากราคาที่ซื้อ + วันที่ได้มา + อายุการใช้งาน\nกรอกช่องนี้เมื่อต้องการใช้ตัวเลขจากงานบัญชีแทน — ลบค่าออกเพื่อกลับไปใช้ค่าที่คำนวณ'} />
+              </label>
+              <input type="number" min={0} step="0.01" disabled={!canEditFinance}
+                value={form.book_value_override ?? ''} onChange={set('book_value_override')}
+                placeholder={isEdit && initial?.book_value != null ? `คำนวณได้ ${formatMoney(initial.book_value)}` : 'เว้นว่าง = ใช้ค่าที่คำนวณ'}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-500" />
+            </div>
+          </>}
 
           <div className="md:col-span-2 flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
@@ -350,6 +389,8 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
 // ดู docstring EquipmentBulkUpdate ฝั่ง backend)
 const BULK_FIELDS = [
   { key: 'name', label: 'ชื่ออุปกรณ์', type: 'text' },
+  { key: 'manufacturer', label: 'ผู้ผลิต', type: 'text', placeholder: 'เช่น Aosong, Dell' },
+  { key: 'model_number', label: 'รุ่น (Model)', type: 'text', placeholder: 'เช่น DHT11' },
   {
     key: 'item_type', label: 'ประเภท', type: 'select',
     options: [['durable', 'ครุภัณฑ์'], ['material', 'วัสดุ'], ['consumable', 'วัสดุสิ้นเปลือง']],
@@ -358,7 +399,9 @@ const BULK_FIELDS = [
   { key: 'location', label: 'สถานที่เก็บ', type: 'text', placeholder: 'เช่น 15312 ตู้A ชั้น3' },
   { key: 'description', label: 'คำอธิบาย', type: 'textarea' },
   { key: 'unit', label: 'หน่วย', type: 'text', placeholder: 'ชิ้น / ก้อน…' },
-  { key: 'unit_value', label: 'มูลค่า/ชิ้น (บาท)', type: 'number' },
+  { key: 'unit_value', label: 'มูลค่าแท้จริง / ราคาที่ซื้อ (บาท)', type: 'number' },
+  { key: 'acquired_at', label: 'วันที่ได้มา', type: 'date' },
+  { key: 'useful_life_years', label: 'อายุการใช้งาน (ปี)', type: 'number' },
   { key: 'low_stock_threshold', label: 'แจ้งเตือนของใกล้หมด (จำนวน)', type: 'number' },
   {
     key: 'status', label: 'สถานะ', type: 'select',
@@ -368,12 +411,35 @@ const BULK_FIELDS = [
   { key: 'is_borrowable', label: 'อนุญาตให้ยืม', type: 'bool' },
 ]
 
+// ประวัติการแก้ไขของอุปกรณ์ชิ้นเดียว — ตอบคำถามอาจารย์ว่า "ย้ายจากไหนไปไหน เมื่อไร ใครทำ"
+function HistoryModal({ target, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <h2 className="font-bold text-gray-800">ประวัติการเปลี่ยนแปลง</h2>
+        <p className="mb-4 text-xs text-gray-500 font-mono">{target.code} · {target.name}</p>
+        <AuditTimeline targetId={target.id} />
+        <button onClick={onClose}
+          className="mt-5 w-full rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ปิด</button>
+      </div>
+    </div>
+  )
+}
+
 // แก้ไขหลายหน่วยพร้อมกัน — แต่ละฟิลด์เป็น checkbox เปิดใช้ + input คู่กัน ไม่ติ๊ก = ไม่ส่งฟิลด์นั้น = ไม่แตะของเดิม
+// ฟิลด์การเงินที่ผู้ดูแลคลังแก้ไม่ได้ (ต้องตรงกับ FINANCE_FIELDS ฝั่ง backend)
+const FINANCE_BULK_KEYS = new Set(['unit_value', 'acquired_at', 'useful_life_years', 'book_value_override'])
+
 function BulkEditModal({ count, categories, onClose, onSave }) {
+  const { user: me } = useAuthContext()
+  const canEditFinance = isSuperadmin(me)
   const [enabled, setEnabled] = useState({})
   const [values, setValues] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // เปลี่ยนสถานะหลายรายการก็ต้องมีเหตุผลเหมือนแก้ทีละชิ้น (backend บังคับ) เหตุผลเดียวใช้กับทุกแถวที่เลือก
+  const [statusReason, setStatusReason] = useState('')
 
   // เปิดใช้ฟิลด์ type select/bool ต้องตั้งค่าเริ่มต้นจริงลง values ทันที ไม่ปล่อยเป็น undefined รอ onChange
   // (undefined โดน JSON.stringify ตัดคีย์ทิ้งตอน submit → ติ๊ก enable แล้วไม่ไปคลิก dropdown เอง กลายเป็นไม่ส่งฟิลด์
@@ -407,10 +473,11 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
       update[f.key] = f.type === 'number' ? (raw === '' || raw == null ? null : Number(raw)) : raw
     }
     if (Object.keys(update).length === 0) { setError('เลือกอย่างน้อย 1 ฟิลด์ที่จะแก้ไข'); return }
+    if (enabled.status && !statusReason.trim()) { setError('ระบุเหตุผลที่เปลี่ยนสถานะอุปกรณ์'); return }
     setError('')
     setLoading(true)
     try {
-      await onSave(update)
+      await onSave(update, statusReason.trim() || undefined)
     } catch (err) {
       setError(errMsg(err, 'บันทึกไม่สำเร็จ'))
       setLoading(false)
@@ -424,7 +491,13 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
         <p className="mb-4 text-xs text-gray-500">แก้พร้อมกัน {count} รายการ — ติ๊กเฉพาะฟิลด์ที่จะแก้ ฟิลด์ที่ไม่ติ๊กจะไม่ถูกแตะ</p>
         {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <form onSubmit={submit} className="space-y-3">
-          {BULK_FIELDS.map((f) => (
+          {!canEditFinance && (
+            <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              ราคา · วันที่ได้มา · อายุการใช้งาน · มูลค่าตามบัญชี แก้ได้เฉพาะผู้ดูแลระบบสูงสุด
+              — ต้องการเปลี่ยนให้ยื่น "คำขอแก้ไขข้อมูล" พร้อมเหตุผล (จึงไม่แสดงในรายการด้านล่าง)
+            </p>
+          )}
+          {BULK_FIELDS.filter((f) => canEditFinance || !FINANCE_BULK_KEYS.has(f.key)).map((f) => (
             <div key={f.key} className="rounded-lg border border-gray-200 p-2.5">
               <label className="flex items-center gap-2 text-xs font-medium text-gray-700 mb-1.5">
                 <input type="checkbox" checked={!!enabled[f.key]} onChange={() => toggleField(f.key)} />
@@ -438,6 +511,10 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
                 <input type="text" value={values[f.key] ?? ''} placeholder={f.placeholder} onChange={(e) => setVal(f.key, e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               )}
+              {enabled[f.key] && f.type === 'date' && (
+                <input type="date" value={values[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              )}
               {enabled[f.key] && f.type === 'number' && (
                 <input type="number" step="0.01" value={values[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
@@ -447,6 +524,12 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
                   {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
+              )}
+              {/* เปลี่ยนสถานะต้องอธิบายได้เสมอ (เฟส 8) — เหตุผลเดียวใช้กับทุกแถวที่เลือก เหมือนปลดระวางหลายรายการ */}
+              {enabled[f.key] && f.key === 'status' && (
+                <input type="text" value={statusReason} onChange={(e) => setStatusReason(e.target.value)}
+                  placeholder="เหตุผลที่เปลี่ยนสถานะ (บังคับ)"
+                  className="mt-1.5 w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               )}
               {enabled[f.key] && f.type === 'bool' && (
                 <select value={values[f.key] === false ? 'false' : 'true'} onChange={(e) => setVal(f.key, e.target.value === 'true')}
@@ -590,11 +673,10 @@ export default function EquipmentManagePage() {
   // ติ๊กที่แถวกลุ่ม (อุปกรณ์เก่าจากทะเบียนส่วนใหญ่ยุบรวมหลายหน่วยแบบนี้) = เลือกทุกหน่วยในกลุ่มทีเดียว
   // ไม่ต้องกด "ดูรายหน่วย" ไล่ติ๊กเองทีละชิ้นก่อน — โหลดรายหน่วยให้อัตโนมัติถ้ายังไม่เคยกางดู (เห็นเป็นโบนัสว่าเลือกอะไรไปบ้าง)
   const toggleSelectGroup = async (eq) => {
-    let members = expanded[eq.id]
+    let members = memberCache[eq.id]
     if (!members) {
       const detail = await equipmentApi.getGrouped(eq.id)
-      members = detail.members
-      setExpanded((e) => ({ ...e, [eq.id]: members }))
+      members = cacheMembers(eq.id, detail.members)
     }
     const memberIds = members.map((m) => m.id)
     const allSelected = memberIds.length > 0 && memberIds.every((id) => selected.has(id))
@@ -616,20 +698,38 @@ export default function EquipmentManagePage() {
     return id
   }
 
-  // { [groupId]: EquipmentUnitSummary[] } — กลุ่มที่กำลังกางดูหน่วยย่อยอยู่
+  const [historyTarget, setHistoryTarget] = useState(null)
+  // { [groupId]: EquipmentUnitSummary[] } — กลุ่มที่กำลัง "กางดู" หน่วยย่อยอยู่
   const [expanded, setExpanded] = useState({})
+  // จำรายชื่อหน่วยของกลุ่มที่เคยโหลดแล้ว **ไม่ลบตอนยุบ** — สถานะติ๊กของแถวกลุ่มต้องรู้ว่ากลุ่มมีหน่วยอะไรบ้าง
+  // เดิมอ่านจาก expanded ตรง ๆ พอยุบกลุ่มแล้ว checkbox เลยกลับไปเป็นไม่ติ๊ก ทั้งที่ยังเลือกอยู่จริง (บั๊กที่ผู้ใช้เจอ)
+  const [memberCache, setMemberCache] = useState({})
+
+  const cacheMembers = (groupId, members) => {
+    setMemberCache((m) => ({ ...m, [groupId]: members }))
+    return members
+  }
 
   const toggleExpand = (groupId) => {
     if (expanded[groupId]) {
       setExpanded((e) => { const n = { ...e }; delete n[groupId]; return n })
       return
     }
-    equipmentApi.getGrouped(groupId).then((detail) => setExpanded((e) => ({ ...e, [groupId]: detail.members })))
+    if (memberCache[groupId]) {
+      setExpanded((e) => ({ ...e, [groupId]: memberCache[groupId] }))
+    }
+    equipmentApi.getGrouped(groupId).then((detail) => {
+      cacheMembers(groupId, detail.members)
+      setExpanded((e) => ({ ...e, [groupId]: detail.members }))
+    })
   }
 
   const refreshExpanded = (groupId) => {
     if (!(groupId in expanded)) return
-    equipmentApi.getGrouped(groupId).then((detail) => setExpanded((e) => ({ ...e, [groupId]: detail.members })))
+    equipmentApi.getGrouped(groupId).then((detail) => {
+      cacheMembers(groupId, detail.members)
+      setExpanded((e) => ({ ...e, [groupId]: detail.members }))
+    })
   }
 
   // แก้ไขหน่วยเดียวในกลุ่ม — ต้องโหลดข้อมูลเต็มก่อน (การ์ดกลุ่มมีแค่ฟิลด์สรุป)
@@ -766,7 +866,32 @@ export default function EquipmentManagePage() {
   return (
     <div className="px-6 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-light text-gray-800">จัดการอุปกรณ์</h1>
+        <div>
+          <h1 className="text-2xl font-light text-gray-800">จัดการอุปกรณ์</h1>
+          {/* ตารางยุบรุ่นเดียวกันเป็นแถวเดียว ตัวเลขแถวจึงไม่ใช่จำนวนของจริง — ต้องบอกจำนวน "ชิ้น" ควบคู่เสมอ
+              ไม่งั้นอ่านว่า "187 รายการ" แล้วเข้าใจว่าคลังมีของแค่ 187 ชิ้น (8 ก.ย. 69) */}
+          <p className="text-xs text-gray-500 mt-0.5">
+            {data.summary
+              ? <>
+                  <b>{data.summary.pieces.toLocaleString('th-TH')} ชิ้น</b>
+                  {' '}จาก {data.total.toLocaleString('th-TH')} รุ่น ·
+                  {' '}ว่างให้ยืม {data.summary.available.toLocaleString('th-TH')} ชิ้น
+                  {(search || filterCategory || filterType || filterStatus) && ' (ตามตัวกรองปัจจุบัน)'}
+                </>
+              : <>ทั้งหมด {data.total.toLocaleString('th-TH')} รุ่น</>}
+          </p>
+          {data.summary?.by_type?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {data.summary.by_type.map((t) => (
+                <span key={t.item_type}
+                  className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
+                  {TYPE_LABEL[t.item_type] ?? t.item_type} {t.pieces.toLocaleString('th-TH')} ชิ้น
+                  <span className="text-gray-400"> ({t.groups} รุ่น · ว่าง {t.available.toLocaleString('th-TH')})</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowDocs((v) => !v)}
             className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
@@ -853,6 +978,8 @@ export default function EquipmentManagePage() {
               เดิมดูได้แค่กดเข้ามาจาก dashboard เฉยๆ ไม่มี filter ให้กรองต่อ */}
           <option value="low_stock">สต็อกต่ำ</option>
           <option value="borrowed">ถูกยืมอยู่</option>
+          <option value="no_price">⚠ ยังไม่มีราคา</option>
+          <option value="no_acquired_at">⚠ ยังไม่มีวันที่ได้มา</option>
         </select>
       </div>
 
@@ -886,7 +1013,7 @@ export default function EquipmentManagePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['', 'รูป', 'รหัส', 'ชื่อ', 'หมวดหมู่', 'ประเภท', 'คงเหลือ', 'สถานะ', ''].map((h, i) => (
+                {['', 'รูป', 'รหัส', 'ชื่อ', 'หมวดหมู่', 'ประเภท', 'คงเหลือ', 'อายุ', 'มูลค่า (ทุน/บัญชี)', 'สถานะ', ''].map((h, i) => (
                   <th key={i} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -894,7 +1021,7 @@ export default function EquipmentManagePage() {
             <tbody className="divide-y divide-gray-100">
               {data.items.map((eq) => {
                 const grouped = eq.unit_count > 1
-                const members = expanded[eq.id]
+                const members = memberCache[eq.id]   // ใช้ cache ไม่ใช่ expanded — ยุบกลุ่มแล้วติ๊กต้องไม่หาย
                 return (
                   <Fragment key={eq.id}>
                     <tr className="hover:bg-gray-50">
@@ -914,7 +1041,7 @@ export default function EquipmentManagePage() {
                         {eq.name}
                         {grouped && (
                           <button onClick={() => toggleExpand(eq.id)} className="ml-2 text-xs font-normal text-primary-600 hover:underline">
-                            {members ? 'ซ่อนรายหน่วย ▲' : `${eq.unit_count} หน่วย ▾`}
+                            {expanded[eq.id] ? 'ซ่อนรายหน่วย ▲' : `${eq.unit_count} หน่วย ▾`}
                           </button>
                         )}
                         {/* กระจายอยู่มากกว่า 1 สถานที่ (เช่นแยกเป็นรายชิ้นแล้วย้ายบางชิ้น) — โชว์สรุปแยกตามสถานที่ */}
@@ -927,6 +1054,13 @@ export default function EquipmentManagePage() {
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{(eq.categories ?? []).map((c) => c.name).join(', ') || '—'}</td>
                       <td className="px-4 py-2.5 text-gray-500">{{ durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'สิ้นเปลือง' }[eq.item_type] ?? eq.item_type}</td>
                       <td className="px-4 py-2.5 text-gray-600">{eq.quantity_available}/{eq.quantity_total} {eq.unit ?? ''}</td>
+                      {/* การ์ดกลุ่มโชว์ค่าของหน่วยตัวแทน — หน่วยในกลุ่มอาจซื้อคนละล็อตคนละราคา กางดูรายหน่วยได้ */}
+                      <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{formatAge(eq.acquired_at)}</td>
+                      <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                        {eq.unit_value == null
+                          ? <span className="text-rose-500">ยังไม่มีราคา</span>
+                          : <span className="text-gray-600">{formatMoney(eq.unit_value)} / {formatMoney(eq.book_value)}</span>}
+                      </td>
                       {/* การ์ดกลุ่มหลายหน่วย (grouped) สถานะ "available" มาจาก backend แปลว่ามีหน่วยว่างอย่างน้อย 1 ชิ้นอยู่แล้ว
                           (ดู _build_group_response) ไม่ derive ซ้ำตรงนี้ — derive เฉพาะแถวเดี่ยว 1 หน่วยที่ค่า quantity เป็นของหน่วยนั้นจริง */}
                       <td className="px-4 py-2.5">
@@ -938,9 +1072,23 @@ export default function EquipmentManagePage() {
                             พอดีอยู่แล้ว โค้ดเดียวจึงครอบคลุมทุกกรณีโดยไม่ต้องมี path เดี่ยวแยกอีก */}
                         {!grouped && eq.holders?.length > 0 && (
                           <div className="font-normal text-gray-400 text-xs">
-                            {eq.holders.map((h, i) => (
-                              <div key={i}>{h.holder_name}{h.student_number ? ` (${h.student_number})` : ''} ×{h.quantity}</div>
-                            ))}
+                            {eq.holders.map((h, i) => {
+                              // เกินกำหนดกี่วัน — แอดมินต้องเห็นตรงรายการอุปกรณ์เลยว่า "ชิ้นนี้ค้างอยู่ที่ใครและช้าแค่ไหน"
+                              // ไม่ใช่ต้องไปไล่หาในหน้าประวัติการยืม (8 ก.ย. 69)
+                              const late = h.due_date
+                                ? Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(h.due_date).setHours(0, 0, 0, 0)) / 86400000)
+                                : 0
+                              return (
+                                <div key={i}>
+                                  {h.holder_name}{h.student_number ? ` (${h.student_number})` : ''} ×{h.quantity}
+                                  {late > 0 ? (
+                                    <span className="ml-1 font-medium text-red-600">· เกินกำหนด {late} วัน</span>
+                                  ) : h.due_date && (
+                                    <span className="ml-1">· คืน {formatThaiShort(h.due_date)}</span>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                       </td>
@@ -948,7 +1096,7 @@ export default function EquipmentManagePage() {
                         {grouped ? (
                           <div className="flex gap-3">
                             <button onClick={() => toggleExpand(eq.id)} className="text-xs text-primary-600 hover:underline">
-                              {members ? 'ปิด' : 'ดูรายหน่วย'}
+                              {expanded[eq.id] ? 'ปิด' : 'ดูรายหน่วย'}
                             </button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                           </div>
@@ -956,6 +1104,7 @@ export default function EquipmentManagePage() {
                           <div className="flex gap-3">
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
+                            <button onClick={() => setHistoryTarget({ id: eq.id, name: eq.name, code: eq.code })} className="text-xs text-gray-500 hover:underline">ประวัติ</button>
                             <button onClick={() => setRestock({ id: eq.id, name: eq.name })} className="text-xs text-emerald-600 hover:underline">+ เพิ่มจำนวน</button>
                             <button onClick={() => setAdjustTarget({ id: eq.id, name: eq.name, available: eq.quantity_available, total: eq.quantity_total })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {eq.item_type === 'material' && eq.unit_count === 1 && eq.quantity_total > 1 && eq.status !== 'retired' && (
@@ -975,7 +1124,7 @@ export default function EquipmentManagePage() {
                       </td>
                     </tr>
 
-                    {grouped && members && members.map((u) => (
+                    {grouped && expanded[eq.id]?.map((u) => (
                       <tr key={u.id} className="bg-gray-50/60">
                         <td className="px-4 py-1.5">
                           <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)} />
@@ -987,6 +1136,13 @@ export default function EquipmentManagePage() {
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
+                        {/* หน่วยในกลุ่มเดียวกันซื้อคนละล็อตคนละราคาได้ — ต้องเห็นอายุ/มูลค่าแยกรายหน่วย */}
+                        <td className="px-4 py-1.5 text-xs text-gray-400 whitespace-nowrap">{formatAge(u.acquired_at)}</td>
+                        <td className="px-4 py-1.5 text-xs whitespace-nowrap">
+                          {u.unit_value == null
+                            ? <span className="text-rose-500">ยังไม่มีราคา</span>
+                            : <span className="text-gray-400">{formatMoney(u.unit_value)} / {formatMoney(u.book_value)}</span>}
+                        </td>
                         <td className="px-4 py-1.5">
                           <StatusBadge status={unitDisplayStatus(u)} isBorrowable={u.is_borrowable} />
                           {u.holder && (
@@ -999,6 +1155,7 @@ export default function EquipmentManagePage() {
                           <div className="flex gap-3">
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
+                            <button onClick={() => setHistoryTarget({ id: u.id, name: eq.name, code: u.code })} className="text-xs text-gray-500 hover:underline">ประวัติ</button>
                             <button onClick={() => setAdjustTarget({ id: u.id, name: eq.name, available: u.quantity_available, total: u.quantity_total, groupId: eq.id })} className="text-xs text-rose-600 hover:underline">ปรับยอดคงเหลือ</button>
                             {u.status !== 'retired' && (
                               <button onClick={() => retire(u.id, eq.name, eq.id)} className="text-xs text-orange-500 hover:underline">ปลดระวาง</button>
@@ -1030,6 +1187,9 @@ export default function EquipmentManagePage() {
         />
       )}
 
+      {historyTarget && (
+        <HistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />
+      )}
       {qrTarget && (
         <QrCodeModal id={qrTarget.id} name={qrTarget.name} onClose={() => setQrTarget(null)} />
       )}
@@ -1099,8 +1259,8 @@ export default function EquipmentManagePage() {
           count={selected.size}
           categories={categories}
           onClose={() => setShowBulkEdit(false)}
-          onSave={async (update) => {
-            const result = await equipmentApi.bulkUpdate([...selected], update)
+          onSave={async (update, statusReason) => {
+            const result = await equipmentApi.bulkUpdate([...selected], update, statusReason)
             setShowBulkEdit(false)
             setSelected(new Set())
             // เปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลักถูกข้ามแบบ best-effort (ดู BulkUpdateResult.failed ฝั่ง

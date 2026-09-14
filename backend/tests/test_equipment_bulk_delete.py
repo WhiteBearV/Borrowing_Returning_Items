@@ -20,7 +20,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, retired: bool
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบลบหลายรายการ {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     eq_id = r.json()["id"]
@@ -37,11 +37,11 @@ async def _cleanup(*eq_ids: str) -> None:
         await db.commit()
 
 
-async def test_bulk_delete_all_succeed(client: AsyncClient, admin_token: str):
+async def test_bulk_delete_all_succeed(client: AsyncClient, admin_token: str, superadmin_token: str):
     h = auth(admin_token)
     ids = [await _make_equipment(client, h, retired=True) for _ in range(2)]
     try:
-        r = await client.post("/equipment/bulk-delete", json={"equipment_ids": ids}, headers=h)
+        r = await client.post("/equipment/bulk-delete", json={"equipment_ids": ids}, headers=auth(superadmin_token))
         assert r.status_code == 200, r.text
         body = r.json()
         assert set(body["deleted"]) == set(ids)
@@ -50,12 +50,12 @@ async def test_bulk_delete_all_succeed(client: AsyncClient, admin_token: str):
         await _cleanup(*ids)
 
 
-async def test_bulk_delete_partial_failure_not_retired(client: AsyncClient, admin_token: str):
+async def test_bulk_delete_partial_failure_not_retired(client: AsyncClient, admin_token: str, superadmin_token: str):
     h = auth(admin_token)
     ok_id = await _make_equipment(client, h, retired=True)
     bad_id = await _make_equipment(client, h, retired=False)  # ยังไม่ปลดระวาง
     try:
-        r = await client.post("/equipment/bulk-delete", json={"equipment_ids": [ok_id, bad_id]}, headers=h)
+        r = await client.post("/equipment/bulk-delete", json={"equipment_ids": [ok_id, bad_id]}, headers=auth(superadmin_token))
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["deleted"] == [ok_id]
@@ -66,7 +66,7 @@ async def test_bulk_delete_partial_failure_not_retired(client: AsyncClient, admi
         await _cleanup(ok_id, bad_id)
 
 
-async def test_bulk_delete_partial_failure_bundle_member(client: AsyncClient, admin_token: str):
+async def test_bulk_delete_partial_failure_bundle_member(client: AsyncClient, admin_token: str, superadmin_token: str):
     h = auth(admin_token)
     ok_id = await _make_equipment(client, h, retired=True)
     bundle_member_id = await _make_equipment(client, h, retired=False)
@@ -81,7 +81,8 @@ async def test_bulk_delete_partial_failure_bundle_member(client: AsyncClient, ad
         assert (await client.delete(f"/equipment/{bundle_member_id}", headers=h)).status_code == 204  # retire
 
         r = await client.post(
-            "/equipment/bulk-delete", json={"equipment_ids": [ok_id, bundle_member_id]}, headers=h
+            "/equipment/bulk-delete", json={"equipment_ids": [ok_id, bundle_member_id]},
+            headers=auth(superadmin_token),
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -99,9 +100,9 @@ async def test_bulk_delete_partial_failure_bundle_member(client: AsyncClient, ad
         await _cleanup(ok_id, bundle_member_id)
 
 
-async def test_bulk_delete_empty_list_rejected(client: AsyncClient, admin_token: str):
+async def test_bulk_delete_empty_list_rejected(client: AsyncClient, admin_token: str, superadmin_token: str):
     h = auth(admin_token)
-    r = await client.post("/equipment/bulk-delete", json={"equipment_ids": []}, headers=h)
+    r = await client.post("/equipment/bulk-delete", json={"equipment_ids": []}, headers=auth(superadmin_token))
     assert r.status_code == 422
 
 

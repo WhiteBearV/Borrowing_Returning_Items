@@ -40,7 +40,7 @@ export default function ProfilePage() {
     setSaving(true)
     setError('')
     try {
-      await api.patch('/users/me', { full_name: form.full_name, major: form.major || undefined })
+      await api.patch('/users/me', { full_name: form.full_name })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
@@ -99,16 +99,16 @@ export default function ProfilePage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
+          {/* สาขาแก้เองไม่ได้ (8 ก.ย. 69) — ค่านี้มาจากรายชื่อที่สาขารับรอง และถูกใช้กำหนดสิทธิ์/สถิติ
+              ถ้าให้เปลี่ยนเองเมื่อไหร่ก็ได้ ข้อมูลสาขาทั้งระบบก็เชื่อถือไม่ได้ (backend ก็ไม่รับค่านี้แล้ว) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">สาขา</label>
-            <select
-              value={form.major}
-              onChange={(e) => setForm({ ...form, major: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">— ไม่ระบุ —</option>
-              {MAJORS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+            <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+              {MAJORS.find((m) => m.value === user?.major)?.label ?? '— ไม่ระบุ —'}
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              สาขายึดตามรายชื่อที่สาขารับรอง — ถ้าไม่ถูกต้อง กรุณาแจ้งเจ้าหน้าที่ห้องพัสดุแก้ให้
+            </p>
           </div>
           <button
             type="submit"

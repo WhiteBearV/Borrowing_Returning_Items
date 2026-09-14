@@ -13,6 +13,7 @@ from reportlab.platypus import (
 )
 
 from app.core.config import TZ
+from app.utils.duedate import effective_due_date
 
 _FONT_DIR = Path(__file__).parent / "fonts"
 _REGISTERED = False
@@ -64,6 +65,83 @@ def _fmt_datetime(dt) -> str:
         return str(dt)
 
 
+def _fmt_date_short(d) -> str:
+    """วันที่แบบย่อในตาราง เช่น "1 ก.ย. 69" — คอลัมน์กำหนดคืนแคบเกินกว่าจะใส่ 01/09/2569"""
+    if d is None:
+        return "-"
+    try:
+        d = _local(d)
+        return f"{d.day} {_THAI_MONTHS_ABBR[d.month - 1]} {(d.year + 543) % 100:02d}"
+    except Exception:
+        return str(d)
+
+
+def _item_due(item: object, req: object, draft: bool):
+    """วันครบกำหนดคืนของ 1 รายการที่จะพิมพ์ลงเอกสาร
+
+    ใบยืมจริงใช้ effective_due_date (ต่อเวลาที่อนุมัติแล้วชนะเสมอ — ใบที่พิมพ์ซ้ำหลังต่อเวลา
+    จึงขึ้นวันใหม่ถูกต้อง) ส่วนร่าง/พรีวิวยังไม่มีวันจริง ใช้วันที่ผู้ยืม "ขอไว้" ของชิ้นนั้น
+    """
+    if draft:
+        return getattr(item, "requested_due_date", None) or getattr(req, "due_date", None)
+    return effective_due_date(item, req)
+
+
+def _fmt_date_th(d) -> str:
+    """วันที่แบบไทยเต็มปี เช่น "30 ก.ย. 2569" — ใช้กับบรรทัดหัวที่พูดถึงกำหนดคืน
+
+    ไม่ใช้ _fmt_date (01/09/2026) กับกำหนดคืน เพราะบรรทัดหัวกับตารางต้องเป็นปฏิทินเดียวกัน
+    ไม่งั้นหัวบอก 2026 ตารางบอก 69 ในเอกสารใบเดียวกัน
+    """
+    if d is None:
+        return "-"
+    try:
+        d = _local(d)
+        return f"{d.day} {_THAI_MONTHS_ABBR[d.month - 1]} {d.year + 543}"
+    except Exception:
+        return str(d)
+
+
+def _fmt_datetime_th(dt) -> str:
+    """วัน+เวลาแบบไทย เช่น "8 ก.ย. 2569 13:00" — ใช้กับนัดรับของ ให้เป็นปฏิทินเดียวกับกำหนดคืนในตาราง"""
+    if dt is None:
+        return "-"
+    try:
+        return f"{_fmt_date_th(dt)} {_local(dt):%H:%M}"
+    except Exception:
+        return str(dt)
+
+
+def _fmt_datetime_short(dt) -> str:
+    """วัน+เวลาแบบย่อสำหรับช่องแคบในใบคืน เช่น 2 ต.ค. 69 14:30"""
+    if dt is None:
+        return "-"
+    try:
+        return f"{_fmt_date_short(dt)} {_local(dt).strftime('%H:%M')}"
+    except Exception:
+        return str(dt)
+
+
+def _return_cell(item: object, due) -> str:
+    """ช่อง "วันเวลาที่คืน" ของใบคืน — กำหนด / คืนจริง / ช้ากี่วัน ในเซลล์เดียว
+
+    "ช้า N วัน" ขึ้นเฉพาะเมื่อเกินกำหนดจริง เป็นหลักฐานประกอบเวลาเรียกค่าปรับ
+    (เทียบเฉพาะส่วนวันที่ — คืนวันครบกำหนดตอนบ่ายไม่ถือว่าช้า)
+    """
+    returned_at = getattr(item, "returned_at", None)
+    lines = []
+    if due:
+        lines.append(f"กำหนด {_fmt_date_short(due)}")
+    lines.append(f"คืนจริง {_fmt_datetime_short(returned_at)}" if returned_at else "คืนจริง -")
+    if due and returned_at:
+        actual = _local(returned_at)
+        actual = actual.date() if hasattr(actual, "date") else actual
+        late = (actual - due).days
+        if late > 0:
+            lines.append(f"(ช้า {late} วัน)")
+    return "<br/>".join(lines)
+
+
 def _doc_title(title_th: str, code: str | None = None) -> str:
     """ชื่อเอกสารที่ฝังใน PDF metadata — ไม่มีอันนี้ Chrome จะโชว์แท็บว่า "(anonymous)"
 
@@ -73,23 +151,26 @@ def _doc_title(title_th: str, code: str | None = None) -> str:
     return f"{short} {code}" if code else short
 
 
-def generate_borrow_pdf(req: object) -> bytes:
+def generate_borrow_pdf(req: object, value_source: str = "acquisition") -> bytes:
     """สร้าง PDF ใบยืมอุปกรณ์ ตามแบบฟอร์มกระดาษของคณะ"""
-    return _build_form(req, "borrow")
+    return _build_form(req, "borrow", value_source)
 
 
-def generate_preview_pdf(req: object) -> bytes:
+def generate_preview_pdf(req: object, value_source: str = "acquisition") -> bytes:
     """สร้าง PDF ร่างใบยืม (ก่อนกดส่งคำขอ / ยังไม่อนุมัติ) — ฟอร์มเดียวกัน ต่างแค่ประทับว่าเป็นร่าง"""
-    return _build_form(req, "draft")
+    return _build_form(req, "draft", value_source)
 
 
-def generate_return_pdf(req: object) -> bytes:
+def generate_return_pdf(req: object, value_source: str = "acquisition") -> bytes:
     """สร้าง PDF ใบคืนอุปกรณ์ — เลย์เอาต์ล้อใบยืม ใช้เลขคำขอเดียวกัน ต่างที่สภาพเมื่อคืน"""
-    return _build_form(req, "return")
+    return _build_form(req, "return", value_source)
 
 
 _THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
                 "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+# แบบย่อสำหรับช่องแคบในตาราง (คอลัมน์กำหนดคืน 22mm) — "1 ก.ย. 69" พอดี ส่วน 01/09/2569 ล้น
+_THAI_MONTHS_ABBR = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+                     "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 # ย่อหน้ารับรอง — คัดจากแบบฟอร์มกระดาษของคณะคำต่อคำ ห้ามแก้ถ้อยคำเอง
 _PLEDGE = (
@@ -103,7 +184,6 @@ _RETURN_NOTE = (
     "พร้อมบันทึกสภาพของอุปกรณ์แต่ละรายการไว้เป็นหลักฐานตามที่ปรากฏในตาราง"
 )
 # จำนวนแถวขั้นต่ำในตาราง — ฟอร์มกระดาษเว้นบรรทัดว่างไว้ให้เขียนเพิ่มด้วยมือ
-_MIN_ITEM_ROWS = 12
 
 # ป้ายประเภท/หน่วยเริ่มต้นในใบยืม (item_type = durable / material / consumable)
 _ITEM_TYPE_TH = {"durable": "ครุภัณฑ์", "material": "วัสดุใช้ซ้ำ", "consumable": "วัสดุสิ้นเปลือง"}
@@ -115,6 +195,17 @@ def _fmt_money(v) -> str:
     return f"{float(v):,.2f}" if v is not None else "-"
 
 
+def _item_value(item: object, value_source: str):
+    """มูลค่าที่เอกสารจะแสดงสำหรับ 1 รายการ ตาม setting pdf_value_source
+
+    ทั้งสองค่าเป็น snapshot ณ วันอนุมัติ (unit_value_snapshot / book_value_snapshot) ไม่คำนวณสด
+    ใบยืมใบเดิมจึงพิมพ์ซ้ำได้ตัวเลขเดิมเสมอ แม้ค่าเสื่อมจะเดินไปแล้วหรือแอดมินแก้ราคาในคลังภายหลัง
+    """
+    if value_source == "book":
+        return getattr(item, "book_value", None)
+    return getattr(item, "equipment_value", None)
+
+
 def _thai_date_parts(dt) -> tuple[str, str, str]:
     """(วัน, เดือนไทย, พ.ศ.) — ฟอร์มราชการเขียนวันที่แยกช่อง ไม่ใช่ 01/07/2569"""
     dt = _local(dt) if dt else None
@@ -124,11 +215,16 @@ def _thai_date_parts(dt) -> tuple[str, str, str]:
 
 
 def _position_th(req: object) -> str:
-    """ตำแหน่งผู้ยืมบนฟอร์ม — มีรหัสนักศึกษา = นักศึกษา ไม่มี = บุคลากร (ไม่ต้องเก็บฟิลด์เพิ่ม)"""
-    return "นักศึกษา" if getattr(req, "student_number", None) else "อาจารย์/เจ้าหน้าที่"
+    """ตำแหน่งผู้ยืมบนฟอร์ม — ตัดสินจาก "มีรหัสนักศึกษาไหม" ไม่ใช่ "มีรหัสประจำตัวไหม"
+    เพราะตอนนี้อาจารย์ก็มีรหัสประจำตัวของตัวเอง (username) แล้ว
+    """
+    is_student = getattr(req, "borrower_is_student", None)
+    if is_student is None:  # object ที่ไม่มีฟิลด์นี้ (เช่นที่ประกอบเอง) — ถอยไปใช้เกณฑ์เดิม
+        is_student = bool(getattr(req, "student_number", None))
+    return "นักศึกษา" if is_student else "อาจารย์/เจ้าหน้าที่"
 
 
-def _build_form(req: object, kind: str) -> bytes:
+def _build_form(req: object, kind: str, value_source: str = "acquisition") -> bytes:
     """ใบยืม / ร่างใบยืม / ใบคืนสิ่งของและอุปกรณ์ — เลย์เอาต์เดียวกันทั้งหมด (ดู docs/น.ส.อรพรรณ คล้ายนาค.pdf)
 
     ใบคืนล้อใบยืมทุกส่วนและใช้เลขคำขอเดียวกัน ต่างแค่หัวเรื่อง วันที่อ้างอิง
@@ -177,7 +273,8 @@ def _build_form(req: object, kind: str) -> bytes:
     elems.append(Paragraph(f"วันที่ {d} เดือน {m} พ.ศ. {y} &nbsp;&nbsp; เวลา {time_str} น.", right))
     elems.append(Spacer(1, 4))
     name = getattr(req, "student_name", None) or "____________________"
-    number = getattr(req, "student_number", None)
+    # อาจารย์/เจ้าหน้าที่ต้องมีรหัสประจำตัวขึ้นบนใบยืมเหมือนกัน ไม่ใช่เว้นว่างเพราะไม่มีรหัสนักศึกษา
+    number = getattr(req, "borrower_identifier", None) or getattr(req, "student_number", None)
     who = f"{name} ({number})" if number else name
     elems.append(Paragraph(
         f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{_position_th(req)}</u>", body))
@@ -188,92 +285,137 @@ def _build_form(req: object, kind: str) -> bytes:
     if contact:
         elems.append(Paragraph(f"ช่องทางติดต่อ <u>{contact}</u>", body))
     purpose = getattr(req, "purpose", None)
-    if is_return:
-        elems.append(Paragraph(
-            f"ขอส่งคืนวัสดุ อุปกรณ์ ตามใบยืมเลขที่ <u>{code or '-'}</u> ดังรายการต่อไปนี้", body))
-        elems.append(Paragraph(
-            f"วันที่ยืม <u>{_fmt_datetime(getattr(req, 'requested_at', None))}</u>"
-            f" &nbsp;&nbsp; กำหนดคืน <u>{_fmt_date(getattr(req, 'due_date', None))}</u>", body))
-    else:
-        elems.append(Paragraph(
-            "มีความประสงค์จะขอยืมวัสดุ อุปกรณ์ ดังรายการต่อไปนี้"
-            + (f" (เพื่อ {purpose})" if purpose else ""), body))
-        elems.append(Paragraph(
-            f"กำหนดคืน (โดยประมาณ) <u>{_fmt_date(getattr(req, 'due_date', None))}</u>", body))
-    elems.append(Spacer(1, 10))
 
-    # ── ตารางรายการ ──
-    # ใบยืม: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | มูลค่า/ชิ้น
-    # ใบคืน: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | สภาพเมื่อคืน | วันเวลาที่คืน
-    def _h(t: str) -> Paragraph:
-        return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=10, alignment=1))
-
+    # รายการที่พิมพ์ลงเอกสาร — ใบยืมพิมพ์เฉพาะชิ้นที่ได้รับอนุมัติ (ชิ้นที่แอดมินไม่อนุมัติไม่เคยออกจากคลัง
+    # ถ้าพิมพ์ลงใบที่ผู้ยืมเซ็นรับผิดชอบ = ให้เซ็นรับของที่ไม่เคยได้รับ) ใบคืนสะสมเฉพาะชิ้นที่คืนแล้ว
     items = list(getattr(req, "items", []))
     if is_return:
-        # ใบคืนสะสมเฉพาะชิ้นที่คืนแล้ว เรียงตามเวลาที่คืน — คืนเพิ่มภายหลังจะโผล่เป็นแถวใหม่พร้อมเวลาของตัวเอง
         items = sorted(
             [it for it in items if getattr(it, "returned", False)],
             key=lambda it: getattr(it, "returned_at", None) or datetime.min.replace(tzinfo=timezone.utc),
         )
-        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"),
-                  _h("สภาพเมื่อคืน"), _h("วันเวลาที่คืน")]
     else:
-        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"), _h("มูลค่า/ชิ้น")]
+        items = [it for it in items if getattr(it, "item_status", "approved") != "rejected"]
+    dues = [_item_due(it, req, draft) for it in items]
+    uniq_dues = sorted({d for d in dues if d})
+
+    if is_return:
+        elems.append(Paragraph(
+            f"ขอส่งคืนวัสดุ อุปกรณ์ ตามใบยืมเลขที่ <u>{code or '-'}</u> ดังรายการต่อไปนี้", body))
+        # วันคืนต่างกันรายชิ้นแล้ว การพิมพ์วันเดียวลอย ๆ ตรงหัวจะขัดกับตารางข้างล่างทันที
+        due_head = (f"กำหนดคืน <u>{_fmt_date_th(uniq_dues[0])}</u>" if len(uniq_dues) == 1
+                    else "กำหนดคืน <u>ตามรายการด้านล่าง</u>" if uniq_dues else "")
+        elems.append(Paragraph(
+            f"วันที่ยืม <u>{_fmt_datetime(getattr(req, 'requested_at', None))}</u>"
+            + (f" &nbsp;&nbsp; {due_head}" if due_head else ""), body))
+    else:
+        elems.append(Paragraph(
+            "มีความประสงค์จะขอยืมวัสดุ อุปกรณ์ ดังรายการต่อไปนี้"
+            + (f" (เพื่อ {purpose})" if purpose else ""), body))
+        # นัดรับของ (เฟส 4) — ใบยืมเป็นเอกสารที่ผู้ยืมถือไปจริง ต้องบอกว่าไปรับที่ไหนเมื่อไหร่
+        pickup_at = getattr(req, "pickup_at", None)
+        if pickup_at:
+            where = getattr(req, "pickup_location", None)
+            elems.append(Paragraph(
+                f"นัดรับของ <u>{_fmt_datetime_th(pickup_at)} น.</u>"
+                + (f" &nbsp;&nbsp; สถานที่ <u>{where}</u>" if where else ""), body))
+            note = getattr(req, "pickup_note", None)
+            if note:
+                elems.append(Paragraph(f"หมายเหตุการรับของ: {note}", body))
+        if len(uniq_dues) > 1:
+            elems.append(Paragraph(
+                f"กำหนดคืนตามรายการด้านล่าง (เร็วสุด <u>{_fmt_date_th(uniq_dues[0])}</u>"
+                f" &nbsp;·&nbsp; ช้าสุด <u>{_fmt_date_th(uniq_dues[-1])}</u>)", body))
+        else:
+            one_due = uniq_dues[0] if uniq_dues else getattr(req, "due_date", None)
+            elems.append(Paragraph(
+                f"กำหนดคืน (โดยประมาณ) <u>{_fmt_date_th(one_due)}</u>", body))
+    elems.append(Spacer(1, 10))
+
+    # ── ตารางรายการ ──
+    # ใบยืม: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | กำหนดคืน | มูลค่า/ชิ้น
+    # ใบคืน: ที่ | รหัส | ชื่ออุปกรณ์ | ประเภท | จำนวน | สภาพเมื่อคืน | กำหนด/วันเวลาที่คืน
+    def _h(t: str) -> Paragraph:
+        return Paragraph(t, _style(f"h{t}", fontName="Thai-Bold", fontSize=10, alignment=1))
+
+    if is_return:
+        # หัวคอลัมน์ยาวกว่าความกว้างช่องต้องใส่ <br/> เอง (ReportLab ตัดคำไทยให้ไม่ได้)
+        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"),
+                  _h("สภาพ<br/>เมื่อคืน"), _h("วันเวลาที่คืน")]
+    else:
+        # setting pdf_value_source เลือกว่าเอกสารพูดถึงมูลค่าแบบไหน — หัวคอลัมน์ต้องเปลี่ยนตามด้วย
+        # ไม่งั้นคนอ่านใบยืมแยกไม่ออกว่าเลขที่เห็นคือราคาที่ซื้อมาหรือมูลค่าหลังหักค่าเสื่อม
+        _use_book = value_source == "book"
+        # คอลัมน์กว้าง 26mm และ ReportLab ตัดคำไทยที่ไม่มีช่องว่างเองไม่ได้ (ข้อความยาวจะถูกตัดหาย
+        # ไม่ใช่ขึ้นบรรทัดใหม่) — ต้องใส่ <br/> เองเมื่อหัวคอลัมน์ยาวกว่า "มูลค่า/ชิ้น" เดิม
+        _value_head = "มูลค่า<br/>ตามบัญชี" if _use_book else "มูลค่า/ชิ้น"
+        header = [_h("ที่"), _h("รหัส"), _h("ชื่ออุปกรณ์"), _h("ประเภท"), _h("จำนวน"),
+                  _h("กำหนดคืน"), _h(_value_head)]
     ncol = len(header)
     rows = [header]
-    for i, item in enumerate(items, 1):
+    for i, (item, item_due) in enumerate(zip(items, dues), 1):
         itype = getattr(item, "item_type_snapshot", None)
         unit = getattr(item, "equipment_unit", None) or _DEFAULT_UNIT.get(itype, "ชิ้น")
         qty = getattr(item, "quantity", 1)
-        # ร่าง/พรีวิว (ยังไม่อนุมัติ): ห้ามโชว์รหัสหน่วยเจาะจง เพราะระบบเลือก "หน่วยว่างรหัสต่ำสุด" ใหม่ทุกครั้ง
+        # ร่าง/พรีวิว (ยังไม่อนุมัติ): ห้ามโชว์รหัสหน่วยเจาะจง เพราะระบบเลือก "หน่วยว่างที่ได้มาเก่าสุด" ใหม่ทุกครั้ง
         # ที่เรียก ยังไม่ sync กันระหว่างตะกร้า/คำขอ/อนุมัติ รหัสที่เห็นตอนร่างอาจไม่ตรงของจริงตอนอนุมัติ
         # เขียนบอกตรง ๆ ว่า "รออนุมัติ" แทน "-" เฉย ๆ กันผู้ยืมสับสนว่าทำไมไม่มีรหัส
-        # วัสดุสิ้นเปลือง: รหัสเป็นแค่ชื่อ+เลขลำดับที่ระบบสร้างเอง ไม่มีความหมายจริง (ดู
-        # equipment_service._generate_consumable_code) โชว์บนใบยืมจะซ้ำซ้อนกับชื่อและดูเหมือนรหัสครุภัณฑ์จริง
-        if itype == "consumable":
-            code_display = "-"
-        else:
-            code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
+        code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
         # SN (ถ้ามี) ต่อท้ายชื่อในวงเล็บ — ร่างยังไม่รู้ว่าจะได้หน่วยไหนจริง จึงโชว์ "รออนุมัติ" เหมือนคอลัมน์รหัส
         name_display = getattr(item, "equipment_name", None) or "-"
         sn = getattr(item, "equipment_serial_number", None)
         if sn:
             name_display += f"(SN:{'รออนุมัติ' if draft else sn})"
+        # สเปกที่ติดตั้งอยู่ ณ วันยืม (เฟส 8, ข้อ 17) — กันเคส "ยืมไปมี RAM 16GB คืนมาเหลือ 8GB"
+        # เอกสารที่ผู้ยืมเซ็นต้องระบุว่าตอนรับของเครื่องมีอะไรอยู่บ้าง ไม่ใช่แค่ชื่อเครื่อง
+        specs = getattr(item, "equipment_specs", None)
+        if specs:
+            name_display += f"<br/><font size=7 color='#555555'>สเปก: {specs}</font>"
+        # wordWrap="CJK" = ตัดขึ้นบรรทัดใหม่ได้ทุกตัวอักษร จำเป็นสำหรับไทยและรหัสยาว ๆ:
+        # ReportLab แบบปกติตัดที่ช่องว่างเท่านั้น ข้อความไทยยาว ๆ หรือรหัส "สนว.-65-201-038-001-0002"
+        # ที่ไม่มีช่องว่างเลยจะถูก "ตัดหาย" ไม่ใช่ขึ้นบรรทัดใหม่ (ของจริงในคลังยาวถึง 98 ตัวอักษร)
         cells = [
             Paragraph(str(i), _style(f"i{i}", fontSize=10, alignment=1)),
-            Paragraph(code_display, _style(f"c{i}", fontSize=9, alignment=1)),
-            Paragraph(name_display, _style(f"n{i}", fontSize=10)),
+            Paragraph(code_display, _style(f"c{i}", fontSize=9, alignment=1, wordWrap="CJK")),
+            Paragraph(name_display, _style(f"n{i}", fontSize=10, wordWrap="CJK")),
             Paragraph(_ITEM_TYPE_TH.get(itype, "-"), _style(f"t{i}", fontSize=9, alignment=1)),
             Paragraph(f"{qty} {unit}", _style(f"q{i}", fontSize=10, alignment=1)),
         ]
         if is_return:
             cells.append(Paragraph(_condition_th(getattr(item, "condition_on_return", None)),
                                    _style(f"v{i}", fontSize=9, alignment=1)))
-            cells.append(Paragraph(_fmt_datetime(getattr(item, "returned_at", None)),
-                                   _style(f"rt{i}", fontSize=8, alignment=1)))
+            # ไม่เพิ่มคอลัมน์ (ใบคืนมี 7 คอลัมน์อยู่แล้ว ชื่ออุปกรณ์จะเหลือ ~28mm จนอ่านไม่ออก)
+            # แต่รวมกำหนด/คืนจริง/จำนวนวันที่ช้าไว้ในช่องเดียว — เป็นหลักฐานประกอบค่าปรับด้วย
+            cells.append(Paragraph(_return_cell(item, item_due),
+                                   _style(f"rt{i}", fontSize=7.5, leading=10, alignment=1,
+                                          wordWrap="CJK")))
         else:
-            cells.append(Paragraph(_fmt_money(getattr(item, "equipment_value", None)),
+            cells.append(Paragraph(_fmt_date_short(item_due),
+                                   _style(f"d{i}", fontSize=8, alignment=1)))
+            cells.append(Paragraph(_fmt_money(_item_value(item, value_source)),
                                    _style(f"v{i}", fontSize=9, alignment=2)))
         rows.append(cells)
-    # แถวว่างเหมือนฟอร์มกระดาษ — ใช้ nbsp แทนสตริงว่างเพื่อดันความสูงแถวให้เท่ากับแถวมีข้อมูล
+    # ไม่เติมแถวว่าง (8 ก.ย. 69) — ยืม 3 ชิ้นแล้วได้ตารางเปล่าอีก 9 บรรทัดคือเอกสารที่ดูไม่จบ
+    # และเปิดช่องให้เขียนของเพิ่มเองหลังเซ็นด้วย · blank ยังใช้ในแถว "รวมมูลค่า" ด้านล่าง
     blank = Paragraph("&nbsp;", _style("blank", fontSize=11, leading=17))
-    rows += [[blank] * ncol] * max(0, _MIN_ITEM_ROWS - len(items))
 
     # แถวรวมมูลค่า (เฉพาะใบยืม) — ผู้ยืมต้องเห็นวงเงินรวมที่ต้องรับผิดชอบ
-    total = sum((getattr(i, "equipment_value", None) or 0) * getattr(i, "quantity", 1) for i in items)
+    total = sum((_item_value(i, value_source) or 0) * getattr(i, "quantity", 1) for i in items)
     if not is_return and total:
         rows.append([
-            blank, blank, blank, blank,
+            blank, blank, blank, blank, blank,
             Paragraph("รวมมูลค่า", _style("tl", fontName="Thai-Bold", fontSize=10, alignment=2)),
             Paragraph(_fmt_money(total), _style("tv", fontName="Thai-Bold", fontSize=9, alignment=2)),
         ])
 
     # "วัสดุสิ้นเปลือง" ยาวสุดในคอลัมน์ประเภท ต้อง 26mm ไม่งั้นตัดบรรทัด
     if is_return:
-        col = [10 * mm, 26 * mm, W - 10 * mm - 26 * mm - 22 * mm - 20 * mm - 22 * mm - 28 * mm,
-               22 * mm, 20 * mm, 22 * mm, 28 * mm]
+        col = [8 * mm, 25 * mm, W - 8 * mm - 25 * mm - 23 * mm - 21 * mm - 22 * mm - 28 * mm,
+               23 * mm, 21 * mm, 22 * mm, 28 * mm]
     else:
-        col = [10 * mm, 30 * mm, W - 10 * mm - 30 * mm - 26 * mm - 22 * mm - 26 * mm, 26 * mm, 22 * mm, 26 * mm]
+        # 7 คอลัมน์: ที่ 8 · รหัส 28 · ชื่อ (ที่เหลือ ≈46) · ประเภท 22 · จำนวน 20 · กำหนดคืน 22 · มูลค่า 24
+        col = [8 * mm, 28 * mm, W - 8 * mm - 28 * mm - 23 * mm - 21 * mm - 22 * mm - 24 * mm,
+               23 * mm, 21 * mm, 22 * mm, 24 * mm]
     # rowHeights=None (auto) — ชื่ออุปกรณ์ยาว ๆ ต้องขยายแถวเอง ไม่งั้นข้อความล้นทับเส้นตาราง
     table = Table(rows, colWidths=col, repeatRows=1)
     table.setStyle(TableStyle([
@@ -368,7 +510,7 @@ def generate_repair_pdf(rows: list[dict], requester: str, unit: str = "คณะ
             Paragraph(r.get("damage") or "-", _style(f"rd{i}", fontSize=9.5)),
             Paragraph(r.get("note") or "", _style(f"rm{i}", fontSize=9)),
         ])
-    data += [["", "", "", "", ""]] * max(0, 3 - len(rows))  # ฟอร์มจริงมีบรรทัดว่างให้เขียนเพิ่ม
+    # ไม่เติมแถวว่าง (8 ก.ย. 69) — เอกสารขออนุมัติที่มีบรรทัดว่างต่อท้ายคือช่องให้เติมรายการหลังเซ็น
 
     table = Table(data, colWidths=[15 * mm, W - 15 * mm - 35 * mm - 45 * mm - 25 * mm,
                                    35 * mm, 45 * mm, 25 * mm])
@@ -481,18 +623,21 @@ def _build_receipt_form(date_from: str, date_to: str, generated_by: str, rows: l
     def _h(t: str) -> Paragraph:
         return Paragraph(t, _style(f"kh{t}", fontName="Thai-Bold", fontSize=9.5, alignment=1))
 
-    # คอลัมน์ตามใบจริง — ราคาเว้นว่าง (ระบบคลังไม่รู้ราคา ต้องกรอกจากใบจัดซื้อ)
+    # คอลัมน์ตามใบจริง — ราคาดึงจาก audit log ของตอนรับเข้า/ปลดระวาง (log เก่าที่ไม่มีราคาเว้นว่างให้กรอกมือ)
     data = [[_h("ลำดับ"), _h("รายการ"), _h("จำนวน"), _h("ราคาต่อหน่วย"), _h("จำนวนเงิน"), _h("รหัสครุภัณฑ์")]]
     for i, r in enumerate(rows, 1):
         unit_th = {"durable": "เครื่อง/ชิ้น", "material": "ชิ้น", "consumable": "หน่วย"}.get(
             r.get("item_type") or "", "")
         qty = r.get("quantity")
+        price = r.get("unit_value")
+        amount = price * qty if price is not None and qty is not None else None
         data.append([
             Paragraph(str(i), _style(f"ka{i}", fontSize=9, alignment=1)),
             Paragraph(str(r.get("name") or "-"), _style(f"kb{i}", fontSize=9)),
             Paragraph(f"{qty} {unit_th}" if qty is not None else "-",
                       _style(f"kc{i}", fontSize=9, alignment=1)),
-            "", "",
+            Paragraph(_fmt_money(price), _style(f"kp{i}", fontSize=9, alignment=2)) if price is not None else "",
+            Paragraph(_fmt_money(amount), _style(f"km{i}", fontSize=9, alignment=2)) if amount is not None else "",
             Paragraph(str(r.get("code") or "-"), _style(f"kd{i}", fontSize=8.5, alignment=1)),
         ])
     data += [["", "", "", "", "", ""]] * max(0, 5 - len(rows))

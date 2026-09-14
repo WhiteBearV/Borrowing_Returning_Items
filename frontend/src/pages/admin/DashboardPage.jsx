@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../../api/axiosInstance.js'
+import { dashboardApi } from '../../api/dashboardApi.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
+
+const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState({
     pending_requests: 0, overdue_requests: 0, low_stock_items: 0, active_borrows: 0, equipment_borrowed_out: 0,
+    missing_price_items: 0, missing_acquired_at_items: 0,
     equipment_counts: { durable: 0, material: 0, consumable: 0, total: 0 },
+    users_total: 0, users_students: 0, users_staff: 0, users_pending_approval: 0, users_by_major: [],
     consumed_value_this_month: 0,
+    consumed_value_this_year: 0,
   })
 
   useEffect(() => {
-    api.get('/dashboard/summary').then((r) => setSummary(r.data)).catch(() => {})
+    dashboardApi.summary().then(setSummary).catch(() => {})
   }, [])
 
   const equipmentCounts = [
@@ -61,10 +66,31 @@ export default function DashboardPage() {
           </span>
           <p className="text-4xl font-bold">{summary.equipment_borrowed_out}</p>
         </Link>
+        {/* ทางเข้าไล่เติมข้อมูลทะเบียนที่ยังขาด — ซ่อนการ์ดทิ้งเมื่อครบแล้ว จะได้ไม่รกแดชบอร์ดถาวร */}
+        {summary.missing_price_items > 0 && (
+          <Link to="/admin/equipment?status=no_price"
+            className="rounded-2xl p-5 flex flex-col justify-between bg-rose-50 text-rose-700 hover:opacity-80 transition-opacity">
+            <p className="text-sm font-medium">ยังไม่มีราคา</p>
+            <p className="text-3xl font-bold">{summary.missing_price_items}</p>
+          </Link>
+        )}
+        {summary.missing_acquired_at_items > 0 && (
+          <Link to="/admin/equipment?status=no_acquired_at"
+            className="rounded-2xl p-5 flex flex-col justify-between bg-amber-50 text-amber-700 hover:opacity-80 transition-opacity">
+            <p className="text-sm font-medium">ยังไม่มีวันที่ได้มา</p>
+            <p className="text-3xl font-bold">{summary.missing_acquired_at_items}</p>
+          </Link>
+        )}
         <div className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-emerald-50 text-emerald-700">
           <p className="text-sm font-medium">มูลค่าวัสดุที่ใช้ไปเดือนนี้ (บาท)</p>
           <p className="text-3xl font-bold">
             {summary.consumed_value_this_month.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-teal-50 text-teal-700">
+          <p className="text-sm font-medium">มูลค่าวัสดุที่ใช้ไปปีนี้ (บาท)</p>
+          <p className="text-3xl font-bold">
+            {summary.consumed_value_this_year.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
       </div>
@@ -82,6 +108,32 @@ export default function DashboardPage() {
           <p className="text-3xl font-bold">{summary.equipment_counts.total}</p>
           <p className="text-sm mt-1 text-slate-300">รวมทั้งหมด</p>
         </Link>
+      </div>
+
+      {/* ภาพรวมผู้ใช้ (8 ก.ย. 69) — ตอบว่าระบบมีคนใช้จริงกี่คน สาขาไหนบ้าง ไม่ใช่รู้แค่จำนวนของในคลัง */}
+      <p className="text-sm font-semibold text-gray-500 mb-3">ภาพรวมผู้ใช้งาน</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <Link to="/admin/users" className="rounded-xl p-5 text-center bg-indigo-600 text-white hover:opacity-80 transition-opacity">
+          <p className="text-3xl font-bold">{summary.users_total}</p>
+          <p className="text-sm mt-1 text-indigo-100">ผู้ใช้ทั้งหมด</p>
+        </Link>
+        {(summary.users_by_major ?? []).map((m) => (
+          <Link key={m.major ?? 'none'} to={`/admin/users?major=${m.major ?? ''}`}
+            className="rounded-xl p-5 text-center bg-indigo-50 text-indigo-800 hover:opacity-80 transition-opacity">
+            <p className="text-3xl font-bold">{m.count}</p>
+            <p className="text-sm mt-1">{MAJOR_LABEL[m.major] ?? 'ไม่ระบุสาขา'}</p>
+          </Link>
+        ))}
+        <div className="rounded-xl p-5 text-center bg-slate-50 text-slate-700">
+          <p className="text-3xl font-bold">{summary.users_staff}</p>
+          <p className="text-sm mt-1">เจ้าหน้าที่ (ผู้ดูแล)</p>
+        </div>
+        {summary.users_pending_approval > 0 && (
+          <Link to="/admin/users" className="rounded-xl p-5 text-center bg-amber-100 text-amber-800 hover:opacity-80 transition-opacity">
+            <p className="text-3xl font-bold">{summary.users_pending_approval}</p>
+            <p className="text-sm mt-1">ผู้สมัครรออนุมัติ</p>
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

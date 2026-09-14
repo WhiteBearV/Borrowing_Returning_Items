@@ -10,6 +10,7 @@ class AuditLogResponse(BaseModel):
     actor_id: uuid.UUID | None
     actor_name: str | None = None
     actor_identifier: str | None = None
+    actor_role: str | None = None
     action: str
     target_table: str
     target_id: uuid.UUID

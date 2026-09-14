@@ -3,6 +3,8 @@
 ครอบคลุมกรณีที่ทำให้ของในคลังเพี้ยนได้: ของใหม่ / สถานะเปลี่ยนเป็นชำรุด / ของที่หายไปจากไฟล์
 และวัสดุที่ไม่ได้อยู่ในทะเบียนต้องไม่ถูกเสนอปลดระวาง
 """
+from datetime import date
+
 import openpyxl
 import pytest
 
@@ -37,10 +39,13 @@ def test_parse_and_diff(tmp_path):
     assert len(skipped) == 1
 
     existing = {
+        # unit_value/acquired_at มีค่าอยู่แล้วในระบบ — diff ต้อง "ไม่" เสนอทับด้วยค่าจากไฟล์ (fill-only)
         "63-001-0001": {"id": 1, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
-                        "status": "available", "item_type": "durable"},
+                        "status": "available", "item_type": "durable",
+                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
         "63-001-0002": {"id": 2, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
-                        "status": "available", "item_type": "durable"},
+                        "status": "available", "item_type": "durable",
+                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
         "63-999-9999": {"id": 3, "name": "เครื่องเก่าที่หลุดจากทะเบียน", "location": None,
                         "status": "available", "item_type": "durable"},
         "SNIPE-500": {"id": 4, "name": "สายไฟ", "location": None,
@@ -51,6 +56,9 @@ def test_parse_and_diff(tmp_path):
     assert by_code["63-001-0001"]["action"] == "unchanged"
     assert by_code["63-001-0002"]["action"] == "update"
     assert by_code["63-001-0002"]["changes"]["status"] == ["available", "damaged"]
+    # ราคาในไฟล์ (1000) เท่ากับของเดิมพอดี แต่ต่อให้ต่างกันก็ต้องไม่ถูกเสนอ เพราะช่องไม่ว่างแล้ว
+    assert "unit_value" not in by_code["63-001-0002"]["changes"]
+    assert "acquired_at" not in by_code["63-001-0002"]["changes"]
     assert by_code["63-001-0003"]["action"] == "new"
     assert by_code["63-001-0003"]["category"] == "คอมพิวเตอร์"  # จัดหมวดจากชื่ออัตโนมัติ
     # ครุภัณฑ์ที่หายจากไฟล์ → เสนอปลดระวาง, แต่วัสดุ (ไม่อยู่ในทะเบียน) ต้องไม่โดน

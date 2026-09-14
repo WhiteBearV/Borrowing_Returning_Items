@@ -30,7 +30,7 @@ async def test_create_consumable_without_code_autogenerates(client: AsyncClient,
     name = f"ตัวต้านทาน 220 โอห์ม {uuid.uuid4().hex[:6]}"
     r = await client.post("/equipment", json={
         "name": name, "category_ids": [], "item_type": "consumable",
-        "quantity_total": 100, "image_urls": ["/uploads/test.jpg"],
+        "quantity_total": 100, "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 201, r.text
     try:
@@ -44,7 +44,7 @@ async def test_create_consumable_without_code_same_name_increments(client: Async
     name = f"LED สีแดง {uuid.uuid4().hex[:6]}"
     body = {
         "name": name, "category_ids": [], "item_type": "consumable",
-        "quantity_total": 50, "image_urls": ["/uploads/test.jpg"],
+        "quantity_total": 50, "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     r1 = await client.post("/equipment", json=body, headers=h)
     assert r1.status_code == 201, r1.text
@@ -61,7 +61,7 @@ async def test_create_durable_without_code_rejected(client: AsyncClient, admin_t
     h = auth(admin_token)
     r = await client.post("/equipment", json={
         "name": f"ครุภัณฑ์ไม่มีรหัส {uuid.uuid4().hex[:6]}", "category_ids": [],
-        "item_type": "durable", "quantity_total": 1, "image_urls": ["/uploads/test.jpg"],
+        "item_type": "durable", "quantity_total": 1, "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 400
 
@@ -71,7 +71,7 @@ async def test_autocode_can_be_edited_to_real_code_afterwards(client: AsyncClien
     name = f"AND gate {uuid.uuid4().hex[:6]}"
     r = await client.post("/equipment", json={
         "name": name, "category_ids": [], "item_type": "consumable",
-        "quantity_total": 20, "image_urls": ["/uploads/test.jpg"],
+        "quantity_total": 20, "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     eq_id = r.json()["id"]
     try:

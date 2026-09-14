@@ -36,7 +36,7 @@ async def test_pdf_available_for_pending_and_cancelled(
     assert pending_pdf.status_code == 200
     assert pending_pdf.content.startswith(b"%PDF")
 
-    assert (await client.patch(f"/borrow-requests/{req_id}/cancel",
+    assert (await client.patch(f"/borrow-requests/{req_id}/cancel", json={"reason": "ทดสอบยกเลิก"},
                                headers=auth(student_token))).status_code == 200
     cancelled_pdf = await client.get(f"/borrow-requests/{req_id}/pdf", headers=auth(student_token))
     assert cancelled_pdf.status_code == 200

@@ -13,6 +13,7 @@ from app.models.borrow_request import BorrowRequest
 from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
+from app.utils.roles import STAFF_ROLES
 from app.utils.email import send_email
 
 # ต้องระบุ timezone ไม่งั้น APScheduler ใช้โซนของ container ซึ่งเป็น UTC
@@ -36,19 +37,33 @@ async def _check_due_soon() -> None:
         s = (await db.execute(select(Setting).where(Setting.key == "due_soon_notify_days_before"))).scalar_one_or_none()
         target_date = date.today() + timedelta(days=int(s.value) if s else 2)
 
+        # เทียบวันครบกำหนด "ของแต่ละชิ้น" ไม่ใช่ของทั้งใบ — ตั้งแต่เฟส 3 วันคืนแยกรายชิ้นได้
+        # และรายการที่ต่อเวลาแล้วมีวันของตัวเอง ดูแต่ due_date ระดับใบจะพลาดทั้งสองกรณี
+        has_due_item = (
+            select(BorrowItem.id)
+            .where(
+                BorrowItem.borrow_request_id == BorrowRequest.id,
+                BorrowItem.returned == False,
+                BorrowItem.item_status != "rejected",
+                func.coalesce(BorrowItem.extended_due_date, BorrowItem.due_date,
+                              BorrowRequest.due_date) == target_date,
+            )
+            .exists()
+        )
         rows = (await db.execute(
             select(BorrowRequest)
             .options(selectinload(BorrowRequest.student))
             .where(
                 BorrowRequest.status == "approved",
-                BorrowRequest.due_date == target_date,
                 BorrowRequest.is_overdue == False,
+                has_due_item,
             )
         )).scalars().all()
 
         for req in rows:
             _notif(db, req.student_id, "due_soon",
-                   f"คำขอ {req.request_code} ครบกำหนดคืนในอีก {(target_date - date.today()).days} วัน ({req.due_date})",
+                   f"คำขอ {req.request_code} มีอุปกรณ์ครบกำหนดคืนในอีก "
+                   f"{(target_date - date.today()).days} วัน ({target_date})",
                    borrow_request_id=req.id)
 
         if rows:
@@ -60,8 +75,8 @@ async def _check_due_soon() -> None:
                 await send_email(
                     req.student.email,
                     f"ใกล้ครบกำหนดคืน — คำขอ {req.request_code}",
-                    f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ใกล้ครบกำหนดคืนแล้ว "
-                    f"(ภายในวันที่ {req.due_date}) กรุณาเตรียมนำอุปกรณ์มาคืน</p>",
+                    f"<p>คำขอยืม <b>{escape(req.request_code)}</b> มีอุปกรณ์ใกล้ครบกำหนดคืนแล้ว "
+                    f"(ภายในวันที่ {target_date}) กรุณาเตรียมนำอุปกรณ์มาคืน</p>",
                 )
             except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
                 print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
@@ -78,7 +93,9 @@ async def _check_overdue() -> None:
             .where(
                 BorrowItem.borrow_request_id == BorrowRequest.id,
                 BorrowItem.returned == False,
-                func.coalesce(BorrowItem.extended_due_date, BorrowRequest.due_date) < date.today(),
+                BorrowItem.item_status != "rejected",   # ชิ้นที่ไม่อนุมัติไม่เคยออกจากคลัง
+                func.coalesce(BorrowItem.extended_due_date, BorrowItem.due_date,
+                              BorrowRequest.due_date) < date.today(),
             )
             .exists()
         )
@@ -95,7 +112,7 @@ async def _check_overdue() -> None:
         if not rows:
             return
 
-        admins = (await db.execute(select(User).where(User.role == "admin", User.is_active == True))).scalars().all()
+        admins = (await db.execute(select(User).where(User.role.in_(STAFF_ROLES), User.is_active == True))).scalars().all()
 
         for req in rows:
             req.is_overdue = True

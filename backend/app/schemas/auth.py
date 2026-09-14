@@ -26,10 +26,23 @@ class RegisterRequest(BaseModel):
     # เรียก API ตรง ๆ (ข้าม frontend) แล้วตั้ง student_id เป็นอะไรก็ได้ผ่านหมด
     student_id: Annotated[str, Field(pattern=r"^\d{10}$")]
     email: EmailStr
+    # ^0\d{9}$ ไม่ใช่ ^\d{10}$ เฉย ๆ — เบอร์มือถือไทยขึ้นต้นด้วย 0 เสมอ ตรงกับ placeholder "08XXXXXXXX"
+    phone: Annotated[str, Field(pattern=r"^0\d{9}$")]
     password: Password
     major: str  # comp_eng / digital_design
+    pdpa_consent: bool
 
+    # _strip_student_id เป็น helper strip-ทั่วไป (ไม่ผูกกับ student_id จริง) ใช้ซ้ำกับ phone ได้เลย
     _normalize_student_id = field_validator("student_id", mode="before")(_strip_student_id)
+    _normalize_phone = field_validator("phone", mode="before")(_strip_student_id)
+
+    @field_validator("pdpa_consent")
+    @classmethod
+    def _must_consent(cls, v: bool) -> bool:
+        """ปฏิเสธการสมัครถ้าไม่ยอมรับ PDPA — บังคับระดับ backend ด้วย ไม่เชื่อแค่ frontend guard"""
+        if not v:
+            raise ValueError("ต้องยอมรับคำชี้แจงเกี่ยวกับการใช้ข้อมูลส่วนบุคคลก่อนสมัคร")
+        return v
 
 
 class LoginRequest(BaseModel):

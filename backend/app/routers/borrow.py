@@ -1,14 +1,18 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db, require_admin
+from app.dependencies import get_current_user, get_db, require_admin, require_superadmin
 from app.models.user import User
 from app.schemas.borrow import (
+    ApproveRequest,
     BorrowRequestCreate,
     BorrowRequestResponse,
+    CancelRequest,
+    FineEditRequest,
+    FineWaiveRequest,
     PaginatedBorrowRequests,
     RejectRequest,
     RenewRejectRequest,
@@ -38,11 +42,15 @@ async def list_borrow_requests(
     overdue_only: bool = Query(False),
     needs_attention: bool = Query(False),
     search: str | None = Query(None),
+    own_only: bool = Query(False),
+    item_type: str | None = Query(None),
+    category_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedBorrowRequests:
     return await borrow_service.list_requests(
-        db, current_user, page, page_size, status, overdue_only, needs_attention, search
+        db, current_user, page, page_size, status, overdue_only, needs_attention, search, own_only,
+        item_type, category_id,
     )
 
 
@@ -58,20 +66,24 @@ async def get_borrow_request(
 @router.patch("/{request_id}/cancel")
 async def cancel_borrow_request(
     request_id: uuid.UUID,
+    body: CancelRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await borrow_service.cancel_request(db, current_user, request_id)
+    """ยกเลิกคำขอของตัวเอง — บังคับเหตุผล (เก็บใน cancel_reason + audit)"""
+    await borrow_service.cancel_request(db, current_user, request_id, body.reason)
     return {"detail": "Request cancelled."}
 
 
 @router.patch("/{request_id}/approve")
 async def approve_borrow_request(
     request_id: uuid.UUID,
+    body: ApproveRequest | None = None,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await borrow_service.approve_request(db, admin, request_id)
+    """อนุมัติคำขอ — ไม่ส่ง body = อนุมัติทั้งใบ ส่ง body = ตัดสินรายชิ้น (อนุมัติ/ไม่อนุมัติ/แก้วันคืน)"""
+    await borrow_service.approve_request(db, admin, request_id, body)
     return {"detail": "Request approved."}
 
 
@@ -129,9 +141,36 @@ async def request_return(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """นักศึกษาแจ้งขอคืน (ทีละชิ้น/หลายชิ้น/ทั้งหมด) — ยังไม่ใช่การคืนจริง แค่แจ้ง admin ให้มายืนยัน"""
-    await borrow_service.request_return_items(db, current_user, request_id, body.item_ids)
+    """นักศึกษาแจ้งขอคืนพร้อมนัดวัน-เวลา-สถานที่ — ยังไม่ใช่การคืนจริง แค่แจ้ง admin ให้มายืนยัน"""
+    await borrow_service.request_return_items(
+        db, current_user, request_id, body.item_ids, body.return_appoint_at, body.return_appoint_location)
     return {"detail": "Return request submitted."}
+
+
+@router.post("/{request_id}/signed-form")
+async def upload_signed_form(
+    request_id: uuid.UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """ผู้ยืมอัปโหลดใบยืมที่ปริ้นไปเซ็นแล้ว (PDF หรือรูปถ่าย) แทนการถือกระดาษมาแสดง
+
+    ไฟล์เก็บในโฟลเดอร์ส่วนตัว ไม่มี URL สาธารณะ — คืนแค่ชื่อไฟล์ไว้ให้หน้าเว็บรู้ว่ามีไฟล์แล้ว
+    """
+    filename = await borrow_service.upload_signed_form(db, current_user, request_id, file)
+    return {"signed_form_file": filename}
+
+
+@router.get("/{request_id}/signed-form")
+async def download_signed_form(
+    request_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """เปิดดูใบยืมที่เซ็นแล้ว — เจ้าของคำขอหรือเจ้าหน้าที่เท่านั้น (ไฟล์มีลายเซ็น + ข้อมูลส่วนบุคคล)"""
+    path, filename = await borrow_service.get_signed_form(db, current_user, request_id)
+    return FileResponse(path, filename=filename)
 
 
 @router.post("/{request_id}/return-all")
@@ -156,6 +195,44 @@ async def return_item(
     """ยืนยันรับคืนอุปกรณ์ — admin เท่านั้น นักศึกษากดเองไม่ได้"""
     await borrow_service.return_item(db, admin, request_id, item_id, body)
     return {"detail": "Item returned."}
+
+
+@router.patch("/{request_id}/items/{item_id}/fine")
+async def update_fine(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: FineEditRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """แก้ยอดค่าปรับที่ระบบคิดให้ (ต้องมีเหตุผล) — ได้เฉพาะรายการที่ยังค้างชำระ"""
+    await borrow_service.update_fine(db, admin, request_id, item_id, body)
+    return {"detail": "Fine updated."}
+
+
+@router.patch("/{request_id}/items/{item_id}/fine/pay")
+async def pay_fine(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """บันทึกว่าผู้ยืมชำระค่าปรับแล้ว"""
+    await borrow_service.pay_fine(db, admin, request_id, item_id)
+    return {"detail": "Fine marked as paid."}
+
+
+@router.patch("/{request_id}/items/{item_id}/fine/waive")
+async def waive_fine(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: FineWaiveRequest,
+    superadmin: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """ยกเว้นค่าปรับ — superadmin เท่านั้น (เกี่ยวกับเงิน ย้อนกลับไม่ได้)"""
+    await borrow_service.waive_fine(db, superadmin, request_id, item_id, body)
+    return {"detail": "Fine waived."}
 
 
 @router.get("/{request_id}/pdf")
@@ -193,7 +270,7 @@ async def preview_borrow_pdf(
 @router.delete("/{request_id}", status_code=204)
 async def delete_borrow_request(
     request_id: uuid.UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """ลบประวัติการยืม — เฉพาะ completed / rejected / cancelled"""

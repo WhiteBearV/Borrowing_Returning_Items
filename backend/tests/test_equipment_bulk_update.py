@@ -21,7 +21,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบแก้หลายรายการ {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "location": "เดิม", "image_urls": ["/uploads/test.jpg"],
+        "location": "เดิม", "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -131,10 +131,15 @@ async def test_bulk_update_category_ids_replaces_existing(
     client: AsyncClient, admin_token: str, test_category,
 ):
     """category_ids แทนที่ชุดหมวดหมู่เดิมทั้งหมด (เหมือน update_equipment แก้ทีละหน่วย) ไม่ใช่เพิ่มเข้าไป"""
+    # old_cat/ids สร้างในนี้ ไม่ใช่ก่อน try — ถ้า _make_equipment ตัวที่สองล้มเหลว (assert ภายในตัวมันเอง)
+    # ของที่สร้างไปแล้วก่อนหน้าต้องยัง cleanup ได้ ไม่ค้างใน DB จริง (เคยเกิดขึ้นมาแล้ว)
     h = auth(admin_token)
-    old_cat = (await client.post("/equipment-categories", json={"name": f"cat_old_{uuid.uuid4().hex[:6]}"}, headers=h)).json()
-    ids = [await _make_equipment(client, h, category_ids=[old_cat["id"]]) for _ in range(2)]
+    old_cat = None
+    ids: list[str] = []
     try:
+        old_cat = (await client.post("/equipment-categories", json={"name": f"cat_old_{uuid.uuid4().hex[:6]}"}, headers=h)).json()
+        for _ in range(2):
+            ids.append(await _make_equipment(client, h, category_ids=[old_cat["id"]]))
         r = await client.patch("/equipment/bulk-update", json={
             "equipment_ids": ids, "update": {"category_ids": [str(test_category.id)]},
         }, headers=h)
@@ -143,11 +148,13 @@ async def test_bulk_update_category_ids_replaces_existing(
             cat_ids = {c["id"] for c in u["categories"]}
             assert cat_ids == {str(test_category.id)}, "ต้องแทนที่ทั้งหมด ไม่ใช่หมวดเดิมค้างอยู่"
     finally:
-        await _cleanup(*ids)
-        async with AsyncSessionLocal() as db:
-            from app.models.equipment_category import EquipmentCategory
-            await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id == uuid.UUID(old_cat["id"])))
-            await db.commit()
+        if ids:
+            await _cleanup(*ids)
+        if old_cat:
+            async with AsyncSessionLocal() as db:
+                from app.models.equipment_category import EquipmentCategory
+                await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id == uuid.UUID(old_cat["id"])))
+                await db.commit()
 
 
 async def test_bulk_update_forbidden_for_student(client: AsyncClient, admin_token: str, student_token: str):

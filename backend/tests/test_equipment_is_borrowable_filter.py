@@ -24,7 +24,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, tag: str, **o
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบ is_borrowable filter {tag} {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -76,7 +76,7 @@ async def test_status_unavailable_column_still_matches_unavailable_filter(client
     tag = uuid.uuid4().hex[:8]
     eq_id = await _make_equipment(client, h, tag)
     try:
-        assert (await client.patch(f"/equipment/{eq_id}", json={"status": "unavailable"}, headers=h)).status_code == 200
+        assert (await client.patch(f"/equipment/{eq_id}", json={"status": "unavailable", "status_reason": "ทดสอบ"}, headers=h)).status_code == 200
         r = await client.get("/equipment", params={"status": "unavailable", "search": tag, "page_size": 20}, headers=h)
         ids = {i["id"] for i in r.json()["items"]}
         assert eq_id in ids
@@ -91,7 +91,7 @@ async def test_damaged_filter_untouched_by_is_borrowable(client: AsyncClient, ad
     tag = uuid.uuid4().hex[:8]
     eq_id = await _make_equipment(client, h, tag, is_borrowable=True)
     try:
-        assert (await client.patch(f"/equipment/{eq_id}", json={"status": "damaged"}, headers=h)).status_code == 200
+        assert (await client.patch(f"/equipment/{eq_id}", json={"status": "damaged", "status_reason": "ทดสอบ"}, headers=h)).status_code == 200
         r = await client.get("/equipment", params={"status": "damaged", "search": tag, "page_size": 20}, headers=h)
         ids = {i["id"] for i in r.json()["items"]}
         assert eq_id in ids

@@ -9,6 +9,8 @@
 import uuid
 from datetime import date
 
+import pytest
+
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 
@@ -17,6 +19,7 @@ from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
+from app.models.equipment_category import EquipmentCategory
 from app.models.user import User
 from tests.conftest import auth
 
@@ -26,7 +29,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบปรับยอดหลายรายการ {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 10,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -262,3 +265,42 @@ async def test_bulk_adjust_stock_clamps_to_total_minus_outstanding_not_total(
             await db.execute(delete(BorrowRequest).where(BorrowRequest.id == req_id))
             await db.commit()
         await _cleanup(eq_id)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_unit_rows_are_adjusted_as_a_pool(client: AsyncClient, admin_token: str, test_category):
+    """ของที่แยกเป็นรายชิ้นแล้ว: -1 = ปิด 1 ชิ้น ไม่ใช่ลบ 1 จากทุกชิ้นจนทั้งรุ่นเหลือ 0 (บั๊กจริง 8 ก.ย. 69)"""
+    h = auth(admin_token)
+    ids = []
+    async with AsyncSessionLocal() as db:
+        cat = await db.get(EquipmentCategory, test_category.id)
+        for i in range(3):
+            eq_id = uuid.uuid4()
+            ids.append(eq_id)
+            db.add(Equipment(
+                id=eq_id, code=f"TEST-POOLADJ-{eq_id.hex[:6].upper()}", name="อุปกรณ์ทดสอบกองรวม",
+                categories=[cat], item_type="durable", quantity_total=1, quantity_available=1,
+                status="available", unit_value=10, acquired_at=date.today(),
+            ))
+        await db.commit()
+    try:
+        payload = {"equipment_ids": [str(i) for i in ids], "delta": -1, "reason": "นับแล้วขาด 1 ชิ้น"}
+        r = await client.patch("/equipment/bulk-adjust-stock", headers=h, json=payload)
+        assert r.status_code == 200, r.text
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(Equipment).where(Equipment.id.in_(ids)))).scalars().all()
+            assert sorted(e.quantity_available for e in rows) == [0, 1, 1], \
+                "ต้องปิดแค่ชิ้นเดียว ไม่ใช่ทั้งรุ่นกลายเป็น 0"
+
+        # +2 = เปิดคืนได้เท่าที่มีชิ้นที่ปิดอยู่จริง (ที่เหลือไม่ถูกแตะ ไม่ทะลุ quantity_total)
+        r2 = await client.patch("/equipment/bulk-adjust-stock", headers=h,
+                                json={**payload, "delta": 2, "reason": "เจอของแล้ว"})
+        assert r2.status_code == 200, r2.text
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(Equipment).where(Equipment.id.in_(ids)))).scalars().all()
+            assert [e.quantity_available for e in rows] == [1, 1, 1]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditLog).where(AuditLog.target_id.in_(ids)))
+            await db.execute(delete(Equipment).where(Equipment.id.in_(ids)))
+            await db.commit()

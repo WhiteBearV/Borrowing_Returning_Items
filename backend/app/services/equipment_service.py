@@ -2,6 +2,7 @@ import os
 import re
 import uuid
 from datetime import date, datetime, time
+from decimal import Decimal
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -18,6 +19,8 @@ from app.models.setting import Setting
 from app.models.user import User
 from app.schemas.equipment import (
     BulkAdjustStockResult,
+    EquipmentListSummary,
+    EquipmentTypeSummary,
     BulkDeleteFailure,
     BulkDeleteResult,
     BulkRetireResult,
@@ -39,9 +42,71 @@ from app.schemas.equipment import (
 from app.core.config import TZ, settings
 from app.services import audit_service
 from app.utils.qrcode_gen import generate_qr_png
+from app.utils.roles import is_superadmin
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+# ลายเซ็นไบต์ต้นไฟล์ของแต่ละชนิด — นามสกุลอย่างเดียวเชื่อไม่ได้ ใครก็เปลี่ยนชื่อไฟล์ .html เป็น .jpg ได้
+# แล้วไฟล์นั้นจะถูกเสิร์ฟจาก /uploads ที่เป็น static สาธารณะ = stored XSS บนโดเมนเดียวกับแอป
+# ponytail: เช็คแค่ magic bytes ไม่ต้องพึ่ง libmagic/python-magic (คนละ dependency ต่อ OS)
+_MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".webp": (b"RIFF",),   # ตรวจ "WEBP" ที่ offset 8 เพิ่มด้านล่าง
+    ".pdf": (b"%PDF",),
+}
+
+
+async def _depreciation_settings(db: AsyncSession) -> tuple[int, float]:
+    """อ่านค่ากลางที่ใช้คำนวณค่าเสื่อม (อายุการใช้งาน, มูลค่าซาก) ครั้งเดียวต่อ request
+    แล้วส่งต่อให้ book_value() ทุกแถว — ไม่ query ซ้ำต่ออุปกรณ์ 1 ชิ้น
+    """
+    rows = dict((await db.execute(
+        select(Setting.key, Setting.value).where(
+            Setting.key.in_(("depreciation_years_default", "depreciation_salvage_value"))
+        )
+    )).all())
+    return int(rows.get("depreciation_years_default", 5)), float(rows.get("depreciation_salvage_value", 1))
+
+
+def book_value(eq: Equipment, years_default: int, salvage: float, today: date | None = None) -> float | None:
+    """มูลค่าตามบัญชี = ราคาทุน − ค่าเสื่อมสะสมแบบเส้นตรง โดยไม่ต่ำกว่ามูลค่าซาก
+
+    ค่าที่แอดมินกรอกทับ (book_value_override) ชนะสูตรเสมอ — งานพัสดุจริงมีเคสตีราคาใหม่/ปรับปรุงบัญชี
+    ที่สูตรกลางตามไม่ทัน คำนวณสดทุกครั้งที่อ่าน ไม่เก็บเป็นคอลัมน์เพราะค่าเดินทุกวัน
+    (ค่า ณ วันอนุมัติถูก snapshot ไว้ที่ borrow_items.book_value_snapshot แยกต่างหากแล้ว)
+    """
+    # getattr — ฟังก์ชันนี้ใช้กับ EquipmentPart ด้วย (duck-typing บน unit_value/acquired_at/useful_life_years)
+    # ซึ่งไม่มีช่องกรอกทับ ราคาชิ้นส่วนคำนวณตามสูตรอย่างเดียว
+    override = getattr(eq, "book_value_override", None)
+    if override is not None:
+        return float(override)
+    if eq.unit_value is None or eq.acquired_at is None:
+        return None
+    cost = float(eq.unit_value)
+    # ของที่ราคาต่ำกว่ามูลค่าซากอยู่แล้ว (วัสดุชิ้นละไม่กี่บาท) ไม่มีอะไรให้เสื่อม
+    if cost <= salvage:
+        return cost
+    life_days = max(eq.useful_life_years or years_default, 1) * 365.25
+    age_days = ((today or date.today()) - eq.acquired_at).days
+    # clamp 0..1 — ของที่ลงวันที่ได้มาไว้ในอนาคตยังไม่เสื่อม, ของที่เกินอายุแล้วหยุดที่มูลค่าซาก
+    ratio = min(max(age_days / life_days, 0.0), 1.0)
+    return round(cost - (cost - salvage) * ratio, 2)
+
+
+async def attach_book_values(db: AsyncSession, rows: list[Equipment]) -> None:
+    """เติม attribute `book_value` ให้ทุกแถวก่อนแปลงเป็น response — schema อ่านผ่าน from_attributes
+    (pattern เดียวกับ get_holders_map ที่เติมข้อมูลนอกคอลัมน์ให้ response) ไม่ใช่คอลัมน์ใน DB
+    """
+    if not rows:
+        return
+    years, salvage = await _depreciation_settings(db)
+    today = date.today()
+    for eq in rows:
+        eq.book_value = book_value(eq, years, salvage, today)
 
 
 def _normalize_name(name: str) -> str:
@@ -68,23 +133,126 @@ async def find_group_members(db: AsyncSession, name: str, item_type: str) -> lis
     return list(result.scalars().all())
 
 
-async def save_image(file: UploadFile) -> str:
-    """บันทึกไฟล์รูปอุปกรณ์ลง UPLOAD_DIR แล้วคืน path relative (/uploads/<uuid>.<ext>) สำหรับเก็บใน image_url"""
+def borrowed_days_expr():
+    """SQL expression: จำนวนวันที่ borrow_item หนึ่งแถวออกจากคลัง (ยังไม่คืน = นับถึงตอนนี้)
+
+    นับขั้นต่ำ 1 วันต่อการยืม 1 ครั้ง — ยืมเช้าคืนบ่ายก็คือของไม่อยู่ในคลังวันนั้น ถ้าปล่อยเป็น 0 จะกลาย
+    เป็นว่าหน่วยที่ถูกหยิบไปยืมสั้น ๆ ทุกวันยังถูกนับว่า "ไม่เคยถูกใช้" แล้วโดนจ่ายซ้ำอยู่ชิ้นเดียว
+    ปัดเศษแบบ round ไม่ใช่ ceil — ยืม 10 วันกับอีก 3 วินาทีต้องได้ 10 ไม่ใช่ 11
+    ต้อง join BorrowRequest มาก่อนใช้ (ต้องใช้ approved_at เป็นจุดเริ่มนับ)
+    """
+    return func.greatest(1, func.round(
+        func.extract("epoch", func.coalesce(BorrowItem.returned_at, func.now()) - BorrowRequest.approved_at)
+        / 86400.0
+    ))
+
+
+async def usage_days_map(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """วันรวมที่แต่ละหน่วยเคยถูกยืมออกไป — ใช้จัดลำดับจ่ายของ "ถูกใช้น้อยสุดก่อน" (ดู dispatch_key)
+
+    นับเฉพาะชิ้นที่ของออกจากคลังจริง: ชิ้นที่ถูกปฏิเสธไม่เคยได้ของไป และคำขอที่ยังไม่อนุมัติยังไม่มี
+    approved_at หน่วยที่ไม่เคยถูกยืมจะไม่มี key ใน dict (ผู้เรียกใช้ .get(id, 0))
+    """
+    if not equipment_ids:
+        return {}
+    rows = (await db.execute(
+        select(BorrowItem.equipment_id, func.coalesce(func.sum(borrowed_days_expr()), 0))
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(
+            BorrowItem.equipment_id.in_(equipment_ids),
+            BorrowItem.item_status != "rejected",
+            BorrowRequest.approved_at.is_not(None),
+        )
+        .group_by(BorrowItem.equipment_id)
+    )).all()
+    return {eq_id: int(days) for eq_id, days in rows}
+
+
+def dispatch_key(eq: Equipment, usage_days: dict[uuid.UUID, int] | None = None) -> tuple:
+    """คีย์เรียง "ลำดับจ่ายของ" — **หน่วยที่ถูกใช้มาน้อยที่สุดถูกยืมออกก่อน** แล้วค่อยเก่าสุดก่อน
+
+    เปลี่ยนจาก FIFO ตาม acquired_at ล้วน ๆ ตาม feedback อาจารย์ 5 ก.ย. 69 ข้อ 9 — เกณฑ์เดิมทำให้
+    ของเก่าที่โทรมอยู่แล้วถูกจ่ายซ้ำทุกครั้งจนพังอยู่ชิ้นเดียว ขณะที่ชิ้นใหม่แทบไม่ถูกแตะ
+    เกณฑ์ใหม่กระจายการสึกหรอตาม "วันที่เคยถูกยืมจริง" ซึ่งเป็นตัววัดการใช้งานที่ตรงกว่าอายุของ
+
+    usage_days = ผลจาก usage_days_map() ไม่ส่งมา = ถือว่าทุกหน่วยยังไม่เคยถูกใช้ (เรียงตาม acquired_at
+    เหมือนเดิม) acquired_at = NULL ไปท้ายแถวเสมอ tie-break ด้วย code ให้ผลลัพธ์คงที่
+
+    ⚠ ห้ามเอาไปทำ ORDER BY ของ query ที่มี with_for_update() — ลำดับ "ล็อก" ต้องคง Equipment.code
+    เหมือนกันทุก transaction ไม่งั้น deadlock (ดู approve_request / bulk_adjust_stock)
+    ตัวนี้ใช้เรียง list ที่ล็อกมาแล้วใน memory เท่านั้น จึงไม่กระทบลำดับล็อก
+    """
+    used = (usage_days or {}).get(eq.id, 0)
+    return (used, eq.acquired_at is None, eq.acquired_at or date.min, eq.code)
+
+
+def _check_magic_bytes(contents: bytes, ext: str) -> None:
+    """เนื้อไฟล์ตรงกับนามสกุลจริงไหม — กันไฟล์สคริปต์ที่เปลี่ยนนามสกุลมาเป็นรูป/PDF"""
+    signatures = _MAGIC_BYTES.get(ext)
+    if not signatures:
+        return
+    ok = any(contents.startswith(sig) for sig in signatures)
+    if ok and ext == ".webp":
+        ok = contents[8:12] == b"WEBP"
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="File content does not match its extension.")
+
+
+async def _read_validated(file: UploadFile, allowed_ext: set[str], max_bytes: int) -> tuple[bytes, str]:
+    """ตรวจนามสกุล + ขนาด + เนื้อไฟล์ แล้วคืน (เนื้อไฟล์, นามสกุล) — ด่านเดียวของทุกการอัปโหลดในระบบ"""
     ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_IMAGE_EXT:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type.")
+    if ext not in allowed_ext:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported file type.")
+    limit_mb = max_bytes // (1024 * 1024)
     # ต้องเช็คขนาดก่อน read() — endpoint อัปโหลดรูปโปรไฟล์เปิดให้นักศึกษาทุกคนยิงได้
     # ถ้าเช็คหลัง read() ไฟล์ขนาดกี่ GB ก็ถูกโหลดเข้า RAM จนหมดก่อนถึงบรรทัดตรวจ = worker ตาย
-    if file.size is not None and file.size > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB).")
+    if file.size is not None and file.size > max_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"File too large (max {limit_mb}MB).")
     contents = await file.read()
-    if len(contents) > MAX_IMAGE_BYTES:  # เผื่อกรณี .size เป็น None
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB).")
+    if len(contents) > max_bytes:  # เผื่อกรณี .size เป็น None
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"File too large (max {limit_mb}MB).")
+    _check_magic_bytes(contents, ext)
+    return contents, ext
+
+
+async def save_upload(
+    file: UploadFile, allowed_ext: set[str] = ALLOWED_IMAGE_EXT, max_bytes: int = MAX_IMAGE_BYTES
+) -> str:
+    """บันทึกไฟล์อัปโหลดลง UPLOAD_DIR แล้วคืน path relative (/uploads/<uuid>.<ext>) สำหรับเก็บในคอลัมน์ url
+
+    ค่า default เป็นชุดของ "รูปภาพ" เพราะเป็นผู้ใช้ส่วนใหญ่ ผู้เรียกที่รับไฟล์ชนิดอื่นส่ง
+    allowed_ext/max_bytes มาเอง — จุดตรวจและการเขียนไฟล์อยู่ที่เดียวไม่ต้องก๊อป
+
+    ไฟล์ที่นี่ถูกเสิร์ฟสาธารณะ (StaticFiles) — เอกสารที่มีข้อมูลส่วนบุคคลต้องใช้ save_private_upload
+    """
+    contents, ext = await _read_validated(file, allowed_ext, max_bytes)
     filename = f"{uuid.uuid4().hex}{ext}"
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
         f.write(contents)
     return f"/uploads/{filename}"
+
+
+async def save_private_upload(file: UploadFile, allowed_ext: set[str], max_bytes: int) -> str:
+    """บันทึกไฟล์ลงโฟลเดอร์ที่ไม่ได้เสิร์ฟสาธารณะ แล้วคืน **ชื่อไฟล์เปล่า** (ไม่ใช่ URL)
+
+    คืนชื่อไฟล์อย่างเดียวโดยตั้งใจ — จะเปิดได้ต้องผ่าน endpoint ที่ตรวจสิทธิ์เท่านั้น
+    ถ้าคืนเป็น path ที่ประกอบเป็น URL ได้ ปลายทางจะเผลอเอาไปแปะเป็นลิงก์ตรงเหมือนของเดิม
+    """
+    contents, ext = await _read_validated(file, allowed_ext, max_bytes)
+    filename = f"{uuid.uuid4().hex}{ext}"
+    os.makedirs(settings.PRIVATE_UPLOAD_DIR, exist_ok=True)
+    with open(os.path.join(settings.PRIVATE_UPLOAD_DIR, filename), "wb") as f:
+        f.write(contents)
+    return filename
+
+
+async def save_image(file: UploadFile) -> str:
+    """บันทึกไฟล์รูปอุปกรณ์/รูปโปรไฟล์ — เปลือกบางของ save_upload ที่ล็อกไว้เฉพาะรูปภาพ"""
+    return await save_upload(file)
 
 
 async def get_holders_map(
@@ -145,6 +313,12 @@ async def _apply_status_filter(db: AsyncSession, query, filter_status: str | Non
         )
     if filter_status == "borrowed":
         return query.where(Equipment.id.in_((await get_holders_map(db)).keys()))
+    # ของที่ยังไม่มีราคา — ใช้ไล่เติมราคาให้ครบทุกชิ้น (ของเก่าจากทะเบียนที่ไม่มีคอลัมน์ราคา)
+    if filter_status == "no_price":
+        return query.where(Equipment.unit_value.is_(None))
+    # ของที่ยังไม่รู้ว่าได้มาเมื่อไหร่ — คำนวณอายุ/ค่าเสื่อมไม่ได้จนกว่าจะเติม
+    if filter_status == "no_acquired_at":
+        return query.where(Equipment.acquired_at.is_(None))
     # "available"/"unavailable" ต้องรวม is_borrowable เข้าไปด้วย ไม่ใช่แค่คอลัมน์ status ตรง ๆ — ของประจำห้อง
     # (is_borrowable=false) status ยังเป็น "available" อยู่ (import ไฟล์ทะเบียนใหม่ไม่แตะฟิลด์นี้) จึงต้องกรอง
     # ทั้งสองคอลัมน์ควบกันไม่งั้นของประจำห้องจะโผล่ปนกลุ่ม "พร้อมให้ยืม" และไม่โผล่ในกลุ่ม "ไม่อนุญาตให้ยืม" เลย
@@ -173,9 +347,7 @@ async def list_equipment(
         query = query.where(Equipment.item_type == item_type)
     query = await _apply_status_filter(db, query, filter_status)
     if search:
-        # ค้นได้ทั้งชื่อและรหัส (รหัสวัสดุ/เลขครุภัณฑ์) — พิมพ์บางส่วนก็เจอ
-        kw = f"%{search.strip()}%"
-        query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
+        query = query.where(_search_clause(search))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
@@ -191,6 +363,7 @@ async def list_equipment(
     query = query.options(selectinload(Equipment.categories))
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
+    await attach_book_values(db, items)
     holders_map = await get_holders_map(db)
     responses = []
     for eq in items:
@@ -276,22 +449,29 @@ async def list_equipment_grouped(
     # group — ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่เข้าเงื่อนไข แล้วเอาไปรวมยอด quantity_total/available เป็นยอด
     # ของกลุ่มทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
     # ต้องดึงทุกหน่วยของกลุ่มมาคำนวณยอดก่อน แล้วค่อยกรองว่าจะโชว์การ์ดไหนทีหลัง
-    filter_borrowed_group = filter_status == "borrowed"
-    query = await _apply_status_filter(db, query, None if filter_borrowed_group else filter_status)
+    # ตัวกรองที่ต้องตัดสินที่ระดับ "กลุ่ม" ไม่ใช่ระดับแถว — เหตุผลเดียวกับ borrowed ด้านบน:
+    # ของกลุ่มเดียวกัน 42 หน่วย ถ้าขาดราคาแค่ 3 หน่วย การกรองที่แถวจะเหลือ 3 หน่วยไปรวมยอดเป็นของทั้งกลุ่ม
+    group_level = filter_status in ("borrowed", "no_price", "no_acquired_at")
+    query = await _apply_status_filter(db, query, None if group_level else filter_status)
     if search:
-        kw = f"%{search.strip()}%"
-        query = query.where(or_(Equipment.name.ilike(kw), Equipment.code.ilike(kw)))
+        query = query.where(_search_clause(search))
     query = query.options(selectinload(Equipment.categories)).order_by(Equipment.code)
 
     rows = list((await db.execute(query)).scalars().all())
+    await attach_book_values(db, rows)
 
     groups: dict[tuple, list[Equipment]] = {}
     for eq in rows:
         groups.setdefault(_group_key(eq), []).append(eq)
 
     holders_map = await get_holders_map(db)
-    if filter_borrowed_group:
-        groups = {key: members for key, members in groups.items() if any(m.id in holders_map for m in members)}
+    if group_level:
+        keep = {
+            "borrowed": lambda m: m.id in holders_map,
+            "no_price": lambda m: m.unit_value is None,
+            "no_acquired_at": lambda m: m.acquired_at is None,
+        }[filter_status]
+        groups = {key: members for key, members in groups.items() if any(keep(m) for m in members)}
 
     cards = [_build_group_response(members, holders_map) for members in groups.values()]
     cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
@@ -299,7 +479,31 @@ async def list_equipment_grouped(
     total = len(cards)
     start = (page - 1) * page_size
     page_items = cards[start:start + page_size]
-    return PaginatedEquipmentGroup(items=page_items, total=total, page=page, page_size=page_size)
+    return PaginatedEquipmentGroup(items=page_items, total=total, page=page, page_size=page_size,
+                                   summary=_summarize_cards(cards))
+
+
+def _summarize_cards(cards: list[EquipmentGroupResponse]) -> EquipmentListSummary:
+    """สรุปจำนวน "ชิ้นจริง" ของผลการค้นหาทั้งหมด แยกตามประเภท
+
+    การ์ด 1 ใบ = 1 รุ่น (ยุบหลายหน่วยแล้ว) ตัวเลขที่ผู้ใช้ต้องเห็นคือจำนวนชิ้นจริง ไม่ใช่จำนวนการ์ด —
+    "187 รายการ" ทำให้เข้าใจผิดว่าคลังมีของแค่ 187 ชิ้น ทั้งที่ยุบมาจากพันกว่าหน่วย (8 ก.ย. 69)
+    คิดจาก cards ที่กรองแล้วในหน่วยความจำ ไม่ต้องยิง query เพิ่ม
+    """
+    by_type: dict[str, dict[str, int]] = {}
+    for c in cards:
+        acc = by_type.setdefault(c.item_type, {"groups": 0, "pieces": 0, "available": 0})
+        acc["groups"] += 1
+        acc["pieces"] += c.quantity_total
+        acc["available"] += c.quantity_available
+    order = {"durable": 0, "material": 1, "consumable": 2}
+    return EquipmentListSummary(
+        groups=len(cards),
+        pieces=sum(a["pieces"] for a in by_type.values()),
+        available=sum(a["available"] for a in by_type.values()),
+        by_type=[EquipmentTypeSummary(item_type=t, **a)
+                 for t, a in sorted(by_type.items(), key=lambda kv: order.get(kv[0], 9))],
+    )
 
 
 async def get_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> Equipment:
@@ -309,6 +513,7 @@ async def get_equipment(db: AsyncSession, equipment_id: uuid.UUID) -> Equipment:
     eq = result.scalar_one_or_none()
     if not eq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment not found.")
+    await attach_book_values(db, [eq])
     return eq
 
 
@@ -319,13 +524,19 @@ async def get_equipment_group_detail(db: AsyncSession, equipment_id: uuid.UUID) 
     """
     eq = await get_equipment(db, equipment_id)
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
+    await attach_book_values(db, members)
     holders_map = await get_holders_map(db, [m.id for m in members])
+    usage = await usage_days_map(db, [m.id for m in members])
     group = _build_group_response(members, holders_map)
     unit_summaries = []
     for m in members:
         m_holders = holders_map.get(m.id, [])
         unit_summaries.append(EquipmentUnitSummary.model_validate(m, from_attributes=True).model_copy(
-            update={"is_currently_borrowed": m.id in holders_map, "holder": m_holders[0] if m_holders else None}
+            update={
+                "is_currently_borrowed": m.id in holders_map,
+                "holder": m_holders[0] if m_holders else None,
+                "days_borrowed": usage.get(m.id, 0),
+            }
         ))
     # flatten list ของ list — holders_map คืนหลายคนต่อ equipment_id ได้แล้ว (ดู get_holders_map) ต้องรวมทุกคน
     # ของทุกหน่วยในกลุ่มมาเป็น list เดียว ไม่ใช่แค่ list ของหน่วยตัวแทนแบบเดิม (group.model_dump() มี key
@@ -407,9 +618,50 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     # เก็บ quantity/item_type ลง detail ด้วย เพื่อให้ใบรับเข้า (ร่างเข้า) ดึงจำนวนมาโชว์ได้
     await audit_service.log_action(db, admin, "create_equipment", "equipment", eq.id,
                                    {"code": eq.code, "name": eq.name,
-                                    "quantity": eq.quantity_total, "item_type": eq.item_type})
+                                    "quantity": eq.quantity_total, "item_type": eq.item_type,
+                                    "unit_value": float(eq.unit_value) if eq.unit_value is not None else None})
     await db.commit()
     return await get_equipment(db, eq.id)
+
+
+def _search_clause(search: str):
+    """เงื่อนไขค้นหาอุปกรณ์ — ที่เดียวสำหรับทั้งหน้ารายการและหน้ากลุ่ม ไม่งั้นสองหน้าค้นเจอคนละชุด
+
+    ครอบ 4 ช่องตามมาตรฐานการตั้งชื่อ (เฟส 8): ชื่อ · รหัสทะเบียน · รุ่น · ซีเรียล
+    เพราะคนค้นด้วยสิ่งที่ตัวเองรู้ — นักศึกษาพิมพ์ "DHT11" (รุ่น) แอดมินพิมพ์เลขครุภัณฑ์ ช่างพิมพ์ SN
+    """
+    kw = f"%{search.strip()}%"
+    return or_(
+        Equipment.name.ilike(kw),
+        Equipment.code.ilike(kw),
+        Equipment.model_number.ilike(kw),
+        Equipment.manufacturer.ilike(kw),
+        Equipment.serial_number.ilike(kw),
+    )
+
+
+# ฟิลด์ที่กระทบตัวเลขย้อนหลัง (ค่าเสื่อม/มูลค่าในใบยืมเก่า/ค่าเสียหายที่เรียกเก็บ) — superadmin เท่านั้น
+# ตามการแบ่งฟอร์มตามความเสี่ยงในเฟส 8 · ตอน "สร้างใหม่" ไม่กั้น เพราะของทุกชิ้นต้องมีราคา+วันที่ได้มา
+# ตั้งแต่แรกอยู่แล้ว (EquipmentCreate บังคับ) คนกรอกคือผู้ดูแลคลังที่รับของเข้าทะเบียน
+FINANCE_FIELDS = ("unit_value", "book_value_override", "acquired_at", "useful_life_years")
+
+
+def _assert_can_edit_finance(admin: User, eq: Equipment, changed: dict) -> None:
+    """กันผู้ดูแลคลังแก้ตัวเลขการเงินของอุปกรณ์ที่มีอยู่แล้ว — ต้องยื่นคำขอให้ superadmin แก้ผ่าน
+    /change-requests แทน (ดู CLAUDE.md หัวข้อ 6) เทียบค่าจริงก่อน ส่งค่าเดิมซ้ำมาไม่นับว่าแก้
+    """
+    if is_superadmin(admin):
+        return
+    touched = [f for f in FINANCE_FIELDS if f in changed and changed[f] != getattr(eq, f)]
+    # Numeric จาก DB เป็น Decimal ส่วนที่ส่งมาเป็น float — เทียบตรง ๆ จะไม่เท่ากันทั้งที่ค่าเดียวกัน
+    touched = [f for f in touched
+               if not (isinstance(getattr(eq, f), Decimal) and changed[f] is not None
+                       and Decimal(str(changed[f])) == getattr(eq, f))]
+    if touched:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="แก้ข้อมูลทะเบียน/การเงินได้เฉพาะผู้ดูแลระบบสูงสุด (ยื่นคำขอแก้ไขข้อมูลแทนได้)",
+        )
 
 
 async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUID, body: EquipmentUpdate) -> Equipment:
@@ -421,7 +673,18 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     eq = await get_equipment(db, equipment_id)
     # exclude_unset (ไม่ใช่ exclude_none) — ต้องแยก "ไม่ได้ส่งฟิลด์นี้มา" ออกจาก "ส่งมาเป็น null ตั้งใจล้างค่า"
     # เช่น SN ที่แอดมินกรอกผิดแล้วอยากลบทิ้ง — exclude_none เดิมจะตัด null ทิ้งเหมือนไม่ได้ส่งมา ลบไม่ได้เลย
-    changed = body.model_dump(exclude_unset=True, exclude={"category_ids"})
+    changed = body.model_dump(exclude_unset=True, exclude={"category_ids", "status_reason"})
+    # เปลี่ยนสถานะ = action ที่ต้องอธิบายได้ ไม่ใช่แค่แก้ค่าในฟอร์ม (เฟส 8) — เหตุผลลง audit คู่กับ diff
+    status_reason = (body.status_reason or "").strip()
+    if "status" in changed and changed["status"] != eq.status and not status_reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="กรุณาระบุเหตุผลที่เปลี่ยนสถานะอุปกรณ์")
+    # ของทุกชิ้นต้องมีราคา (feedback อาจารย์) — แก้เป็นค่าอื่นได้ แต่ล้างทิ้งไม่ได้ ต่างจาก SN/หมวดหมู่
+    # ที่ null = ตั้งใจล้างค่า (ดูคอมเมนต์ exclude_unset ด้านบน) book_value_override ยังล้างได้ตามปกติ
+    if "unit_value" in changed and changed["unit_value"] is None:
+        changed.pop("unit_value")
+    # เช็คสิทธิ์หลัง normalize — ฟอร์มส่งทั้งก้อนทุกครั้ง ค่าที่ไม่ได้แก้จริงต้องไม่ทำให้โดน 403
+    _assert_can_edit_finance(admin, eq, changed)
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
     if "code" in changed and changed["code"] != eq.code:
@@ -474,8 +737,13 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         if old_category_names != new_category_names:
             field_diffs["category_ids"] = [old_category_names, new_category_names]
 
-    detail = {"code": eq.code, "changes": field_diffs}
-    await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id, detail)
+    # field_diffs ว่าง = ส่งค่าเดิมมาซ้ำ (เช่น unit_value: null ที่ diff_fields กรองทิ้งไปแล้ว) ไม่ log entry
+    # เปล่าๆ ที่ไม่มีอะไรอยู่ข้างใต้ ไม่งั้นเป็น noise ใน timeline รายอุปกรณ์ (เจอจาก QA จริง)
+    if field_diffs:
+        detail = {"code": eq.code, "changes": field_diffs}
+        if status_reason and "status" in field_diffs:
+            detail["reason"] = status_reason
+        await audit_service.log_action(db, admin, "update_equipment", "equipment", eq.id, detail)
     await db.commit()
     return await get_equipment(db, equipment_id)
 
@@ -594,6 +862,11 @@ async def split_equipment_into_units(
             location=eq.location,
             unit=eq.unit,
             unit_value=eq.unit_value,
+            # แยกแถวรวมเป็นรายชิ้น = ของชิ้นเดิม ไม่ใช่ของใหม่ → อายุ/เกณฑ์ค่าเสื่อมต้องตามไปทุกหน่วย
+            # (ถ้าปล่อยให้ acquired_at เป็น None ที่นี่ อายุจะหายทันทีที่แอดมินกดแยกรายชิ้น)
+            acquired_at=eq.acquired_at,
+            useful_life_years=eq.useful_life_years,
+            book_value_override=eq.book_value_override,
             quantity_total=1,
             quantity_available=1,
             low_stock_threshold=eq.low_stock_threshold,
@@ -664,6 +937,9 @@ async def restock_equipment(
             id=uuid.uuid4(), code=code, name=eq.name, item_type=eq.item_type,
             description=eq.description, image_url=eq.image_url, image_urls=list(eq.image_urls),
             location=eq.location, unit=eq.unit, unit_value=eq.unit_value,
+            # ต่างจาก split โดยตั้งใจ — restock = ซื้อของเพิ่มเข้าคลังจริง หน่วยใหม่จึงเริ่มนับอายุวันนี้
+            # ไม่ copy acquired_at ของแถวต้นแบบ (จะทำให้ของใหม่แก่เท่าของเก่าทันที) และไม่ copy override ราคา
+            acquired_at=date.today(), useful_life_years=eq.useful_life_years,
             quantity_total=1, quantity_available=1,
             low_stock_threshold=eq.low_stock_threshold, status="available", is_borrowable=eq.is_borrowable,
         )
@@ -787,7 +1063,8 @@ async def bulk_delete_equipment(
 
 
 async def bulk_update_equipment(
-    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], body: EquipmentBulkUpdate
+    db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], body: EquipmentBulkUpdate,
+    status_reason: str | None = None,
 ) -> BulkUpdateResult:
     """แก้ไขหลายหน่วยพร้อมกัน (เช่น ย้ายสถานที่ทั้ง 12 หน่วยของรุ่นเดียวกัน) — all-or-nothing ต่างจาก
     bulk_delete_equipment เพราะการแก้ location/status ไม่มีเหตุผลที่ควร "แก้ได้บางชิ้น" เซสชันเดียว
@@ -800,6 +1077,15 @@ async def bulk_update_equipment(
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
     if not changed and body.category_ids is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่มีอะไรจะแก้ไข")
+    # กฎเดียวกับแก้ทีละชิ้น (เฟส 8) — ไม่งั้นแก้หลายรายการพร้อมกันกลายเป็นทางลัดข้ามด่านสิทธิ์/เหตุผล
+    if not is_superadmin(admin) and any(f in changed for f in FINANCE_FIELDS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="แก้ข้อมูลทะเบียน/การเงินได้เฉพาะผู้ดูแลระบบสูงสุด (ยื่นคำขอแก้ไขข้อมูลแทนได้)")
+    status_reason = (status_reason or "").strip()
+    if "status" in changed and not status_reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="กรุณาระบุเหตุผลที่เปลี่ยนสถานะอุปกรณ์")
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
 
@@ -837,7 +1123,8 @@ async def bulk_update_equipment(
         audit_set["category_ids"] = sorted(c.name for c in new_categories)
     await audit_service.log_action(
         db, admin, "bulk_update_equipment", "equipment", rows[0].id,
-        {"count": len(rows), "set": audit_set, "equipment_ids": [str(e.id) for e in rows]},
+        {"count": len(rows), "set": audit_set, "equipment_ids": [str(e.id) for e in rows],
+         **({"reason": status_reason} if status_reason and "status" in changed else {})},
     )
     await db.commit()
     ids = [e.id for e in rows]
@@ -850,8 +1137,13 @@ async def bulk_update_equipment(
 async def bulk_adjust_stock(
     db: AsyncSession, admin: User, equipment_ids: list[uuid.UUID], delta: int, reason: str
 ) -> BulkAdjustStockResult:
-    """ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — มิเรอร์ adjust_stock แต่วน loop
-    ต่อแถวเพราะแต่ละแถว quantity_total ไม่เท่ากัน ตั้งเลข absolute เดียวทับทุกแถวไม่มีความหมาย
+    """ปรับยอดคงเหลือของหลายรายการพร้อมกันด้วยจำนวน delta เดียว
+
+    **ความหมายของ delta ต่างกันตามชนิดแถว** (แก้ 8 ก.ย. 69 หลังผู้ใช้รายงานว่า "ปรับหลายรายการไม่ได้"):
+    - แถวที่เป็นก้อน (`quantity_total > 1` เช่นวัสดุสิ้นเปลือง) → บวก/ลบกับแถวนั้นตรง ๆ
+    - แถวที่เป็นหน่วยเดี่ยว (`quantity_total == 1` คือของที่แยกรายชิ้นแล้ว) → คิดเป็น **กองรวม**:
+      -3 = ปิดการใช้งาน 3 หน่วยแรกที่ยังว่าง · +3 = เปิดคืน 3 หน่วยที่ปิดอยู่
+      (เดิมลบทีละแถว = ติ๊กทั้งรุ่นแล้วกด -1 ครั้งเดียว สต็อกทั้งรุ่นกลายเป็น 0)
 
     clamp อิสระต่อแถว (0 <= quantity_available <= quantity_total - outstanding_qty) โดย outstanding_qty
     คือจำนวนที่ถูกยืมออกไปจริง (approved + ยังไม่คืน ดู get_holders_map) ณ ขณะนี้ — ต้องหักออกจากเพดานบนเสมอ
@@ -885,6 +1177,11 @@ async def bulk_adjust_stock(
 
     failed: list[BulkDeleteFailure] = []
     updated_ids: list[uuid.UUID] = []
+    # แถวที่เป็น "หน่วยเดี่ยว" (quantity_total == 1) ต้องคิดแบบ **กองรวม** ไม่ใช่บวก/ลบทีละแถว
+    # เหตุผล: ครุภัณฑ์/วัสดุที่แยกเป็นรายชิ้นแล้ว 1 แถว = 1 ชิ้น ติ๊กทั้งรุ่น 42 หน่วยแล้วใส่ -1
+    # ถ้าลบทีละแถวจะกลายเป็น "ทั้งรุ่นเหลือ 0" ทันที (เจอจริง 8 ก.ย. 69) ทั้งที่แอดมินหมายถึง
+    # "นับแล้วรุ่นนี้ขาดไป 1 ชิ้น" — ส่วน +1 ก็ถูก clamp ที่ 1 ทุกแถวจนดูเหมือนกดแล้วไม่มีอะไรเกิดขึ้น
+    unit_budget = abs(delta)
     for eq_id in ids:
         eq = rows_by_id.get(eq_id)
         if eq is None:
@@ -893,13 +1190,27 @@ async def bulk_adjust_stock(
         outstanding_qty = sum(h.quantity for h in holders_map.get(eq_id, []))
         old_available = eq.quantity_available
         upper_bound = eq.quantity_total - outstanding_qty
-        new_available = max(0, min(upper_bound, old_available + delta))
+
+        if eq.quantity_total == 1:
+            # กองรวม: ไล่ปิด/เปิดทีละหน่วยจนครบจำนวนที่สั่ง หน่วยที่เหลือไม่ถูกแตะ
+            if unit_budget > 0 and delta < 0 and old_available > 0:
+                new_available, unit_budget = 0, unit_budget - 1
+            elif unit_budget > 0 and delta > 0 and old_available == 0 and upper_bound > 0:
+                new_available, unit_budget = 1, unit_budget - 1
+            else:
+                new_available = old_available  # โควตาหมด/ถูกยืมอยู่/เป็นแบบที่ต้องการอยู่แล้ว
+        else:
+            new_available = max(0, min(upper_bound, old_available + delta))
+
         eq.quantity_available = new_available
-        await audit_service.log_action(db, admin, "bulk_adjust_stock", "equipment", eq.id, {
-            "code": eq.code, "name": eq.name,
-            "old_available": old_available, "new_available": new_available,
-            "delta": delta, "reason": reason,
-        })
+        # เขียน audit เฉพาะแถวที่เปลี่ยนจริง — แถวที่ชนเพดาน/ถูกข้ามไม่ต้องรก timeline
+        # (แต่ยังคืนใน updated เพื่อให้หน้าเว็บรีเฟรชค่าล่าสุดของทุกแถวที่เลือกได้)
+        if new_available != old_available:
+            await audit_service.log_action(db, admin, "bulk_adjust_stock", "equipment", eq.id, {
+                "code": eq.code, "name": eq.name,
+                "old_available": old_available, "new_available": new_available,
+                "delta": delta, "reason": reason,
+            })
         updated_ids.append(eq.id)
     await db.commit()
     result = await db.execute(
@@ -985,6 +1296,8 @@ async def build_stock_document(
             "name": (log.detail or {}).get("name"),
             "item_type": (log.detail or {}).get("item_type"),
             "quantity": (log.detail or {}).get("quantity"),
+            # log เก่าก่อนเฟสนี้ไม่มี unit_value → None แล้ว PDF เว้นช่องว่างไว้ให้กรอกมือเหมือนเดิม
+            "unit_value": (log.detail or {}).get("unit_value"),
             "reason": (log.detail or {}).get("reason"),
             "actor": log.actor_name,
             "date": log.created_at,
@@ -997,9 +1310,13 @@ async def build_stock_document(
     )
 
 
-async def generate_qr(db: AsyncSession, equipment_id: uuid.UUID) -> bytes:
+async def generate_qr(db: AsyncSession, equipment_id: uuid.UUID, frontend_origin: str | None = None) -> bytes:
+    """สร้าง QR code ชี้ไปหน้ารายละเอียดอุปกรณ์ — ใช้ frontend_origin ที่ router ตรวจจาก request จริง
+    ถ้ามี (เครื่อง dev ที่ IP เปลี่ยนบ่อย) แทน settings.FRONTEND_URL คงที่ กัน QR ชี้ผิดเครื่อง/ผิด IP
+    """
     eq = await get_equipment(db, equipment_id)
-    return generate_qr_png(f"{settings.FRONTEND_URL}/equipment/{eq.id}")
+    origin = frontend_origin or settings.FRONTEND_URL
+    return generate_qr_png(f"{origin}/equipment/{eq.id}")
 
 
 async def list_categories(db: AsyncSession) -> list[EquipmentCategory]:

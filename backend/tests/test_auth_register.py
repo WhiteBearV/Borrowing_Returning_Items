@@ -32,7 +32,7 @@ def _random_student_id() -> str:
 def test_register_request_strips_trailing_whitespace():
     req = RegisterRequest(
         full_name="นาย ทดสอบ", student_id="6512345678 ", email="test@cdti.ac.th",
-        password="Test1234!", major="comp_eng",
+        phone="0812345678", password="Test1234!", major="comp_eng", pdpa_consent=True,
     )
     assert req.student_id == "6512345678"
 
@@ -40,7 +40,7 @@ def test_register_request_strips_trailing_whitespace():
 def test_register_request_strips_leading_whitespace():
     req = RegisterRequest(
         full_name="นาย ทดสอบ", student_id=" 6512345678", email="test@cdti.ac.th",
-        password="Test1234!", major="comp_eng",
+        phone="0812345678", password="Test1234!", major="comp_eng", pdpa_consent=True,
     )
     assert req.student_id == "6512345678"
 
@@ -50,7 +50,16 @@ def test_register_request_still_rejects_malformed_after_strip():
     with pytest.raises(ValidationError):
         RegisterRequest(
             full_name="นาย ทดสอบ", student_id=" 65123 ", email="test@cdti.ac.th",
-            password="Test1234!", major="comp_eng",
+            phone="0812345678", password="Test1234!", major="comp_eng", pdpa_consent=True,
+        )
+
+
+def test_register_request_rejects_consent_false():
+    """ต้องยอมรับ PDPA ก่อนสมัคร — pdpa_consent=False ต้อง reject แม้ฟิลด์อื่นถูกหมด"""
+    with pytest.raises(ValidationError):
+        RegisterRequest(
+            full_name="นาย ทดสอบ", student_id="6512345678", email="test@cdti.ac.th",
+            phone="0812345678", password="Test1234!", major="comp_eng", pdpa_consent=False,
         )
 
 
@@ -88,8 +97,10 @@ async def test_register_endpoint_accepts_and_trims_whitespace_student_id(client:
         "full_name": "นาย ทดสอบ Whitespace",
         "student_id": f"  {sid}  ",
         "email": email,
+        "phone": "0812345678",
         "password": "Test1234!",
         "major": "comp_eng",
+        "pdpa_consent": True,
     })
     assert r.status_code == 201, r.text
 
@@ -102,6 +113,32 @@ async def test_register_endpoint_accepts_and_trims_whitespace_student_id(client:
         await db.execute(delete(AuthToken).where(AuthToken.user_id == uid))
         await db.commit()
     await _delete_user_cascade(uid)
+
+
+async def test_register_endpoint_rejects_duplicate_student_id_with_409(client: AsyncClient):
+    """เดิมเช็คซ้ำเฉพาะ email — student_id ซ้ำหลุดไปชน unique constraint ตรงๆ กลายเป็น 500 ดิบ
+    ต้องจับก่อน insert แล้วคืน 409 เหมือน email ซ้ำ (เจอบั๊กจริงจาก QA)"""
+    sid = _random_student_id()
+    email_a = f"regtest_{uuid.uuid4().hex[:8]}@cdti.ac.th"
+    email_b = f"regtest_{uuid.uuid4().hex[:8]}@cdti.ac.th"
+    body = {
+        "full_name": "นาย ทดสอบ ซ้ำ", "student_id": sid, "email": email_a,
+        "phone": "0812345678", "password": "Test1234!", "major": "comp_eng", "pdpa_consent": True,
+    }
+    r = await client.post("/auth/register", json=body)
+    assert r.status_code == 201, r.text
+    uid = None
+    try:
+        r = await client.post("/auth/register", json={**body, "email": email_b})
+        assert r.status_code == 409, r.text
+        assert "student id" in r.json()["detail"].lower()
+    finally:
+        async with AsyncSessionLocal() as db:
+            user = (await db.execute(select(User).where(User.email == email_a))).scalar_one()
+            uid = user.id
+            await db.execute(delete(AuthToken).where(AuthToken.user_id == uid))
+            await db.commit()
+        await _delete_user_cascade(uid)
 
 
 async def test_register_endpoint_rejects_malformed_student_id_with_array_detail(client: AsyncClient):

@@ -11,6 +11,7 @@ audit log ที่เขียนตอน commit ใช้ action เดีย
 """
 import os
 import uuid
+from datetime import date, datetime
 from typing import Any
 
 import openpyxl
@@ -72,6 +73,31 @@ def _clean(v: object) -> str:
     return " ".join(str(v).split()) if v is not None else ""
 
 
+def _money(v: object) -> float | None:
+    """ราคาจากทะเบียน → float — ช่องว่าง/ขีด/ข้อความที่ไม่ใช่ตัวเลข = None (แอดมินไปกรอกเองทีหลังได้)
+
+    ทะเบียนพระราชทานเก็บทศนิยมยาว (7383.177570093458) ปัดเป็น 2 ตำแหน่งตามคอลัมน์ Numeric(12,2)
+    (ลอกมาจาก scripts/import_register.py::money ที่ seed ครั้งแรกใช้ — คนละ return type เพราะอันนั้นคืน SQL literal)
+    """
+    if v is None:
+        return None
+    try:
+        return round(float(str(v).replace(",", "").strip()), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_date(v: object) -> date | None:
+    """คอลัมน์ "ว/ด/ป ที่รับ" — openpyxl คืนมาเป็น datetime อยู่แล้วเมื่อเซลล์เป็นชนิดวันที่จริง
+    เซลล์ที่พิมพ์เป็นข้อความ/ว่าง คืน None ไปให้แอดมินกรอกเองในร่างนำเข้า
+    """
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    return None
+
+
 def _categorize(name: str, code: str = "", item_type: str = "durable") -> str:
     """หมวดหมู่ของรายการ — วัสดุใช้รหัส 2 หลักแรก (หมวดวัสดุ) ก่อน ไม่เจอค่อยเดาจากชื่อ"""
     if item_type != "durable" and code[:2] in MATERIAL_CAT_BY_PREFIX:
@@ -106,7 +132,8 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
     skipped: list[dict[str, str]] = []
 
     def add(code: str, name: str, loc: str, st: str, qa: int, sheet: str, seq: str,
-            item_type: str = "durable", qty: int = 1, unit: str | None = None) -> None:
+            item_type: str = "durable", qty: int = 1, unit: str | None = None,
+            unit_value: float | None = None, acquired_at: date | None = None) -> None:
         if not code or code == "-":
             skipped.append({"sheet": sheet, "seq": seq, "name": name, "reason": "ไม่มีเลขครุภัณฑ์/รหัส"})
             return
@@ -114,6 +141,7 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
             "code": code, "name": name, "location": loc or None,
             "status": st, "quantity_available": qa, "category": _categorize(name, code, item_type),
             "item_type": item_type, "quantity_total": qty, "unit": unit,
+            "unit_value": unit_value, "acquired_at": acquired_at,
         })
 
     if "คณะเทคโนฯดิจิทัล" in wb.sheetnames:
@@ -122,7 +150,8 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
             if not name or name == "รวมทั้งสิ้น":
                 continue
             st, qa = _status_from(r[5], r[6], r[7], r[8])
-            add(_clean(r[1]), name, _clean(r[11]) or _clean(r[16]), st, qa, "คณะ", _clean(r[0]))
+            add(_clean(r[1]), name, _clean(r[11]) or _clean(r[16]), st, qa, "คณะ", _clean(r[0]),
+                unit_value=_money(r[3]), acquired_at=_as_date(r[4]))
 
     if "ครุภัณฑ์ที่ได้รับพระราชทาน" in wb.sheetnames:
         for r in wb["ครุภัณฑ์ที่ได้รับพระราชทาน"].iter_rows(min_row=5, values_only=True):
@@ -133,7 +162,8 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
             # "ไม่พบครุภัณฑ์" ในหมายเหตุ = หาตัวจริงไม่เจอ → ยืมไม่ได้
             if "ไม่พบครุภัณฑ์" in _clean(r[15]):
                 st, qa = "unavailable", 0
-            add(_clean(r[8]), name, _clean(r[9]), st, qa, "พระราชทาน", _clean(r[0]))
+            add(_clean(r[8]), name, _clean(r[9]), st, qa, "พระราชทาน", _clean(r[0]),
+                unit_value=_money(r[5]))
 
     # ชีต "วัสดุ" (ทางเลือก) — วัสดุไม่มีในทะเบียนคุมทรัพย์สิน จึงใช้ชีตแยกรูปแบบง่าย ๆ
     # header แถว 1: รหัส | รายการ | ประเภท | หน่วยนับ | จำนวน | สถานที่จัดเก็บ
@@ -212,6 +242,14 @@ def diff_rows(
         # จำนวนเทียบเฉพาะวัสดุ — ครุภัณฑ์เป็น 1 ชิ้น/1 เลขทะเบียนเสมอ
         if row["item_type"] != "durable" and old.get("quantity_total") != row["quantity_total"]:
             changes["quantity_total"] = [old.get("quantity_total"), row["quantity_total"]]
+        # ราคา/วันที่ได้มา = เติมอย่างเดียว (fill-only) ไม่ทับของเดิม — แอดมินอาจแก้ราคาในระบบไปแล้ว
+        # และไฟล์ทะเบียนเป็นข้อมูล ณ วันที่ export ไม่ใช่แหล่งความจริงล่าสุดเสมอไป
+        # (pattern เดียวกับ COALESCE ใน scripts/import_register.py:168 ที่ seed ครั้งแรกใช้)
+        for field in ("unit_value", "acquired_at"):
+            if row.get(field) is not None and old.get(field) is None:
+                v = row[field]
+                # date ลง JSONB ตรง ๆ ไม่ได้ (audit detail เก็บ changes ก้อนนี้ทั้งดุ้น) → เก็บเป็น ISO string
+                changes[field] = [None, v.isoformat() if isinstance(v, date) else v]
         sn = sn_updates.get(row["code"])
         target_sn = sn or old.get("serial_number")
         if sn and (old.get("serial_number") or None) != sn:
@@ -298,7 +336,9 @@ async def _load_existing(db: AsyncSession) -> dict[str, dict[str, Any]]:
     return {
         eq.code: {"id": eq.id, "name": eq.name, "location": eq.location, "status": eq.status,
                   "item_type": eq.item_type, "quantity_total": eq.quantity_total,
-                  "serial_number": eq.serial_number}
+                  "serial_number": eq.serial_number,
+                  "unit_value": float(eq.unit_value) if eq.unit_value is not None else None,
+                  "acquired_at": eq.acquired_at}
         for eq in result.scalars().all()
     }
 
@@ -449,6 +489,7 @@ async def commit_import(
                 unit=row.unit, description=row.description, serial_number=sn,
                 quantity_total=row.quantity,
                 quantity_available=row.quantity if row.status == "available" else 0,
+                unit_value=row.unit_value, acquired_at=row.acquired_at,
                 image_urls=row.image_urls, image_url=row.image_urls[0] if row.image_urls else None,
             )
             eq.categories = [await _get_or_create_category(db, n, cat_cache) for n in cat_names]
@@ -491,6 +532,11 @@ async def commit_import(
             if row.serial_number != eq.serial_number:
                 await _assert_no_sn_conflict(db, row.serial_number, eq.id)
             eq.serial_number = row.serial_number
+        # เติมราคา/วันที่ได้มาเฉพาะแถวที่ยังว่าง — ห้ามทับค่าที่แอดมินกรอกเองในระบบ (ตรงกับ diff_rows)
+        if row.unit_value is not None and eq.unit_value is None:
+            eq.unit_value = row.unit_value
+        if row.acquired_at is not None and eq.acquired_at is None:
+            eq.acquired_at = row.acquired_at
         if row.image_urls:
             eq.image_urls = row.image_urls
             eq.image_url = row.image_urls[0]

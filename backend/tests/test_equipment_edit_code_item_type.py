@@ -26,7 +26,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบแก้ไข {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -113,6 +113,7 @@ async def test_update_equipment_increase_quantity_total_grows_available(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 2}],
         })
@@ -183,6 +184,7 @@ async def test_update_equipment_item_type_does_not_break_active_loan_snapshot(
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01",
             "items": [{"equipment_id": eq_id, "quantity": 1}],
         })

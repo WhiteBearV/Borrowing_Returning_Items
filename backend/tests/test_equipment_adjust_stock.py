@@ -21,7 +21,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"ADJ-{suffix}", "name": f"อุปกรณ์ทดสอบปรับยอด {suffix}",
         "category_ids": [], "item_type": "consumable", "quantity_total": 10,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)

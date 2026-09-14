@@ -22,7 +22,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"อุปกรณ์ทดสอบต่อเวลา {suffix}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -30,6 +30,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
 
 async def _make_approved_request(client: AsyncClient, admin_header: dict, student_header: dict, eq_id: str) -> tuple[str, str]:
     r = await client.post("/borrow-requests", headers=student_header, json={
+        "purpose": "ทดสอบระบบ",
         "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": eq_id, "quantity": 1}],
     })
@@ -127,8 +128,11 @@ async def test_renew_request_rejects_too_far_ahead(client: AsyncClient, admin_to
     eq_id = await _make_equipment(client, h_admin)
     req_id, item_id = await _make_approved_request(client, h_admin, h_student, eq_id)
     try:
-        # max_renew_days seed = 7 วัน — ขอ 30 วันข้างหน้าต้องเกินเพดาน
-        far_date = (date.today() + timedelta(days=30)).isoformat()
+        # เพดานอ่านจาก setting จริง ไม่ hardcode ค่า seed — แอดมินแก้ max_renew_days ผ่านหน้า Settings ได้
+        # และเทสชุดนี้ยิงใส่ DB dev ที่ใช้งานจริงอยู่ (ค่าปัจจุบันอาจไม่ใช่ 7 แล้ว) เคยพังมาแล้วเพราะสมมติค่าเอง
+        settings_list = (await client.get("/settings", headers=h_admin)).json()
+        max_renew_days = int(next(s["value"] for s in settings_list if s["key"] == "max_renew_days"))
+        far_date = (date.today() + timedelta(days=max_renew_days + 1)).isoformat()
         r = await client.post(
             f"/borrow-requests/{req_id}/items/{item_id}/renew-request",
             json={"requested_date": far_date, "reason": "ไกลเกินไป"}, headers=h_student,

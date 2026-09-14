@@ -6,6 +6,7 @@
 MAIL_USERNAME ใน .env test เป็น placeholder → send_email() แค่ print แทนส่งจริง จึงตรวจผลจาก stdout ผ่าน capsys
 """
 import uuid
+from datetime import datetime, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import delete
@@ -20,6 +21,10 @@ from app.models.equipment_category import EquipmentCategory
 from app.models.notification import Notification
 from app.models.user import User
 from tests.conftest import auth
+
+# นัดคืนบังคับกรอกตั้งแต่เฟส 4 — ใช้พรุ่งนี้บ่ายโมงเป็นค่ามาตรฐานของไฟล์นี้
+APPOINT_AT = (datetime.now() + timedelta(days=1)).replace(hour=13, minute=0, second=0,
+                                                          microsecond=0).isoformat()
 
 
 async def _cleanup_request(req_id: str, eq_ids: list[uuid.UUID]) -> None:
@@ -55,7 +60,7 @@ async def test_student_can_request_return_single_item(
     capsys.readouterr()  # ล้าง output จากอีเมลตอนสร้างคำขอ/อนุมัติ
 
     r = await client.post(f"/borrow-requests/{req['id']}/request-return",
-                          headers=auth(student_token), json={"item_ids": [item_id]})
+                          headers=auth(student_token), json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
     assert r.status_code == 200
 
     body = (await client.get(f"/borrow-requests/{req['id']}", headers=auth(student_token))).json()
@@ -90,7 +95,7 @@ async def test_student_can_request_return_multiple_items_in_one_call(
     capsys.readouterr()
 
     r = await client.post(f"/borrow-requests/{req['id']}/request-return",
-                          headers=auth(student_token), json={"item_ids": item_ids})
+                          headers=auth(student_token), json={"item_ids": item_ids, "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
     assert r.status_code == 200
 
     body = (await client.get(f"/borrow-requests/{req['id']}", headers=auth(student_token))).json()
@@ -126,7 +131,7 @@ async def test_non_owner_cannot_request_return(
     other_token = create_access_token(str(other_id), extra={"role": "student"})
 
     r = await client.post(f"/borrow-requests/{req['id']}/request-return",
-                          headers=auth(other_token), json={"item_ids": [item_id]})
+                          headers=auth(other_token), json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
     assert r.status_code == 403
 
     await _cleanup_request(req["id"], [test_equipment.id])
@@ -142,7 +147,7 @@ async def test_cannot_request_return_before_approved(
     item_id = req["items"][0]["id"]
 
     r = await client.post(f"/borrow-requests/{req['id']}/request-return",
-                          headers=auth(student_token), json={"item_ids": [item_id]})
+                          headers=auth(student_token), json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
     assert r.status_code == 400
 
     await _cleanup_request(req["id"], [test_equipment.id])
@@ -161,7 +166,7 @@ async def test_cannot_request_return_already_returned_item(
     )).status_code == 200
 
     r = await client.post(f"/borrow-requests/{req['id']}/request-return",
-                          headers=auth(student_token), json={"item_ids": [item_id]})
+                          headers=auth(student_token), json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})
     assert r.status_code == 400
 
     await _cleanup_request(req["id"], [test_equipment.id])
@@ -175,7 +180,7 @@ async def test_return_requested_flag_cleared_after_real_return(
     item_id = req["items"][0]["id"]
 
     assert (await client.post(f"/borrow-requests/{req['id']}/request-return",
-                              headers=auth(student_token), json={"item_ids": [item_id]})).status_code == 200
+                              headers=auth(student_token), json={"item_ids": [item_id], "return_appoint_at": APPOINT_AT, "return_appoint_location": "ห้องพัสดุ"})).status_code == 200
 
     assert (await client.post(
         f"/borrow-requests/{req['id']}/items/{item_id}/return",

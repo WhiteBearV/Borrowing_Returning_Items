@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
+from app.utils.roles import is_staff
 from app.schemas.bundle import BundleCreate, BundleResponse, BundleUpdate
 from app.services import bundle_service
 
@@ -17,7 +18,7 @@ async def list_bundles(
     db: AsyncSession = Depends(get_db),
 ) -> list[BundleResponse]:
     """รายชุดอุปกรณ์ — นักศึกษาเห็นเฉพาะชุดที่เปิดใช้งาน แอดมินเห็นทั้งหมด"""
-    return await bundle_service.list_bundles(db, active_only=current_user.role != "admin")
+    return await bundle_service.list_bundles(db, active_only=not is_staff(current_user))
 
 
 @router.post("", response_model=BundleResponse, status_code=201)

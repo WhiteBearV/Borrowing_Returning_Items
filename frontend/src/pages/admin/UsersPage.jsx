@@ -3,15 +3,24 @@ import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import { ADMIN, STUDENT, SUPERADMIN, isSuperadmin, roleBadgeClass, roleLabel } from '../../utils/role.js'
+import { useAuthContext } from '../../context/AuthContext.jsx'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 // ดร. เพิ่มจาก RegisterPage.jsx เพราะ admin สร้างบัญชีอาจารย์ได้ด้วย ไม่ใช่แค่นักศึกษา
 const TITLES = ['นาย', 'นาง', 'นางสาว', 'ดร.']
 
 export default function UsersPage() {
+  const { user: me } = useAuthContext()
+  // เปลี่ยนสิทธิ์/ลบบัญชีเป็นของผู้ดูแลระบบสูงสุด (backend กันด้วย require_superadmin อยู่แล้ว)
+  // ซ่อนปุ่มด้วยเพื่อไม่ให้ผู้ดูแลคลังกดแล้วเจอ 403 โดยไม่รู้สาเหตุ
+  const canManageRoles = isSuperadmin(me)
   const [data, setData] = useState({ items: [], total: 0 })
   const [page, setPage] = useState(1)
   const [roleFilter, setRoleFilter] = useState('')
+  // คิวผู้สมัครที่ระบบตรวจแล้วไม่ตรงรายชื่อของสาขา (เฟส 9) — โหลดแยกจากตารางหลัก
+  // เพื่อให้ขึ้นเด่นด้านบนเสมอ ไม่ว่าแอดมินจะกรองอะไรอยู่หรือหน้าไหน
+  const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirm, setConfirm] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
@@ -19,7 +28,25 @@ export default function UsersPage() {
   const load = () => {
     setLoading(true)
     usersApi.list({ role: roleFilter || undefined, page, page_size: 20 }).then(setData).finally(() => setLoading(false))
+    usersApi.list({ approval_status: 'pending', page: 1, page_size: 50 })
+      .then((d) => setPending(d.items)).catch(() => setPending([]))
   }
+
+  const decideApproval = (user, approve) => setConfirm({
+    title: approve ? 'อนุมัติผู้สมัคร' : 'ปฏิเสธผู้สมัคร',
+    message: approve
+      ? `อนุมัติให้ "${user.full_name}" (${user.student_id ?? '—'}) ใช้งานระบบได้?\n`
+        + `เหตุผลที่ระบบกันไว้: ${user.approval_note ?? '—'}`
+      : `ปฏิเสธคำขอสมัครของ "${user.full_name}" (${user.student_id ?? '—'})?\n`
+        + 'บัญชีจะยังอยู่ในระบบแต่เข้าใช้งานไม่ได้ (ลบถาวรทำได้ทีหลัง)',
+    confirmLabel: approve ? 'อนุมัติ' : 'ปฏิเสธ',
+    danger: !approve,
+    onConfirm: async () => {
+      setConfirm(null)
+      try { await usersApi.updateApproval(user.id, approve); load() }
+      catch (e) { alert(e.response?.data?.detail ?? 'บันทึกไม่สำเร็จ') }
+    },
+  })
 
   useEffect(() => { load() }, [roleFilter, page])
 
@@ -31,6 +58,21 @@ export default function UsersPage() {
       confirmLabel: label,
       danger: user.is_active,
       onConfirm: async () => { setConfirm(null); await usersApi.updateStatus(user.id, !user.is_active); load() },
+    })
+  }
+
+  const changeRole = (user, role) => {
+    if (role === user.role) return
+    setConfirm({
+      title: 'เปลี่ยนระดับสิทธิ์',
+      message: `เปลี่ยนสิทธิ์ของ "${user.full_name}" เป็น "${roleLabel(role)}" ?`,
+      confirmLabel: 'เปลี่ยนสิทธิ์',
+      danger: role === SUPERADMIN,
+      onConfirm: async () => {
+        setConfirm(null)
+        try { await usersApi.updateRole(user.id, role); load() }
+        catch (e) { alert(e.response?.data?.detail ?? 'เปลี่ยนสิทธิ์ไม่สำเร็จ') }
+      },
     })
   }
 
@@ -47,15 +89,21 @@ export default function UsersPage() {
   })
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="px-6 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-light text-gray-800">จัดการผู้ใช้</h1>
+        <div>
+          <h1 className="text-2xl font-light text-gray-800">จัดการผู้ใช้</h1>
+          <p className="text-xs text-gray-500 mt-0.5">
+            ทั้งหมด {data.total.toLocaleString('th-TH')} บัญชี{roleFilter ? ' (ตามตัวกรองปัจจุบัน)' : ''}
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1) }}
             className="flex-1 sm:flex-none rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-            <option value="">ทุก role</option>
-            <option value="student">นักศึกษา</option>
-            <option value="admin">Admin</option>
+            <option value="">ทุกสิทธิ์</option>
+            <option value="student">ผู้ใช้งาน (นักศึกษา)</option>
+            <option value="admin">ผู้ดูแลคลัง</option>
+            <option value="superadmin">ผู้ดูแลระบบสูงสุด</option>
           </select>
           <button onClick={() => setShowAdd(true)}
             className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
@@ -64,6 +112,29 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {pending.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-900">
+            ผู้สมัครรออนุมัติ {pending.length} คน
+            <span className="font-normal text-amber-700"> — ไม่พบชื่อ/รหัสในรายชื่อที่สาขารับรอง</span>
+          </p>
+          <ul className="mt-2 divide-y divide-amber-200/70">
+            {pending.map((u) => (
+              <li key={u.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+                <span className="font-medium text-gray-800">{u.full_name}</span>
+                <span className="font-mono text-xs text-gray-500">{u.student_id ?? u.username ?? '—'}</span>
+                <span className="text-xs text-gray-500">{u.email}</span>
+                <span className="text-xs text-amber-700 flex-1 min-w-[12rem]">{u.approval_note}</span>
+                <button onClick={() => decideApproval(u, true)}
+                  className="text-xs font-medium text-emerald-700 hover:underline">อนุมัติ</button>
+                <button onClick={() => decideApproval(u, false)}
+                  className="text-xs text-red-600 hover:underline">ปฏิเสธ</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>
       ) : (
@@ -71,7 +142,7 @@ export default function UsersPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['ชื่อ', 'อีเมล', 'รหัสนักศึกษา', 'สาขา', 'สถานะ', ''].map((h) => (
+                {['ชื่อ', 'อีเมล', 'รหัสประจำตัว', 'สาขา', 'สถานะ', ''].map((h) => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -81,22 +152,37 @@ export default function UsersPage() {
                 <tr key={u.id} className={`hover:bg-gray-50 ${!u.is_active ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2.5 font-medium text-gray-800">
                     {u.full_name}
-                    {u.role === 'admin' && <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">admin</span>}
+                    {/* ป้ายสิทธิ์ใช้ชุดเดียวกับแถบบน/เมนู (utils/role.js) — เดิมเขียนคำว่า "admin" ดิบไว้ตรงนี้ */}
+                    {u.role !== 'student' && (
+                      <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${roleBadgeClass(u.role)}`}>{roleLabel(u.role)}</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{u.email}</td>
-                  <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{u.student_id ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{u.student_id ?? u.username ?? '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500 text-xs">{MAJOR_LABEL[u.major] ?? '—'}</td>
                   <td className="px-4 py-2.5">
-                    {u.email_verified
-                      ? <span className="text-xs text-green-600">ยืนยันแล้ว</span>
-                      : <span className="text-xs text-yellow-600">รอยืนยัน</span>}
+                    {u.approval_status === 'pending'
+                      ? <span className="text-xs text-amber-600">รออนุมัติ</span>
+                      : u.approval_status === 'rejected'
+                        ? <span className="text-xs text-red-600">ไม่อนุมัติ</span>
+                        : u.email_verified
+                          ? <span className="text-xs text-green-600">ยืนยันแล้ว</span>
+                          : <span className="text-xs text-yellow-600">รอยืนยัน</span>}
                   </td>
                   <td className="px-4 py-2.5 flex items-center gap-3">
                     <button onClick={() => toggleStatus(u)}
                       className={`text-xs hover:underline ${u.is_active ? 'text-red-500' : 'text-green-600'}`}>
                       {u.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                     </button>
-                    {!u.is_active && (
+                    {canManageRoles && (
+                      <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}
+                        className="text-xs rounded border border-gray-300 px-1.5 py-1 bg-white">
+                        {[STUDENT, ADMIN, SUPERADMIN].map((r) => (
+                          <option key={r} value={r}>{roleLabel(r)}</option>
+                        ))}
+                      </select>
+                    )}
+                    {!u.is_active && canManageRoles && (
                       <button onClick={() => deleteUser(u)}
                         className="text-xs text-red-700 hover:underline font-medium">
                         ลบถาวร
@@ -136,7 +222,7 @@ export default function UsersPage() {
 
 function AddUserModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
-    role: 'student', title: '', first_name: '', last_name: '', email: '', password: '',
+    role: 'student', title: '', first_name: '', last_name: '', email: '', phone: '', password: '',
     student_id: '', username: '', major: 'comp_eng',
   })
   const [error, setError] = useState('')
@@ -153,6 +239,7 @@ function AddUserModal({ onClose, onCreated }) {
       full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
       email: form.email,
       password: form.password,
+      phone: form.phone || undefined,
       student_id: form.role === 'student' ? form.student_id || undefined : undefined,
       major: form.role === 'student' ? form.major : undefined,
       username: form.role === 'admin' ? form.username || undefined : undefined,
@@ -179,7 +266,7 @@ function AddUserModal({ onClose, onCreated }) {
         {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
 
         <div className="flex gap-2">
-          {['student', 'admin'].map((r) => (
+          {[STUDENT, ADMIN].map((r) => (
             <button type="button" key={r} onClick={() => setForm({ ...form, role: r })}
               className={`flex-1 rounded-lg py-2 text-sm font-medium border ${form.role === r ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}>
               {r === 'student' ? 'นักศึกษา' : 'Admin'}
@@ -201,6 +288,7 @@ function AddUserModal({ onClose, onCreated }) {
           <input className={input} placeholder="นามสกุล" required value={form.last_name} onChange={set('last_name')} />
         </div>
         <input className={input} type="email" placeholder="อีเมล" required value={form.email} onChange={set('email')} />
+        <input className={input} type="tel" placeholder="เบอร์โทรศัพท์ (ถ้ามี)" pattern="0\d{9}" value={form.phone} onChange={set('phone')} />
         <input className={input} type="password" placeholder="รหัสผ่าน" required minLength={6} value={form.password} onChange={set('password')} />
 
         {form.role === 'student' ? (
@@ -212,7 +300,8 @@ function AddUserModal({ onClose, onCreated }) {
             </select>
           </>
         ) : (
-          <input className={input} placeholder="ชื่อผู้ใช้ (username) สำหรับล็อกอิน" value={form.username} onChange={set('username')} />
+          <input className={input} placeholder="รหัสประจำตัวอาจารย์/เจ้าหน้าที่ เช่น 01MNK01 (ใช้ล็อกอิน)"
+            value={form.username} onChange={set('username')} />
         )}
 
         <div className="flex gap-2 pt-2">

@@ -15,4 +15,5 @@ apscheduler>=3.10.4
 pydantic-settings>=2.6.0
 pytesseract>=0.3.13
 pdf2image>=1.17.0
-pypdf>=5.0.0  # extract text จาก PDF ที่ reportlab สร้าง — ใช้ในเทส (test_pdf.py) เท่านั้น
+pypdf>=5.0.0  # extract text จาก PDF — ใช้ในเทส (test_pdf.py) และตอนนำเข้ารายชื่อ นศ. จากไฟล์ PDF
+xlrd>=2.0.1  # อ่านไฟล์รายชื่อนักศึกษา .xls รุ่นเก่าจากสำนักทะเบียน (openpyxl อ่านไม่ได้)

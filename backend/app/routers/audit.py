@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
@@ -18,7 +19,14 @@ async def list_audit_logs(
     action: str | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    target_id: uuid.UUID | None = Query(None),
+    target_table: str | None = Query(None),
+    actor: str | None = Query(None),
+    actor_role: str | None = Query(None),
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedAuditLogs:
-    return await audit_service.list_logs(db, page, page_size, action, date_from, date_to)
+    """ประวัติการกระทำทั้งหมด — ส่ง target_id เพื่อดูเฉพาะประวัติของอุปกรณ์/รายการชิ้นนั้น
+    actor = ค้นชื่อหรือรหัสผู้ทำ, actor_role = กรองตามสิทธิ์ ณ ตอนที่ทำ"""
+    return await audit_service.list_logs(db, page, page_size, action, date_from, date_to,
+                                         target_id, target_table, actor, actor_role)

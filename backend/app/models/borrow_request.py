@@ -25,6 +25,8 @@ class BorrowRequest(Base):
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # เหตุผลที่ "ผู้ยืม" ยกเลิกเอง — แยกจาก rejection_reason (ของแอดมิน) คนละคนคนละเหตุผล
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # วันที่นักศึกษาขอคืนเอง ระบุตอนยื่นคำขอ — เพดานสูงสุด MAX_REQUESTED_DUE_DATE_YEARS
     # (ดู borrow_service.py) กันพิมพ์ผิดหลุดเข้าระบบ แอดมินยังใช้ดุลพินิจตอนอนุมัติ/ปฏิเสธได้ตามปกติ
     requested_due_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -36,6 +38,16 @@ class BorrowRequest(Base):
     returned_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
+    # นัดรับของ (เฟส 4) — ตั้งตอนอนุมัติ เว้นว่างได้ = จ่ายทันทีหน้าเคาน์เตอร์ ไม่ได้นัดล่วงหน้า
+    # อยู่ระดับคำขอเพราะจ่ายของทั้งใบพร้อมกันในนัดเดียว (ต่างจากนัดคืนที่อยู่รายชิ้น)
+    pickup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pickup_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pickup_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ใบยืมที่ผู้ยืมเซ็นแล้วอัปโหลดกลับเข้ามา (ทางเลือกแทนการปริ้นถือมา)
+    # เก็บ **ชื่อไฟล์เปล่า** ในโฟลเดอร์ PRIVATE_UPLOAD_DIR ที่ไม่ได้เสิร์ฟสาธารณะ — ไฟล์มีลายเซ็น+ชื่อ+รหัส นศ.
+    # เปิดได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อน (เฟส 7)
+    signed_form_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    signed_form_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -61,6 +73,20 @@ class BorrowRequest(Base):
     @property
     def student_number(self) -> str | None:
         return self.student.student_id if self.student else None
+
+    @property
+    def borrower_identifier(self) -> str | None:
+        """รหัสประจำตัวที่พิมพ์ลงใบยืม — นักศึกษาใช้รหัสนักศึกษา อาจารย์/เจ้าหน้าที่ใช้ username
+        (student_number คงความหมายเดิมคือ "รหัสนักศึกษา" เท่านั้น ห้ามเอาสองอันมาปนกัน)
+        """
+        if not self.student:
+            return None
+        return self.student.student_id or self.student.username
+
+    @property
+    def borrower_is_student(self) -> bool:
+        """ใช้เลือกคำว่า "นักศึกษา" หรือ "อาจารย์/เจ้าหน้าที่" บนฟอร์ม"""
+        return bool(self.student and self.student.student_id)
 
     @property
     def student_major(self) -> str | None:

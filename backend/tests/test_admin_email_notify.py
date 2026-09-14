@@ -105,10 +105,17 @@ async def test_overdue_job_sends_admin_digest_email(
     assert (await client.patch(f"/borrow-requests/{req['id']}/approve", headers=auth(admin_token))).status_code == 200
 
     # ปั้นให้เกินกำหนดคืนไปแล้วเมื่อวาน กัน scheduler รอจริงข้ามคืน
+    # ตั้งแต่เฟส 3 วันครบกำหนด "ที่ใช้ทวง" อยู่ที่ borrow_items ต้องเลื่อนทั้งสองระดับให้ตรงกัน
+    # (แก้แต่ระดับใบ = รายการยังไม่เกินกำหนด job จึงไม่ทวง ซึ่งถูกต้องตามพฤติกรรมใหม่)
     async with AsyncSessionLocal() as db:
+        yesterday = date.today() - timedelta(days=1)
         await db.execute(
             update(BorrowRequest).where(BorrowRequest.id == uuid.UUID(req["id"]))
-            .values(due_date=date.today() - timedelta(days=1))
+            .values(due_date=yesterday)
+        )
+        await db.execute(
+            update(BorrowItem).where(BorrowItem.borrow_request_id == uuid.UUID(req["id"]))
+            .values(due_date=yesterday)
         )
         await db.commit()
 

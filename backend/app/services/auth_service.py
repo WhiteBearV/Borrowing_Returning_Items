@@ -9,9 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
 from app.models.auth_token import AuthToken
+from app.models.notification import Notification
 from app.models.user import User
+from app.services import audit_service, student_import_service
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.utils.email import send_reset_password_email, send_verification_email
+from app.utils.roles import STAFF_ROLES
 
 
 async def register(db: AsyncSession, body: RegisterRequest) -> None:
@@ -25,18 +28,54 @@ async def register(db: AsyncSession, body: RegisterRequest) -> None:
     result = await db.execute(select(User).where(User.email == body.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered.")
+    result = await db.execute(select(User).where(User.student_id == body.student_id))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Student ID already registered.")
+
+    # เฟส 9: ตรวจกับรายชื่อที่สาขารับรอง — **ชื่อและสาขามาจากรายชื่อ ไม่ใช่จากที่ผู้สมัครพิมพ์เอง**
+    # (ประเด็นที่อาจารย์ยกมา: ตอนนี้กันได้แค่โดเมนอีเมล ใครมีเมล cdti ก็เลือกสาขามั่วได้)
+    # ไม่อยู่ในรายชื่อ/ชื่อไม่ตรง ไม่ปิดตาย — เข้าคิวรออนุมัติ เพราะ นศ. ใหม่/ตกหล่น/ย้ายสาขา มีจริง
+    eligible = await student_import_service.find_eligible(db, body.student_id)
+    approval_status, approval_note = "approved", None
+    full_name, major = body.full_name, body.major
+    if eligible is None:
+        approval_status = "pending"
+        approval_note = "ไม่พบรหัสนักศึกษานี้ในรายชื่อที่สาขารับรอง"
+    elif student_import_service.normalize_name(eligible.full_name) != \
+            student_import_service.normalize_name(body.full_name):
+        approval_status = "pending"
+        approval_note = f"ชื่อไม่ตรงกับรายชื่อของสาขา (ในรายชื่อคือ \"{eligible.full_name}\")"
+    else:
+        # ตรงทั้งรหัสและชื่อ → ใช้ค่าจากรายชื่อเป็นหลัก (สาขาในไฟล์อ่านไม่ได้ค่อยใช้ที่ผู้สมัครเลือก)
+        full_name = eligible.full_name
+        major = eligible.major or body.major
 
     user = User(
-        full_name=body.full_name,
+        full_name=full_name,
         student_id=body.student_id,
         email=body.email,
+        phone=body.phone,
         password_hash=hash_password(body.password),
         role="student",
-        major=body.major,
+        major=major,
+        approval_status=approval_status,
+        approval_note=approval_note,
+        pdpa_consent_at=datetime.now(timezone.utc),  # ผ่าน RegisterRequest._must_consent มาแล้วเสมอ (True)
         email_verified=settings.DEV_AUTO_VERIFY_EMAIL,  # True ได้เฉพาะตั้ง DEV_AUTO_VERIFY_EMAIL=true ใน .env
     )
     db.add(user)
     await db.flush()  # ได้ user.id ก่อน commit
+
+    # คิวรออนุมัติต้องมีคนเห็น ไม่งั้นผู้สมัครค้างอยู่เงียบ ๆ จนกว่าจะเดินมาถามที่ห้องพัสดุ
+    if approval_status == "pending":
+        staff = (await db.execute(
+            select(User).where(User.role.in_(STAFF_ROLES), User.is_active == True)
+        )).scalars().all()
+        for admin in staff:
+            db.add(Notification(
+                user_id=admin.id, type="registration_pending", channel="in_app",
+                message=f"มีผู้สมัครรออนุมัติ: {full_name} ({body.student_id}) — {approval_note}",
+            ))
 
     token_str = secrets.token_urlsafe(32)
     auth_token = AuthToken(
@@ -46,6 +85,14 @@ async def register(db: AsyncSession, body: RegisterRequest) -> None:
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
     )
     db.add(auth_token)
+    # ผู้สมัครเป็นทั้งผู้ทำและเป้าหมายของ log นี้ — ต้องตอบให้ได้ว่าบัญชีนี้เข้ามาในระบบเมื่อไหร่
+    # ด้วยอีเมล/สาขาอะไร เพราะการปลอมแปลงการสมัครคือประเด็นที่อาจารย์ยกมาโดยตรง
+    await audit_service.log_action(db, user, "register", "users", user.id, {
+        "full_name": user.full_name, "email": user.email,
+        "identifier": user.student_id, "major": user.major,
+        "approval_status": approval_status,
+        **({"reason": approval_note} if approval_note else {}),
+    })
     await db.commit()
 
     await send_verification_email(body.email, token_str)
@@ -68,6 +115,8 @@ async def verify_email(db: AsyncSession, token: str) -> None:
     user = user_result.scalar_one()
     user.email_verified = True
     auth_token.used_at = datetime.now(timezone.utc)
+    await audit_service.log_action(db, user, "verify_email", "users", user.id,
+                                   {"email": user.email})
     await db.commit()
 
 
@@ -91,6 +140,13 @@ async def login(db: AsyncSession, body: LoginRequest) -> TokenResponse:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified. Please check your inbox.",
         )
+    if user.approval_status == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="บัญชีนี้รอเจ้าหน้าที่อนุมัติ (ไม่พบชื่อ/รหัสในรายชื่อที่สาขารับรอง) กรุณาติดต่อห้องพัสดุ")
+    if user.approval_status == "rejected":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="คำขอสมัครใช้งานไม่ได้รับอนุมัติ กรุณาติดต่อเจ้าหน้าที่")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled.")
 

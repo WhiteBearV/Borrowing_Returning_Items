@@ -14,6 +14,7 @@ from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment, equipment_category_links
 from app.models.equipment_category import EquipmentCategory
 from app.models.notification import Notification
+from app.models.setting import Setting
 from app.models.user import User
 from tests.conftest import auth
 
@@ -92,29 +93,36 @@ async def test_list_equipment_filter_by_category(
 
 
 async def test_equipment_multiple_categories(client: AsyncClient, admin_token: str):
+    # cleanup ต้องรันเสมอแม้ assertion กลางเทสต์ล้มเหลว ไม่งั้นหมวดหมู่ cat_a_*/cat_b_* ค้างใน DB จริง
+    # (เคยเกิดขึ้นมาแล้วจริง โผล่ในตัวเลือกหมวดหมู่ที่แอดมินใช้งาน) — ครอบทั้งเทสต์ด้วย try/finally
     h = auth(admin_token)
     suffix = uuid.uuid4().hex[:6]
-    c1 = (await client.post("/equipment-categories", json={"name": f"cat_a_{suffix}"}, headers=h)).json()
-    c2 = (await client.post("/equipment-categories", json={"name": f"cat_b_{suffix}"}, headers=h)).json()
     code = f"{uuid.uuid4().int % 10**15:015d}"
-    r = await client.post("/equipment", json={
-        "code": code, "name": "อุปกรณ์หลายหมวด",
-        "category_ids": [c1["id"], c2["id"]], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
-    }, headers=h)
-    assert r.status_code == 201, r.text
-    returned = {c["id"] for c in r.json()["categories"]}
-    assert returned == {c1["id"], c2["id"]}
-    # ต้องเจอเมื่อ filter ด้วยหมวดใดหมวดหนึ่ง
-    ids = [i["id"] for i in (await client.get("/equipment", params={"category_id": c2["id"]}, headers=h)).json()["items"]]
-    assert r.json()["id"] in ids
-
-    # cleanup — ลบอุปกรณ์และหมวดหมู่ที่สร้างในเทสต์นี้ ไม่ให้ค้างใน DB
-    async with AsyncSessionLocal() as db:
-        await db.execute(delete(equipment_category_links).where(equipment_category_links.c.equipment_id == r.json()["id"]))
-        await db.execute(delete(Equipment).where(Equipment.code == code))
-        await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id.in_([c1["id"], c2["id"]])))
-        await db.commit()
+    c1 = c2 = None
+    try:
+        c1 = (await client.post("/equipment-categories", json={"name": f"cat_a_{suffix}"}, headers=h)).json()
+        c2 = (await client.post("/equipment-categories", json={"name": f"cat_b_{suffix}"}, headers=h)).json()
+        r = await client.post("/equipment", json={
+            "code": code, "name": "อุปกรณ์หลายหมวด",
+            "category_ids": [c1["id"], c2["id"]], "item_type": "durable", "quantity_total": 1,
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
+        }, headers=h)
+        assert r.status_code == 201, r.text
+        returned = {c["id"] for c in r.json()["categories"]}
+        assert returned == {c1["id"], c2["id"]}
+        # ต้องเจอเมื่อ filter ด้วยหมวดใดหมวดหนึ่ง
+        ids = [i["id"] for i in (await client.get("/equipment", params={"category_id": c2["id"]}, headers=h)).json()["items"]]
+        assert r.json()["id"] in ids
+    finally:
+        async with AsyncSessionLocal() as db:
+            eq_ids = (await db.execute(select(Equipment.id).where(Equipment.code == code))).scalars().all()
+            if eq_ids:
+                await db.execute(delete(equipment_category_links).where(equipment_category_links.c.equipment_id.in_(eq_ids)))
+                await db.execute(delete(Equipment).where(Equipment.code == code))
+            cat_ids = [c["id"] for c in (c1, c2) if c]
+            if cat_ids:
+                await db.execute(delete(EquipmentCategory).where(EquipmentCategory.id.in_(cat_ids)))
+            await db.commit()
 
 
 async def test_create_and_update_equipment_reject_duplicate_serial_number(client: AsyncClient, admin_token: str):
@@ -130,7 +138,7 @@ async def test_create_and_update_equipment_reject_duplicate_serial_number(client
         r = await client.post("/equipment", json={
             "code": code_a, "name": "อุปกรณ์ทดสอบ SN ซ้ำ A", "serial_number": sn,
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h)
         assert r.status_code == 201, r.text
 
@@ -138,7 +146,7 @@ async def test_create_and_update_equipment_reject_duplicate_serial_number(client
         r = await client.post("/equipment", json={
             "code": code_b, "name": "อุปกรณ์ทดสอบ SN ซ้ำ B", "serial_number": sn,
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h)
         assert r.status_code == 409, r.text
 
@@ -146,7 +154,7 @@ async def test_create_and_update_equipment_reject_duplicate_serial_number(client
         r = await client.post("/equipment", json={
             "code": code_b, "name": "อุปกรณ์ทดสอบ SN ซ้ำ B", "serial_number": f"{sn}-B",
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h)
         assert r.status_code == 201, r.text
         eq_b_id = r.json()["id"]
@@ -174,7 +182,7 @@ async def test_create_equipment_blank_serial_number_does_not_collide(client: Asy
         r = await client.post("/equipment", json={
             "code": code_a, "name": "อุปกรณ์ทดสอบ SN ว่าง A", "serial_number": "",
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h)
         assert r.status_code == 201, r.text
         assert r.json()["serial_number"] is None
@@ -183,7 +191,7 @@ async def test_create_equipment_blank_serial_number_does_not_collide(client: Asy
         r = await client.post("/equipment", json={
             "code": code_b, "name": "อุปกรณ์ทดสอบ SN ว่าง B", "serial_number": "   ",
             "category_ids": [], "item_type": "durable", "quantity_total": 1,
-            "image_urls": ["/uploads/test.jpg"],
+            "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
         }, headers=h)
         assert r.status_code == 201, r.text
         assert r.json()["serial_number"] is None
@@ -206,14 +214,14 @@ async def test_create_equipment_non_string_serial_number_returns_422(client: Asy
     r = await client.post("/equipment", json={
         "code": f"SNTYPE-{suffix}", "name": "อุปกรณ์ทดสอบ SN ชนิดผิด", "serial_number": 123456,
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 422, r.text
 
     r = await client.post("/equipment", json={
         "code": f"SNTYPE2-{suffix}", "name": "อุปกรณ์ทดสอบ SN ชนิดผิด 2", "serial_number": ["a"],
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 422, r.text
 
@@ -328,8 +336,18 @@ async def test_return_all_by_admin(
 
 
 async def test_quota_limit(client: AsyncClient, student_token: str, test_equipment: Equipment):
-    """สร้างคำขอเกิน 2 (max_active_requests_per_student) ต้องได้ 400"""
+    """สร้างคำขอเกินโควต้าต้องได้ 400
+
+    ตั้งโควต้าเองในเทสแล้วคืนค่าเดิม — ค่าใน DB dev ถูกผู้ใช้ปรับได้ตลอด (เคยเป็น 5 ทำให้เทสนี้พังแบบสุ่ม
+    ตามจำนวนคำขอค้างของ fixture)
+    """
     created_ids = []
+    async with AsyncSessionLocal() as db:
+        row = (await db.execute(select(Setting).where(
+            Setting.key == "max_active_requests_per_student"))).scalar_one()
+        original_quota = row.value
+        row.value = "2"
+        await db.commit()
     try:
         for i in range(3):
             r = await client.post("/borrow-requests", headers=auth(student_token), json={
@@ -350,6 +368,11 @@ async def test_quota_limit(client: AsyncClient, student_token: str, test_equipme
                 await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == req_id))
                 await db.execute(delete(BorrowRequest).where(BorrowRequest.id == req_id))
                 await db.commit()
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(Setting).where(
+                Setting.key == "max_active_requests_per_student"))).scalar_one()
+            row.value = original_quota
+            await db.commit()
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -358,7 +381,8 @@ async def test_dashboard_summary_has_all_fields(client: AsyncClient, admin_token
     r = await client.get("/dashboard/summary", headers=auth(admin_token))
     assert r.status_code == 200
     body = r.json()
-    for field in ("pending_requests", "overdue_requests", "low_stock_items", "active_borrows", "equipment_borrowed_out"):
+    for field in ("pending_requests", "overdue_requests", "low_stock_items", "active_borrows",
+                  "equipment_borrowed_out", "missing_price_items", "missing_acquired_at_items"):
         assert field in body, f"missing field: {field}"
         assert isinstance(body[field], int), f"{field} must be int"
     for field in ("durable", "material", "consumable", "total"):

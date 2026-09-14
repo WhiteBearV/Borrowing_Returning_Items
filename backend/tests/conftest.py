@@ -72,7 +72,6 @@ async def ensure_settings():
     defaults = {
         "max_active_requests_per_student": "2",
         "max_items_per_request": "5",
-        "max_loan_days_durable": "7",
         "max_renew_count": "1",
         "max_renew_days": "7",
         "due_soon_notify_days_before": "2",
@@ -82,6 +81,30 @@ async def ensure_settings():
             result = await db.execute(select(Setting).where(Setting.key == key))
             if result.scalar_one_or_none() is None:
                 db.add(Setting(key=key, value=value))
+        await db.commit()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
+async def sweep_leftover_test_equipment():
+    """กวาดอุปกรณ์ทดสอบที่ค้างเมื่อจบ session — เทสที่ fail กลางคันจะข้าม cleanup ของตัวเองเสมอ
+
+    ปล่อยไว้ไม่ใช่แค่รก: `find_group_members` จับกลุ่มอุปกรณ์ด้วย **ชื่อ** เทสรอบถัดไปที่สร้างของ
+    ชื่อเดียวกันจึงไปตัดสต็อกของแถวขยะแทน แล้วไม่มีใครคืน (เคยสะสมจนสต็อกรวมหายไป 19 หน่วย)
+    ลบเฉพาะแถวที่ไม่มี borrow_items อ้างถึงแล้ว — ของจริงที่ยังมีประวัติการยืมจะไม่ถูกแตะ
+    """
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("""
+            delete from equipment e
+            where (e.name like 'อุปกรณ์ทดสอบ%' or e.name like '%(ทดสอบ)%'
+                   or e.code like 'TEST-%' or e.code like 'AUTOCODE-TEST-%')
+              and not exists (select 1 from borrow_items bi where bi.equipment_id = e.id)
+        """))
+        await db.execute(text("""
+            delete from equipment_categories c
+            where c.name like 'หมวดทดสอบ%'
+              and not exists (select 1 from equipment_category_links l where l.category_id = c.id)
+        """))
         await db.commit()
 
 
@@ -114,6 +137,24 @@ async def test_admin():
             email=f"admin_{uid.hex[:6]}@cdti.ac.th",
             password_hash=hash_password("Admin1234!"),
             role="admin", email_verified=True, is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        yield user
+    await _delete_user_cascade(uid)
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def test_superadmin():
+    """ผู้ดูแลระบบสูงสุด — ใช้กับ endpoint ที่ย้ายไปจำกัดสิทธิ์ (ลบถาวร/แก้ settings/เปลี่ยน role)"""
+    uid = uuid.uuid4()
+    async with AsyncSessionLocal() as db:
+        user = User(
+            id=uid, full_name="ซูเปอร์แอดมิน ทดสอบ",
+            email=f"superadmin_{uid.hex[:6]}@cdti.ac.th",
+            password_hash=hash_password("Super1234!"),
+            role="superadmin", email_verified=True, is_active=True,
         )
         db.add(user)
         await db.commit()
@@ -169,6 +210,11 @@ async def test_equipment(test_category: EquipmentCategory):
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def student_token(test_student: User) -> str:
     return create_access_token(str(test_student.id), extra={"role": "student"})
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def superadmin_token(test_superadmin: User) -> str:
+    return create_access_token(str(test_superadmin.id), extra={"role": "superadmin"})
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

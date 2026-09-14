@@ -42,6 +42,7 @@ services:
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
     volumes:
       - uploads_data:/app/uploads
+      - private_uploads_data:/app/private_uploads
     env_file:
       - .env
     environment:
@@ -81,3 +82,4 @@ services:
 volumes:
   postgres_data:
   uploads_data:
+  private_uploads_data:

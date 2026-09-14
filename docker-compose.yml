@@ -21,6 +21,7 @@ services:
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
+      - private_uploads_data:/app/private_uploads
     environment:
       DATABASE_URL: postgresql+asyncpg://user:password@db:5432/equipment_borrow
     env_file:
@@ -41,3 +42,4 @@ services:
 volumes:
   postgres_data:
   uploads_data:
+  private_uploads_data:

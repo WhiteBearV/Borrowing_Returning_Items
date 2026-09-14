@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../context/AuthContext.jsx'
+import { isStaff } from '../utils/role.js'
 
 export default function LoginPage() {
   const { login } = useAuthContext()
   const navigate = useNavigate()
+  const location = useLocation()
   const [form, setForm] = useState({ identifier: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,7 +18,11 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const user = await login(form.identifier, form.password)
-      navigate(user.role === 'admin' ? '/admin/dashboard' : '/dashboard', { replace: true })
+      // มาจากลิงก์ที่ต้องล็อกอินก่อน (เช่น สแกน QR อุปกรณ์) — ProtectedRoute ฝาก path เดิมไว้ใน state.from
+      // กลับไปหน้านั้นแทนหน้าแรก ไม่งั้นต้องเข้าไปหาอุปกรณ์ที่สแกนมาเองอีกรอบ
+      const from = location.state?.from
+      const dest = from ? `${from.pathname}${from.search ?? ''}` : (isStaff(user) ? '/admin/dashboard' : '/dashboard')
+      navigate(dest, { replace: true })
     } catch (err) {
       setError(err.response?.data?.detail ?? 'เข้าสู่ระบบไม่สำเร็จ')
     } finally {

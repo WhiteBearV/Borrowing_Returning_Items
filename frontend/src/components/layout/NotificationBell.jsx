@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { notificationApi } from '../../api/notificationApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+import { ADMIN, SUPERADMIN } from '../../utils/role.js'
+const STAFF_ROLES = [ADMIN, SUPERADMIN]
 
 // พาไปหน้าที่เกี่ยวข้องกับคำขอที่แจ้งเตือนถึง
 // new_request_admin / return_requested_admin ส่งให้แอดมินเท่านั้น (ดู borrow_service.py _notify)
@@ -15,7 +17,9 @@ const notificationTarget = (n, role) => {
   // BorrowRequestsPage (หน้า "อนุมัติคำขอ") ตอนนี้โชว์ทั้ง pending + แจ้งขอคืน + คำขอต่อเวลาในหน้าเดียว
   if (n.type === 'return_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
   if (n.type === 'renew_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
-  if (n.type === 'overdue' && role === 'admin') return `/admin/borrows?request=${n.borrow_request_id}`
+  // ใบยืมที่เซ็นแล้วแนบมากับคำขอที่อนุมัติไปแล้ว จึงอยู่หน้า "การยืมทั้งหมด" ไม่ใช่หน้ารออนุมัติ
+  if (n.type === 'signed_form_uploaded') return `/admin/borrows?request=${n.borrow_request_id}`
+  if (n.type === 'overdue' && STAFF_ROLES.includes(role)) return `/admin/borrows?request=${n.borrow_request_id}`
   return `/my-borrows?request=${n.borrow_request_id}`
 }
 

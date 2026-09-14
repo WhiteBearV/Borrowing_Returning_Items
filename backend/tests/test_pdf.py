@@ -17,7 +17,7 @@ from app.utils.pdf import (
 
 class _Item:
     def __init__(self, name, item_type="durable", qty=1, condition="ok", equipment_code=None,
-                 serial_number=None):
+                 serial_number=None, equipment_value=None, book_value=None):
         self.id = uuid.uuid4()
         self.equipment_id = uuid.uuid4()
         self.equipment_name = name
@@ -30,6 +30,9 @@ class _Item:
         self.condition_on_return = condition
         self.damage_note = None
         self.renewed_count = 0
+        # มูลค่า 2 แบบ ณ วันอนุมัติ — ใบยืมเลือกโชว์ค่าใดค่าหนึ่งตาม setting pdf_value_source
+        self.equipment_value = equipment_value
+        self.book_value = book_value
 
 
 class _Req:
@@ -117,6 +120,12 @@ def _extract_text(pdf_bytes: bytes) -> str:
     return "".join(page.extract_text() for page in reader.pages)
 
 
+def _flat(pdf_bytes: bytes) -> str:
+    """ข้อความที่ตัดขึ้นบรรทัดใหม่ออก — คอลัมน์ชื่ออุปกรณ์แคบลงตั้งแต่มีคอลัมน์กำหนดคืน (เฟส 3)
+    ข้อความยาวจึงถูกตัดขึ้นบรรทัดใหม่กลางคำได้ (wordWrap="CJK") ซึ่งยังอ่านครบ ไม่ได้หายไป"""
+    return _extract_text(pdf_bytes).replace("\n", "").replace(" ", "")
+
+
 def test_draft_pdf_hides_specific_equipment_code():
     """generate_preview_pdf (kind="draft") — ใช้ทั้งพรีวิวก่อนส่งคำขอ และดูคำขอที่ยัง pending อยู่"""
     pdf_mod._REGISTERED = False
@@ -174,15 +183,14 @@ def test_borrow_pdf_shows_real_serial_number():
     pdf_mod._REGISTERED = False
     items = [_Item("Notebook", "durable", 1, "ok", equipment_code="64001", serial_number="4562135446")]
     req = _Req(items=items, status="approved")
-    text = _extract_text(generate_borrow_pdf(req))
-    assert "Notebook(SN:4562135446)" in text
+    assert "Notebook(SN:4562135446)" in _flat(generate_borrow_pdf(req))
 
 
 def test_draft_pdf_masks_serial_number():
     pdf_mod._REGISTERED = False
     items = [_Item("Notebook", "durable", 1, "ok", equipment_code="64001", serial_number="4562135446")]
     req = _Req(items=items, status="pending")
-    text = _extract_text(generate_preview_pdf(req))
+    text = _flat(generate_preview_pdf(req))
     assert "Notebook(SN:รออนุมัติ)" in text
     assert "4562135446" not in text
 
@@ -299,3 +307,156 @@ def test_repair_pdf_no_rows():
     from app.utils.pdf import generate_repair_pdf
 
     assert generate_repair_pdf([], "แอดมิน ทดสอบ").startswith(b"%PDF")  # ตารางว่างก็ยังออกฟอร์มได้
+
+
+# ── มูลค่าในใบยืม: เลือกได้ว่าจะโชว์ราคาทุนหรือมูลค่าตามบัญชี (setting pdf_value_source) ──
+
+def test_borrow_pdf_shows_acquisition_value_by_default():
+    pdf_mod._REGISTERED = False
+    items = [_Item("ออสซิลโลสโคป", "durable", 1, "ok", equipment_value=25000, book_value=4999)]
+    text = _extract_text(generate_borrow_pdf(_Req(items=items, status="approved")))
+    assert "มูลค่า/ชิ้น" in text
+    assert "25,000.00" in text
+    assert "4,999.00" not in text
+
+
+def test_borrow_pdf_shows_book_value_when_setting_says_so():
+    """setting = book → ทั้งหัวคอลัมน์และตัวเลขต้องเปลี่ยนพร้อมกัน ไม่งั้นคนอ่านแยกไม่ออกว่าเลขไหนคืออะไร"""
+    pdf_mod._REGISTERED = False
+    items = [_Item("ออสซิลโลสโคป", "durable", 1, "ok", equipment_value=25000, book_value=4999)]
+    text = _extract_text(generate_borrow_pdf(_Req(items=items, status="approved"), value_source="book"))
+    assert "ตามบัญชี" in text  # หัวคอลัมน์ขึ้น 2 บรรทัด: "มูลค่า" / "ตามบัญชี"
+    assert "4,999.00" in text
+    assert "25,000.00" not in text
+
+
+def test_borrow_pdf_total_follows_selected_value_source():
+    """แถว "รวมมูลค่า" ต้องรวมค่าชุดเดียวกับที่โชว์ในแถว ไม่ใช่ปนกัน"""
+    pdf_mod._REGISTERED = False
+    items = [_Item("ก", "durable", 2, "ok", equipment_value=100, book_value=10),
+             _Item("ข", "durable", 3, "ok", equipment_value=100, book_value=10)]
+    req = _Req(items=items, status="approved")
+    assert "500.00" in _extract_text(generate_borrow_pdf(req))                        # 100*2 + 100*3
+    assert "50.00" in _extract_text(generate_borrow_pdf(req, value_source="book"))    # 10*2 + 10*3
+
+
+def test_stock_document_fills_price_columns_when_known():
+    """ใบรับเข้าคลัง — เดิมเว้นราคาให้กรอกมือเสมอ ตอนนี้ audit log มีราคาแล้วต้องเติมให้"""
+    pdf_mod._REGISTERED = False
+    rows = [{"code": "63-001-0001", "name": "ออสซิลโลสโคป", "item_type": "durable",
+             "quantity": 2, "unit_value": 25000, "actor": "แอดมิน", "date": datetime(2026, 1, 5)}]
+    text = _extract_text(generate_stock_document_pdf("receipt", "01/01/2569", "31/01/2569", "แอดมิน", rows))
+    assert "25,000.00" in text   # ราคาต่อหน่วย
+    assert "50,000.00" in text   # จำนวนเงิน = 25000 x 2
+
+
+def test_stock_document_leaves_price_blank_for_old_logs():
+    """log เก่าก่อนมีฟีเจอร์นี้ไม่มี unit_value — ต้องเว้นว่างให้กรอกมือเหมือนเดิม ไม่ใช่พัง"""
+    pdf_mod._REGISTERED = False
+    rows = [{"code": "63-001-0001", "name": "ออสซิลโลสโคป", "item_type": "durable",
+             "quantity": 2, "actor": "แอดมิน", "date": datetime(2026, 1, 5)}]
+    assert generate_stock_document_pdf("receipt", "01/01/2569", "31/01/2569", "แอดมิน", rows)[:4] == b"%PDF"
+
+
+# ── เฟส 3: วันคืนรายชิ้น — ใบยืมต้องพิมพ์วันของ "ทุกบรรทัด" ไม่ใช่วันเดียวคลุมทั้งใบ ────────
+
+def _dated(name, due, **kw):
+    it = _Item(name, kw.pop("item_type", "durable"), kw.pop("qty", 1), "ok", **kw)
+    it.due_date = due
+    it.item_status = "approved"
+    return it
+
+
+def test_borrow_pdf_shows_every_item_due_date():
+    """4 ชิ้น กำหนดคืน 3 วันต่างกัน — ต้องเห็นครบทั้ง 3 วันในเอกสาร"""
+    pdf_mod._REGISTERED = False
+    items = [
+        _dated("โน้ตบุ๊ค Dell", date(2026, 9, 1)),
+        _dated("ออสซิลโลสโคป", date(2026, 9, 2)),
+        _dated("มัลติมิเตอร์", date(2026, 9, 2)),
+        _dated("สายไฟ", date(2026, 9, 3), item_type="consumable", qty=100),
+    ]
+    text = _flat(generate_borrow_pdf(_Req(items=items, due_date=date(2026, 9, 3))))
+    for d in ("1ก.ย.69", "2ก.ย.69", "3ก.ย.69"):
+        assert d in text, d
+    # หัวเรื่องต้องไม่พิมพ์วันเดียวลอย ๆ ที่ขัดกับตาราง
+    assert "กำหนดคืนตามรายการด้านล่าง" in text
+    assert "เร็วสุด1ก.ย.2569" in text and "ช้าสุด3ก.ย.2569" in text
+
+
+def test_borrow_pdf_single_due_date_keeps_old_wording():
+    """ทุกชิ้นวันเดียวกัน — ข้อความหัวต้องเหมือนเดิม ไม่ไปทำให้ใบปกติอ่านแปลกไป"""
+    pdf_mod._REGISTERED = False
+    items = [_dated("โน้ตบุ๊ค Dell", date(2026, 9, 1)), _dated("มัลติมิเตอร์", date(2026, 9, 1))]
+    text = _flat(generate_borrow_pdf(_Req(items=items, due_date=date(2026, 9, 1))))
+    assert "กำหนดคืน(โดยประมาณ)1ก.ย.2569" in text
+    assert "กำหนดคืนตามรายการด้านล่าง" not in text
+
+
+def test_borrow_pdf_hides_rejected_items():
+    """ชิ้นที่แอดมินไม่อนุมัติต้องไม่อยู่บนใบที่ผู้ยืมเซ็นรับผิดชอบ"""
+    pdf_mod._REGISTERED = False
+    ok = _dated("โน้ตบุ๊ค Dell", date(2026, 9, 1))
+    no = _dated("กล้องDSLR", date(2026, 9, 1))
+    no.item_status = "rejected"
+    text = _flat(generate_borrow_pdf(_Req(items=[ok, no])))
+    assert "โน้ตบุ๊คDell" in text
+    assert "กล้องDSLR" not in text
+
+
+def test_borrow_pdf_extended_due_date_wins():
+    """ต่อเวลาที่อนุมัติแล้วต้องชนะเสมอ — ใบที่พิมพ์ซ้ำหลังต่อเวลาต้องขึ้นวันใหม่"""
+    pdf_mod._REGISTERED = False
+    it = _dated("โน้ตบุ๊ค Dell", date(2026, 9, 1))
+    it.extended_due_date = date(2026, 9, 20)
+    text = _flat(generate_borrow_pdf(_Req(items=[it])))
+    assert "20ก.ย.69" in text
+    assert "1ก.ย.69" not in text
+
+
+def test_return_pdf_shows_due_actual_and_late_days():
+    """ใบคืนเทียบกำหนดกับวันคืนจริง + จำนวนวันที่ช้า (หลักฐานประกอบค่าปรับ)"""
+    pdf_mod._REGISTERED = False
+    it = _dated("โน้ตบุ๊ค Dell", date(2026, 9, 1))
+    it.returned_at = datetime(2026, 9, 3, 10, 0)   # naive = UTC → เอกสารโชว์เวลาไทย 17:00
+    text = _flat(generate_return_pdf(_Req(items=[it])))
+    assert "กำหนด1ก.ย.69" in text
+    assert "คืนจริง3ก.ย.6917:00" in text
+    assert "(ช้า2วัน)" in text
+
+
+def test_return_pdf_on_time_has_no_late_note():
+    pdf_mod._REGISTERED = False
+    it = _dated("โน้ตบุ๊ค Dell", date(2026, 9, 3))
+    it.returned_at = datetime(2026, 9, 3, 16, 0)  # คืนวันครบกำหนดตอนบ่าย = ไม่ช้า
+    text = _flat(generate_return_pdf(_Req(items=[it])))
+    assert "ช้า" not in text
+
+
+def test_draft_pdf_uses_requested_due_date_per_item():
+    """ร่างยังไม่มีวันจริง — ต้องพิมพ์วันที่ผู้ยืม "ขอไว้" ของแต่ละชิ้น"""
+    pdf_mod._REGISTERED = False
+    a = _Item("โน้ตบุ๊ค Dell", "durable", 1, "ok")
+    a.requested_due_date, a.due_date, a.item_status = date(2026, 9, 5), None, "pending"
+    b = _Item("มัลติมิเตอร์", "durable", 1, "ok")
+    b.requested_due_date, b.due_date, b.item_status = date(2026, 9, 9), None, "pending"
+    text = _flat(generate_preview_pdf(_Req(items=[a, b], status="pending")))
+    assert "5ก.ย.69" in text and "9ก.ย.69" in text
+
+
+def test_borrow_pdf_prints_installed_specs(tmp_path):
+    """ใบยืมของครุภัณฑ์ที่อัพเกรดแล้วต้องระบุสเปกที่ติดตั้งอยู่ ณ วันยืม (เฟส 8, ข้อ 17)
+
+    กันเคส "ยืมไปมี RAM 16GB คืนมาเหลือ 8GB" — เอกสารที่ผู้ยืมเซ็นต้องบอกว่ารับของไปทั้งอะไรบ้าง
+    """
+    pdf_mod._REGISTERED = False
+    item = _Item("โน้ตบุ๊ค Dell Latitude 5400", "durable", 1, "ok", equipment_code="64001")
+    item.equipment_specs = "RAM DDR4 16GB · SSD 512GB"
+    req = _Req(items=[item], status="approved")
+    pdf_bytes = generate_borrow_pdf(req)
+    text = _flat(pdf_bytes)
+    assert "RAMDDR416GB" in text.replace(" ", "") or "RAM DDR4 16GB" in _extract_text(pdf_bytes)
+    assert "SSD512GB" in text.replace(" ", "") or "SSD 512GB" in _extract_text(pdf_bytes)
+    # เก็บไฟล์ไว้ให้เปิดดูด้วยตาได้ (ความกว้างคอลัมน์/บรรทัดล้น เช็คด้วยเทสไม่ได้)
+    out = tmp_path / "borrow_with_specs.pdf"
+    out.write_bytes(pdf_bytes)

@@ -19,7 +19,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, name: str) ->
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": name,
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=admin_header)
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -39,6 +39,7 @@ async def test_search_by_equipment_name_finds_request(client: AsyncClient, admin
     unique_name = f"อุปกรณ์ค้นหาเฉพาะ {uuid.uuid4().hex[:8]}"
     eq_id = await _make_equipment(client, h_admin, unique_name)
     r = await client.post("/borrow-requests", headers=h_student, json={
+        "purpose": "ทดสอบระบบ",
         "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": eq_id, "quantity": 1}],
     })
@@ -60,6 +61,7 @@ async def test_search_by_student_id_finds_request(client: AsyncClient, admin_tok
     h_admin, h_student = auth(admin_token), auth(student_token)
     eq_id = await _make_equipment(client, h_admin, f"อุปกรณ์ค้นหารหัสนักศึกษา {uuid.uuid4().hex[:6]}")
     r = await client.post("/borrow-requests", headers=h_student, json={
+        "purpose": "ทดสอบระบบ",
         "requested_due_date": "2028-06-01",
         "items": [{"equipment_id": eq_id, "quantity": 1}],
     })

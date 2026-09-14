@@ -41,9 +41,11 @@ export default function BulkAdjustStockModal({ count, onClose, onSave }) {
           <input type="number" step={1} autoFocus value={delta} onChange={(e) => setDelta(e.target.value)}
             placeholder="เช่น -2 (ลด 2) หรือ 5 (เพิ่ม 5)"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-          <p className="mt-1 text-xs text-gray-400">
-            ระบบบวก/ลบเท่ากันทุกแถวที่เลือก — แถวไหนไม่พอ (ต่ำกว่า 0) หรือเกินจำนวนที่ยังไม่ถูกยืมออกไปของแถวนั้น
-            (จำนวนทั้งหมด ลบ จำนวนที่ถูกยืมอยู่) จะถูกปัดให้อยู่ในขอบเขตอัตโนมัติ
+          <p className="mt-1 text-xs text-gray-400 leading-relaxed">
+            <b>ของที่แยกเป็นรายชิ้นแล้ว</b> (1 แถว = 1 ชิ้น เช่นครุภัณฑ์): −3 คือปิด 3 ชิ้นแรกที่ยังว่าง ·
+            +3 คือเปิดคืน 3 ชิ้นที่ปิดอยู่ — ไม่ใช่ลบ 3 จากทุกชิ้น<br />
+            <b>ของที่นับเป็นก้อน</b> (วัสดุสิ้นเปลือง): บวก/ลบกับจำนวนคงเหลือของแถวนั้นตรง ๆ ·
+            ชิ้นที่มีคนยืมอยู่จะไม่ถูกแตะ
           </p>
         </div>
 

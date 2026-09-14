@@ -40,7 +40,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"วัสดุสิ้นเปลืองทดสอบผู้ยืมหลายคน {suffix}",
         "category_ids": [], "item_type": "consumable", "quantity_total": 50,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -54,9 +54,13 @@ async def _cleanup(eq_id: str, req_ids: list[str], student_ids: list[uuid.UUID])
             await db.execute(delete(Notification).where(Notification.borrow_request_id == uuid.UUID(req_id)))
             await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == uuid.UUID(req_id)))
             await db.execute(delete(BorrowRequest).where(BorrowRequest.id == uuid.UUID(req_id)))
+            # log ของ "ยื่นคำขอ" ผูกกับคำขอ ไม่ใช่กับอุปกรณ์ — ต้องลบด้วย ไม่งั้นค้างเป็นขยะถาวร
+            await db.execute(delete(AuditLog).where(AuditLog.target_id == uuid.UUID(req_id)))
         await db.execute(delete(AuditLog).where(AuditLog.target_id == uuid.UUID(eq_id)))
         await db.execute(delete(Equipment).where(Equipment.id == uuid.UUID(eq_id)))
         for sid in student_ids:
+            # ลบ audit ของบัญชี throwaway ก่อนลบตัวบัญชี (FK เป็น SET NULL ลบทีหลังจะตามเก็บไม่ได้)
+            await db.execute(delete(AuditLog).where(AuditLog.actor_id == sid))
             await db.execute(delete(User).where(User.id == sid))
         await db.commit()
 
@@ -73,6 +77,7 @@ async def test_consumable_borrowed_by_two_students_shows_both_holders(
     req_ids: list[str] = []
     try:
         r1 = await client.post("/borrow-requests", headers=h_student1, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01", "items": [{"equipment_id": eq_id, "quantity": 5}],
         })
         assert r1.status_code == 201, r1.text
@@ -80,6 +85,7 @@ async def test_consumable_borrowed_by_two_students_shows_both_holders(
         assert (await client.patch(f"/borrow-requests/{req_ids[0]}/approve", headers=h_admin)).status_code == 200
 
         r2 = await client.post("/borrow-requests", headers=h_student2, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01", "items": [{"equipment_id": eq_id, "quantity": 3}],
         })
         assert r2.status_code == 201, r2.text
@@ -121,13 +127,14 @@ async def test_durable_single_holder_unaffected_by_list_change(
     r = await client.post("/equipment", json={
         "code": f"{uuid.uuid4().int % 10**15:015d}", "name": f"ครุภัณฑ์ทดสอบ holder เดี่ยว {uuid.uuid4().hex[:6]}",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h_admin)
     assert r.status_code == 201, r.text
     eq_id = r.json()["id"]
     req_id = None
     try:
         r = await client.post("/borrow-requests", headers=h_student, json={
+            "purpose": "ทดสอบระบบ",
             "requested_due_date": "2028-06-01", "items": [{"equipment_id": eq_id, "quantity": 1}],
         })
         assert r.status_code == 201, r.text

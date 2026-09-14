@@ -24,7 +24,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict, **overrides) 
     body = {
         "code": _digits15(), "name": f"อุปกรณ์ทดสอบรหัสครุภัณฑ์ {suffix}",
         "category_ids": [], "item_type": "material", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }
     body.update(overrides)
     r = await client.post("/equipment", json=body, headers=admin_header)
@@ -45,7 +45,7 @@ async def test_create_durable_with_short_code_rejected(client: AsyncClient, admi
     r = await client.post("/equipment", json={
         "code": "212001", "name": "ครุภัณฑ์รหัสสั้นทดสอบ",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 400
     assert "15 หลัก" in r.json()["detail"]
@@ -57,7 +57,7 @@ async def test_create_durable_with_15_digit_code_succeeds(client: AsyncClient, a
     r = await client.post("/equipment", json={
         "code": code, "name": "ครุภัณฑ์รหัสครบทดสอบ",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 201, r.text
     try:
@@ -74,7 +74,7 @@ async def test_create_durable_code_with_dashes_counts_digits_only(client: AsyncC
     r = await client.post("/equipment", json={
         "code": code, "name": "ครุภัณฑ์รหัสมีขีดทดสอบ",
         "category_ids": [], "item_type": "durable", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 201, r.text
     try:
@@ -89,7 +89,7 @@ async def test_create_non_durable_with_short_code_not_validated(client: AsyncCli
     r = await client.post("/equipment", json={
         "code": f"MTL-{uuid.uuid4().hex[:6].upper()}", "name": "วัสดุรหัสสั้นทดสอบ",
         "category_ids": [], "item_type": "material", "quantity_total": 1,
-        "image_urls": ["/uploads/test.jpg"],
+        "image_urls": ["/uploads/test.jpg"], "unit_value": 1000, "acquired_at": "2024-01-15",
     }, headers=h)
     assert r.status_code == 201, r.text
     try:

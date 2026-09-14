@@ -45,6 +45,8 @@ class EquipmentResponse(BaseModel):
     code: str
     serial_number: str | None = None
     name: str
+    manufacturer: str | None = None
+    model_number: str | None = None
     categories: list[CategoryResponse]
     item_type: str
     description: str | None
@@ -52,7 +54,14 @@ class EquipmentResponse(BaseModel):
     image_urls: list[str] = []
     location: str | None
     unit: str | None
-    unit_value: float | None
+    unit_value: float | None  # มูลค่าแท้จริง (ราคาที่ซื้อมา) — ชื่อฟิลด์เดิม ความหมายเดิม
+    # วันที่ได้มา/รับเข้าทะเบียน — คนละอย่างกับ created_at (วันที่แถวถูกสร้างในระบบ) ใช้คำนวณอายุจริง
+    acquired_at: date | None = None
+    useful_life_years: int | None = None
+    book_value_override: float | None = None
+    # มูลค่าตามบัญชี — คำนวณสดจาก equipment_service.book_value() ไม่ใช่คอลัมน์ใน DB
+    # (attach_book_values เติมเป็น attribute ให้ก่อน model_validate) None = ยังไม่มีราคาหรือยังไม่มีวันที่ได้มา
+    book_value: float | None = None
     quantity_total: int
     quantity_available: int
     low_stock_threshold: int | None
@@ -95,11 +104,30 @@ class EquipmentGroupResponse(EquipmentResponse):
     locations: list[LocationCount] = []
 
 
+class EquipmentTypeSummary(BaseModel):
+    """สรุปของประเภทหนึ่งในผลการค้นหาปัจจุบัน"""
+    item_type: str
+    groups: int      # จำนวน "รุ่น" (การ์ดที่ยุบกลุ่มแล้ว)
+    pieces: int      # จำนวนชิ้นจริง (รวม quantity_total ของทุกหน่วยในกลุ่ม)
+    available: int   # ชิ้นที่ยังว่างให้ยืม
+
+
+class EquipmentListSummary(BaseModel):
+    """สรุปทั้งผลการค้นหา ไม่ใช่แค่หน้าที่กำลังดู — หน้าจัดการอุปกรณ์ยุบรุ่นเดียวกันเป็นการ์ดเดียว
+    ตัวเลข total (จำนวนการ์ด) จึงน้อยกว่าของจริงมาก ("187 รายการ" ทั้งที่ในคลังมีพันกว่าชิ้น)
+    """
+    groups: int
+    pieces: int
+    available: int
+    by_type: list[EquipmentTypeSummary] = []
+
+
 class PaginatedEquipmentGroup(BaseModel):
     items: list[EquipmentGroupResponse]
     total: int
     page: int
     page_size: int
+    summary: EquipmentListSummary | None = None
 
 
 class EquipmentUnitSummary(BaseModel):
@@ -109,13 +137,71 @@ class EquipmentUnitSummary(BaseModel):
     serial_number: str | None = None
     location: str | None = None
     status: str
+    acquired_at: date | None = None
+    unit_value: float | None = None
+    book_value: float | None = None
     quantity_total: int
     quantity_available: int
     is_borrowable: bool
     is_currently_borrowed: bool = False
     holder: HolderInfo | None = None  # ใครถือหน่วยนี้อยู่ (มีค่าก็ต่อเมื่อ is_currently_borrowed)
+    # วันรวมที่หน่วยนี้เคยถูกยืมออกไป — เกณฑ์ที่ระบบใช้เลือกหน่วยจ่ายของ (น้อยสุดก่อน)
+    # แอดมินเห็นตัวเลขนี้ตอนอนุมัติ จะได้รู้ว่าทำไมระบบเลือกชิ้นนี้ และตัดสินใจเลือกทับเองได้
+    days_borrowed: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class PartResponse(BaseModel):
+    """ชิ้นส่วนที่ติดตั้ง/เคยติดตั้งกับอุปกรณ์ชิ้นหนึ่ง — อายุและมูลค่าแยกจากเครื่องหลักโดยสิ้นเชิง"""
+    id: uuid.UUID
+    equipment_id: uuid.UUID
+    name: str
+    serial_number: str | None = None
+    unit_value: float | None = None
+    acquired_at: date | None = None
+    useful_life_years: int | None = None
+    removed_at: date | None = None
+    removed_reason: str | None = None
+    note: str | None = None
+    # ชิ้นนี้มาแทนชิ้นไหน (เฟส 8) — ชื่อชิ้นเดิมส่งมาด้วยเพื่อให้หน้าเว็บเขียนไทม์ไลน์ได้โดยไม่ต้อง join เอง
+    replaces_part_id: uuid.UUID | None = None
+    replaces_part_name: str | None = None
+    is_installed: bool = True
+    book_value: float | None = None  # คำนวณสดด้วยสูตรเดียวกับเครื่องหลัก (ดู equipment_service.book_value)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PartCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    serial_number: str | None = None
+    unit_value: float | None = Field(None, gt=0)
+    acquired_at: date  # วันที่ติดตั้ง — บังคับ เพราะเป็นจุดเริ่มนับอายุของชิ้นส่วน
+    useful_life_years: int | None = Field(None, gt=0)
+    note: str | None = None
+    # ชิ้นเดิมที่ถูกแทนที่ (ต้องอยู่กับอุปกรณ์ตัวเดียวกัน — ตรวจใน equipment_part_service.install_part)
+    replaces_part_id: uuid.UUID | None = None
+
+    _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
+
+
+class PartUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    serial_number: str | None = None
+    unit_value: float | None = Field(None, gt=0)
+    acquired_at: date | None = None
+    useful_life_years: int | None = Field(None, gt=0)
+    note: str | None = None
+
+    _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
+
+
+class PartRemove(BaseModel):
+    """ถอดชิ้นส่วนออก — ไม่ลบแถว บันทึกวันที่+เหตุผลไว้เป็นประวัติการอัพเกรด"""
+    removed_at: date | None = None  # ไม่ส่ง = วันนี้
+    reason: str = Field(..., min_length=1)
 
 
 class EquipmentGroupDetailResponse(EquipmentGroupResponse):
@@ -129,6 +215,9 @@ class EquipmentCreate(BaseModel):
     code: str | None = None
     serial_number: str | None = None
     name: str
+    # ผู้ผลิต/รุ่น (เฟส 8) — ไม่บังคับ แต่ฟอร์มมี helper แนะนำให้แยกชื่อรุ่นออกจากชื่ออุปกรณ์
+    manufacturer: str | None = None
+    model_number: str | None = None
     category_ids: list[uuid.UUID]
     item_type: str  # durable / consumable
     description: str | None = None
@@ -137,7 +226,12 @@ class EquipmentCreate(BaseModel):
     image_urls: list[str] = Field(..., min_length=1)
     location: str | None = None
     unit: str | None = None
-    unit_value: float | None = None
+    # บังคับกรอกตอนสร้างใหม่ (ของทุกชิ้นต้องมีราคา) — ของเดิมในคลังที่ยังว่างไม่โดนบังคับย้อนหลัง
+    # เพราะ EquipmentUpdate ยังปล่อยเป็น optional ไม่งั้นแก้ฟิลด์อื่นของแถวเดิม 128 แถวไม่ได้เลย
+    unit_value: float = Field(..., gt=0)
+    acquired_at: date  # วันที่ได้มา — บังคับเช่นกัน ฟอร์มใส่ค่าเริ่มต้นเป็นวันนี้ให้
+    useful_life_years: int | None = Field(None, gt=0)
+    book_value_override: float | None = Field(None, ge=0)
     quantity_total: int = 1
     low_stock_threshold: int | None = None
     is_borrowable: bool = True
@@ -162,16 +256,26 @@ class EquipmentUpdate(BaseModel):
     item_type: str | None = None
     serial_number: str | None = None
     name: str | None = None
+    manufacturer: str | None = None
+    model_number: str | None = None
     category_ids: list[uuid.UUID] | None = None
     description: str | None = None
     image_urls: list[str] | None = None
     location: str | None = None
     unit: str | None = None
-    unit_value: float | None = None
+    # ส่งมาเป็น null = "ไม่แก้ราคา" ไม่ใช่ "ล้างราคาทิ้ง" (ดู update_equipment) — ของทุกชิ้นต้องมีราคา
+    unit_value: float | None = Field(None, gt=0)
+    acquired_at: date | None = None
+    useful_life_years: int | None = Field(None, gt=0)
+    # ส่ง null ที่นี่ล้างค่าได้จริง = กลับไปใช้ค่าที่ระบบคำนวณ (ต่างจาก unit_value ด้านบนโดยตั้งใจ)
+    book_value_override: float | None = Field(None, ge=0)
     quantity_total: int | None = None
     low_stock_threshold: int | None = None
     status: str | None = None
     is_borrowable: bool | None = None
+    # เปลี่ยนสถานะเป็น action ที่ต้องอธิบายได้ (เฟส 8) — บังคับเฉพาะเมื่อ status เปลี่ยนจริง
+    # ("ทำไมเครื่องนี้ถึงกลายเป็นซ่อมอยู่" ต้องตอบได้จาก audit ไม่ใช่เดาจากวันที่)
+    status_reason: str | None = None
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
@@ -192,6 +296,9 @@ class ImportRowIn(BaseModel):
     item_type: str = "durable"  # durable / material / consumable
     quantity: int = 1
     unit: str | None = None
+    # ราคา/วันที่ได้มาจากไฟล์ทะเบียน — แอดมินแก้ในร่างได้ ไหลเข้าเฉพาะแถวที่ยังว่างใน DB (ดู commit_import)
+    unit_value: float | None = None
+    acquired_at: date | None = None
     categories: list[str] = []  # ชื่อหมวดหมู่ (สร้างให้ถ้ายังไม่มี) — ว่าง = ใช้ที่ระบบเดาจากชื่อ
     description: str | None = None
     image_urls: list[str] = []
@@ -244,6 +351,8 @@ class EquipmentBulkUpdate(BaseModel):
     (BorrowItem เก็บ snapshot แยก) จึงใช้ตรรกะเดียวกันได้กับหลายแถวพร้อมกัน
     """
     name: str | None = None
+    manufacturer: str | None = None
+    model_number: str | None = None
     item_type: str | None = None
     category_ids: list[uuid.UUID] | None = None
     location: str | None = None
@@ -259,6 +368,8 @@ class EquipmentBulkUpdate(BaseModel):
 class BulkUpdateRequest(BaseModel):
     equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
     update: EquipmentBulkUpdate
+    # บังคับเมื่อ update.status ถูกส่งมา (เฟส 8) — เหตุผลเดียวใช้กับทุกแถวที่เลือก เหมือน bulk_retire
+    status_reason: str | None = None
 
 
 class BulkUpdateResult(BaseModel):
