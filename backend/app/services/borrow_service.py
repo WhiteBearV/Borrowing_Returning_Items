@@ -26,8 +26,8 @@ from app.schemas.borrow import (
     PaginatedBorrowRequests,
     ReturnItemRequest,
 )
-from app.services import audit_service, equipment_service
-from app.utils.duedate import effective_due_date
+from app.services import audit_service, equipment_service, users_service
+from app.utils.duedate import effective_due_date, fmt_date
 from app.utils.email import send_email
 from app.utils.identity import user_identifier
 from app.utils.roles import STAFF_ROLES, is_staff
@@ -132,11 +132,11 @@ def _to_utc(dt: datetime) -> datetime:
 
 
 def _fmt_appoint(dt: datetime | None, location: str | None) -> str:
-    """ข้อความนัดหมายในภาษาคน สำหรับแจ้งเตือน/อีเมล เช่น "8 ก.ย. 2569 เวลา 13:00 น. ที่ ห้องพัสดุ" """
+    """ข้อความนัดหมายในภาษาคน สำหรับแจ้งเตือน/อีเมล เช่น "08/09/2026 เวลา 13:00 น. ที่ ห้องพัสดุ" """
     if not dt:
         return ""
     local = dt.astimezone(TZ) if dt.tzinfo else dt.replace(tzinfo=timezone.utc).astimezone(TZ)
-    when = f"{local.day}/{local.month}/{local.year + 543} เวลา {local:%H:%M} น."
+    when = f"{local:%d/%m/%Y} เวลา {local:%H:%M} น."
     return f"{when} ที่ {location}" if location else when
 
 
@@ -236,11 +236,11 @@ async def create_request(
             resolved.append((eq, item_req.quantity, item_req.requested_due_date))
         else:
             eligible = [g for g in group if g.is_borrowable and g.status == "available" and g.quantity_available > 0]
-            # จ่ายหน่วยที่ถูกใช้มาน้อยสุดก่อน (ดู equipment_service.dispatch_key) — group มาจาก
+            # ลำดับจ่ายของ — จุดเดียวที่ equipment_service.dispatch_order() (ปกติ: ถูกใช้น้อยสุดก่อน ·
+            # รุ่นติดตามคุณภาพ + ผู้ยืมเป็นนักศึกษา: จับคู่อายุที่เหลือกับเวลาเรียนที่เหลือ) group มาจาก
             # find_group_members ที่เรียงตาม code ต้องเรียงใหม่ตรงนี้ ไม่ใช่ไปแก้ ORDER BY ของ query
             # (จุดนั้นเป็นลำดับล็อก ห้ามแตะ)
-            usage = await equipment_service.usage_days_map(db, [g.id for g in eligible])
-            eligible.sort(key=lambda g: equipment_service.dispatch_key(g, usage))
+            eligible = await equipment_service.dispatch_order(db, eligible, current_user)
             if len(eligible) < item_req.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -416,7 +416,24 @@ async def list_requests(
 
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
+    await _attach_request_student_year(db, items)
     return PaginatedBorrowRequests(items=items, total=total, page=page, page_size=page_size)  # type: ignore
+
+
+async def _attach_request_student_year(db: AsyncSession, requests: list[BorrowRequest]) -> None:
+    """เติม student_year_label ที่คำนวณจาก setting `academic_year_start` จริง (ไม่ใช่ค่าเริ่มต้นคงที่) ให้
+    คำขอแต่ละใบ — BorrowRequest.student_year_label เป็น sync property ไม่มี DB session อ่าน setting เองได้
+    จึงต้องให้ service (ที่มี session) คำนวณผ่าน users_service.attach_study_year() ที่เดียวกับหน้าจัดการ
+    ผู้ใช้ แล้วเซ็ตค่ากลับผ่าน property setter (ดู models/borrow_request.py) — เรียกจาก list_requests/
+    get_request/create_request (ผ่าน get_request) ทุกจุดที่คืน BorrowRequestResponse ให้ไคลเอนต์
+    """
+    students = [r.student for r in requests if r.student is not None]
+    if not students:
+        return
+    await users_service.attach_study_year(db, students)
+    for r in requests:
+        if r.student is not None:
+            r.student_year_label = r.student.study_year_label
 
 
 async def get_request(
@@ -426,6 +443,7 @@ async def get_request(
     req = await _load_request(db, request_id)
     if not is_staff(current_user) and req.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    await _attach_request_student_year(db, [req])
     return BorrowRequestResponse.model_validate(req)
 
 
@@ -566,10 +584,12 @@ async def approve_request(
     rows_by_group: dict[tuple[str, str], list[Equipment]] = {}
     for r in locked_rows:
         rows_by_group.setdefault((r.name, r.item_type), []).append(r)
-    # ล็อกไปแล้วด้วยลำดับ code (คงเดิม กัน deadlock) — เรียงใหม่ใน memory เพื่อ "จ่าย" หน่วยที่ถูกใช้น้อยสุดก่อน
+    # ล็อกไปแล้วด้วยลำดับ code (คงเดิม กัน deadlock) — เรียงใหม่ใน memory ด้วย dispatch_order() จุดเดียว
+    # (ดู create_request ด้านบน) borrower คือผู้ยืมเจ้าของคำขอ (req.student) ไม่ใช่ admin ที่กำลังอนุมัติ
     usage = await equipment_service.usage_days_map(db, [r.id for r in locked_rows])
-    for members in rows_by_group.values():
-        members.sort(key=lambda g: equipment_service.dispatch_key(g, usage))
+    for key in list(rows_by_group.keys()):
+        rows_by_group[key] = await equipment_service.dispatch_order(
+            db, rows_by_group[key], req.student, usage_days=usage)
 
     now = datetime.now(timezone.utc)
     dep_years, dep_salvage = await equipment_service._depreciation_settings(db)
@@ -660,10 +680,10 @@ async def approve_request(
         # อ่านวันรายชิ้นผ่าน effective_due_date เสมอ
         req.due_date = max(due_by_item.values())
         req.rejection_reason = reject_summary or None
-        msg = (f"คำขอ {req.request_code} ได้รับการอนุมัติแล้ว กรุณาคืนภายใน {req.due_date}"
+        msg = (f"คำขอ {req.request_code} ได้รับการอนุมัติแล้ว กรุณาคืนภายใน {fmt_date(req.due_date)}"
                if not rejected else
                f"คำขอ {req.request_code} อนุมัติ {len(approved)} จาก {len(req.items)} รายการ "
-               f"(กำหนดคืนไม่เกิน {req.due_date}) — ไม่อนุมัติ: {reject_summary}")
+               f"(กำหนดคืนไม่เกิน {fmt_date(req.due_date)}) — ไม่อนุมัติ: {reject_summary}")
         # นัดรับของต้องอยู่ในแจ้งเตือนบรรทัดเดียวกัน ผู้ยืมจะได้ไม่ต้องเปิดหาว่าไปรับที่ไหนตอนไหน
         if pickup_text:
             msg += f" — รับของ {pickup_text}"
@@ -681,7 +701,7 @@ async def approve_request(
         {
             "request_code": req.request_code,
             "due_date": str(req.due_date) if approved else None,
-            "approved_items": [f"{i.equipment_name} ({due_by_item[i.id]})" for i in approved],
+            "approved_items": [f"{i.equipment_name} ({fmt_date(due_by_item[i.id])})" for i in approved],
             "rejected_items": [f"{i.equipment_name}: {r}" for i, r in rejected],
             "pickup": pickup_text or None,
         },
@@ -710,10 +730,10 @@ async def approve_request(
                 f"<h2>สวัสดี {escape(req.student.full_name)}</h2>"
                 # อนุมัติครบทุกชิ้น (กรณีปกติ) ใช้ข้อความเดิม — บอก "N จาก M" เฉพาะตอนที่ไม่ครบจริง ๆ
                 + (f"<p>มีรายการอุปกรณ์ถูกยืมในชื่อของคุณ ซึ่งคุณได้รับการอนุมัติเรียบร้อยแล้ว "
-                   f"กรุณาคืนภายในวันที่ {req.due_date} รายละเอียดอุปกรณ์อยู่ด้านล่าง</p>"
+                   f"กรุณาคืนภายในวันที่ {fmt_date(req.due_date)} รายละเอียดอุปกรณ์อยู่ด้านล่าง</p>"
                    if not rejected else
                    f"<p>คำขอของคุณได้รับการอนุมัติ {len(approved)} จาก {len(req.items)} รายการ "
-                   f"กรุณาคืนภายในวันที่ที่ระบุในแต่ละรายการ (ช้าสุด {req.due_date})</p>")
+                   f"กรุณาคืนภายในวันที่ที่ระบุในแต่ละรายการ (ช้าสุด {fmt_date(req.due_date)})</p>")
                 + '<p style="padding:10px;background:#fffbeb;border-radius:8px;">'
                   "<b>อย่าลืม:</b> ดาวน์โหลดใบยืมจากหน้า &quot;การยืมของฉัน&quot; "
                   "แล้วปริ้นลงลายเซ็นผู้ยืม นำมาแสดงตอนรับของ "
@@ -857,7 +877,7 @@ async def request_renew_item(
                 admin.email,
                 f"นักศึกษาแจ้งขอต่อเวลาคำขอ {req.request_code}",
                 f"<p>{safe_name} แจ้งขอต่อเวลา <b>{safe_item}</b> จากคำขอ <b>{safe_code}</b> "
-                f"ถึงวันที่ {requested_date} กรุณาเข้าระบบเพื่อตรวจสอบและอนุมัติ/ปฏิเสธ</p>",
+                f"ถึงวันที่ {fmt_date(requested_date)} กรุณาเข้าระบบเพื่อตรวจสอบและอนุมัติ/ปฏิเสธ</p>",
             )
         except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ยื่นคำขอไม่สำเร็จ
             print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
@@ -883,7 +903,7 @@ async def approve_renew_item(
 
     await _notify(db, req.student_id, "renew_approved",
                   f"คำขอต่อเวลา {item.equipment_name} จากคำขอ {req.request_code} ได้รับการอนุมัติ "
-                  f"กำหนดคืนใหม่ {item.extended_due_date}",
+                  f"กำหนดคืนใหม่ {fmt_date(item.extended_due_date)}",
                   borrow_request_id=req.id)
     await audit_service.log_action(db, admin, "approve_renew", "borrow_items", item.id, {
         "request_code": req.request_code, "item": item.equipment_name,
@@ -897,7 +917,7 @@ async def approve_renew_item(
             req.student.email,
             f"คำขอต่อเวลา {req.request_code} ได้รับการอนุมัติ",
             f"<p>คำขอต่อเวลา <b>{escape(item.equipment_name or '')}</b> จากคำขอ <b>{escape(req.request_code)}</b> "
-            f"ได้รับการอนุมัติแล้ว กำหนดคืนใหม่ {item.extended_due_date}</p>",
+            f"ได้รับการอนุมัติแล้ว กำหนดคืนใหม่ {fmt_date(item.extended_due_date)}</p>",
         )
     except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ผลอนุมัติเสีย
         print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
@@ -1234,6 +1254,15 @@ async def return_item(
                                        if fine_total > 0 else {})})
     await db.commit()
 
+    # ประเมินคุณภาพใหม่ (ไม่บังคับ) — จังหวะที่ 4 ของ 4 จังหวะให้ประเมิน (ดู CLAUDE.md): รับคืนแบบชำรุด
+    # เฉพาะเครื่องที่เปิดติดตามคุณภาพอยู่เท่านั้น ไม่ส่ง quality_after มา = ไม่แตะค่าคุณภาพเลย
+    if (body.condition_on_return == "damaged" and body.quality_after is not None
+            and item.equipment is not None and item.equipment.quality_tracked):
+        await equipment_service.assess_quality(
+            db, admin, item.equipment.id, body.quality_after,
+            f"รับคืนแบบชำรุด: {req.request_code}", event="return_damaged",
+        )
+
     # แจ้งเตือนนักศึกษาทางอีเมลด้วย
     try:
         await send_email(
@@ -1457,7 +1486,7 @@ async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
     due = min(dues) if dues else req.due_date
 
     await _notify(db, req.student_id, "due_soon",
-                  f"แจ้งเตือน: คำขอ {req.request_code} ครบกำหนดคืนวันที่ {due}",
+                  f"แจ้งเตือน: คำขอ {req.request_code} ครบกำหนดคืนวันที่ {fmt_date(due)}",
                   borrow_request_id=req.id)
     await db.commit()
 
@@ -1465,7 +1494,7 @@ async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
         await send_email(
             req.student.email,
             f"แจ้งเตือน: คำขอ {req.request_code} ครบกำหนดคืน",
-            f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ครบกำหนดคืนวันที่ {due} "
+            f"<p>คำขอยืม <b>{escape(req.request_code)}</b> ครบกำหนดคืนวันที่ {fmt_date(due)} "
             f"กรุณานำอุปกรณ์มาคืน</p>",
         )
     except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ส่ง reminder ล้ม

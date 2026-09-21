@@ -4,6 +4,8 @@ import { borrowApi } from '../../api/borrowApi.js'
 import { useCart } from '../../context/CartContext.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
+import DateInput from '../../components/common/DateInput.jsx'
+import { todayTH } from '../../utils/formatDate.js'
 
 // วัตถุประสงค์สำเร็จรูป — กดแล้วเติมทั้งข้อความและวันคืนโดยประมาณให้ แต่ผู้ใช้ยังแก้วันเองได้ก่อนส่ง
 // ponytail: const ในไฟล์นี้พอ ยังไม่ต้องทำเป็น setting ให้แอดมินแก้ ถ้าอาจารย์อยากแก้เองค่อยย้ายเข้า settings
@@ -16,14 +18,10 @@ const PURPOSE_PRESETS = [
 ]
 const OTHER_PURPOSE = PURPOSE_PRESETS[PURPOSE_PRESETS.length - 1].label
 
-const tomorrow = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10)
-const daysFromToday = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+const tomorrow = () => todayTH(1)
+const daysFromToday = (n) => todayTH(n)
 // กันพิมพ์วันที่เพี้ยน (เช่น อีก 100 ปี) — ต้องตรงกับ MAX_REQUESTED_DUE_DATE_YEARS ฝั่ง backend
-const maxDueDate = () => {
-  const d = new Date()
-  d.setFullYear(d.getFullYear() + 3)
-  return d.toISOString().slice(0, 10)
-}
+const maxDueDate = () => todayTH(365 * 3)  // backend: date.today() + timedelta(days=365 * 3)
 
 export default function BorrowRequestPage() {
   const navigate = useNavigate()
@@ -137,7 +135,7 @@ export default function BorrowRequestPage() {
       {splitDates && (
         <div className="w-full flex items-center gap-2 pl-1">
           <span className="text-xs text-gray-500">คืนวันที่</span>
-          <input
+          <DateInput
             type="date"
             min={tomorrow()}
             max={maxDueDate()}
@@ -224,7 +222,7 @@ export default function BorrowRequestPage() {
               วันที่คาดว่าจะคืน <span className="text-red-500">*</span>
               <Tooltip text={'วันที่นี้จะกลายเป็นวันครบกำหนดคืนจริงทันทีที่แอดมินอนุมัติคำขอ — เลือกให้ตรงกับที่ตั้งใจใช้งานจริง'} side="top" />
             </label>
-            <input
+            <DateInput
               type="date"
               required
               min={tomorrow()}

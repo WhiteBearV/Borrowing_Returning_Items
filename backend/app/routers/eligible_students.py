@@ -18,11 +18,12 @@ async def list_eligible_students(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     search: str | None = Query(None),
+    cohort: str | None = Query(None, pattern=r"^\d{2}$", description="รุ่น = 2 หลักแรกของรหัส เช่น 66"),
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEligibleStudents:
     """รายชื่อนักศึกษาที่สาขารับรอง (ใช้ตรวจตอนสมัคร) พร้อมธงว่าใครสมัครใช้งานแล้ว"""
-    return await student_import_service.list_students(db, page, page_size, search)
+    return await student_import_service.list_students(db, page, page_size, search, cohort)
 
 
 @router.post("/import", response_model=StudentImportResult)

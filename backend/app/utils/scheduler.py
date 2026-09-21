@@ -14,6 +14,7 @@ from app.models.notification import Notification
 from app.models.setting import Setting
 from app.models.user import User
 from app.utils.roles import STAFF_ROLES
+from app.utils.duedate import fmt_date
 from app.utils.email import send_email
 
 # ต้องระบุ timezone ไม่งั้น APScheduler ใช้โซนของ container ซึ่งเป็น UTC
@@ -63,7 +64,7 @@ async def _check_due_soon() -> None:
         for req in rows:
             _notif(db, req.student_id, "due_soon",
                    f"คำขอ {req.request_code} มีอุปกรณ์ครบกำหนดคืนในอีก "
-                   f"{(target_date - date.today()).days} วัน ({target_date})",
+                   f"{(target_date - date.today()).days} วัน ({fmt_date(target_date)})",
                    borrow_request_id=req.id)
 
         if rows:
@@ -76,7 +77,7 @@ async def _check_due_soon() -> None:
                     req.student.email,
                     f"ใกล้ครบกำหนดคืน — คำขอ {req.request_code}",
                     f"<p>คำขอยืม <b>{escape(req.request_code)}</b> มีอุปกรณ์ใกล้ครบกำหนดคืนแล้ว "
-                    f"(ภายในวันที่ {target_date}) กรุณาเตรียมนำอุปกรณ์มาคืน</p>",
+                    f"(ภายในวันที่ {fmt_date(target_date)}) กรุณาเตรียมนำอุปกรณ์มาคืน</p>",
                 )
             except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
                 print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
@@ -133,7 +134,7 @@ async def _check_overdue() -> None:
                     req.student.email,
                     f"เกินกำหนดคืน — คำขอ {req.request_code}",
                     f"<p>คำขอยืม <b>{escape(req.request_code)}</b> เกินกำหนดคืนแล้ว "
-                    f"(ครบกำหนด {req.due_date}) กรุณานำอุปกรณ์มาคืนโดยด่วน</p>",
+                    f"(ครบกำหนด {fmt_date(req.due_date)}) กรุณานำอุปกรณ์มาคืนโดยด่วน</p>",
                 )
             except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
                 print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
@@ -142,7 +143,7 @@ async def _check_overdue() -> None:
         if admins:
             # escape เลขคำขอ — มีส่วนที่มาจาก student_id/username ที่ผู้ใช้กรอกเอง
             items_html = "".join(
-                f"<li>{escape(r.request_code)} (ครบกำหนด {r.due_date})</li>" for r in rows
+                f"<li>{escape(r.request_code)} (ครบกำหนด {fmt_date(r.due_date)})</li>" for r in rows
             )
             body = f"<p>มีคำขอเกินกำหนดคืน {len(rows)} รายการ:</p><ul>{items_html}</ul>"
             for admin in admins:
@@ -152,11 +153,40 @@ async def _check_overdue() -> None:
                     print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
 
 
-def start_scheduler() -> None:
-    # misfire_grace_time: ถ้า VM ปิด/รีสตาร์ตคร่อมเที่ยงคืน job จะรันชดเชยภายใน 1 ชม.
+# เวลาส่งแจ้งเตือนรายวัน (setting `notify_time`, superadmin แก้ได้) — เดิมตายตัวเที่ยงคืน
+# นักศึกษาได้อีเมลทวงตอนตี 0 · ค่าเริ่มต้นตรงกับ migration 0041
+DEFAULT_NOTIFY_TIME = "08:00"
+DAILY_JOB_IDS = ("due_soon", "overdue")
+
+
+def _daily_trigger(hhmm: str) -> CronTrigger:
+    """"HH:MM" (เวลาไทย) → CronTrigger — ค่าเพี้ยน (หลุดการตรวจตอนบันทึก) ถอยไปค่าเริ่มต้น ไม่ให้แอปบูตไม่ขึ้น"""
+    try:
+        h, m = (int(x) for x in hhmm.split(":"))
+        return CronTrigger(hour=h, minute=m)
+    except (ValueError, AttributeError):
+        return _daily_trigger(DEFAULT_NOTIFY_TIME)
+
+
+def reschedule_daily_jobs(hhmm: str) -> None:
+    """เลื่อนเวลา job รายวันทันทีที่ setting เปลี่ยน ไม่ต้องรีสตาร์ต — ข้ามเงียบ ๆ ถ้า scheduler ไม่ได้รัน
+    (เทส/สคริปต์ที่ไม่ผ่าน lifespan ของแอป)"""
+    for job_id in DAILY_JOB_IDS:
+        if scheduler.get_job(job_id):
+            scheduler.reschedule_job(job_id, trigger=_daily_trigger(hhmm))
+
+
+async def start_scheduler() -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            hhmm = (await db.execute(
+                select(Setting.value).where(Setting.key == "notify_time"))).scalar_one_or_none()
+    except Exception as e:  # ponytail: DB ยังไม่พร้อม ไม่ควรทำให้แอปบูตไม่ขึ้น ใช้ค่าเริ่มต้นไปก่อน
+        print(f"[scheduler] อ่าน notify_time ไม่ได้ ใช้ {DEFAULT_NOTIFY_TIME}: {e}")
+        hhmm = None
+    trigger = _daily_trigger(hhmm or DEFAULT_NOTIFY_TIME)
+    # misfire_grace_time: ถ้า VM ปิด/รีสตาร์ตคร่อมเวลาส่ง job จะรันชดเชยภายใน 1 ชม.
     # ไม่ใส่ = รอบนั้นหายถาวร ไม่มีใครได้รับแจ้งเตือนของวันนั้นเลย
-    scheduler.add_job(_check_due_soon, CronTrigger(hour=0, minute=0),
-                      id="due_soon", misfire_grace_time=3600)
-    scheduler.add_job(_check_overdue, CronTrigger(hour=0, minute=1),
-                      id="overdue", misfire_grace_time=3600)
+    scheduler.add_job(_check_due_soon, trigger, id="due_soon", misfire_grace_time=3600)
+    scheduler.add_job(_check_overdue, trigger, id="overdue", misfire_grace_time=3600)
     scheduler.start()

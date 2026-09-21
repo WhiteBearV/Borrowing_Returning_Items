@@ -1,0 +1,296 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2641" height="1440" viewBox="0 0 2641 1440">
+<defs><marker id="m334155" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker><marker id="m1e3a8a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e3a8a"/></marker><marker id="m475569" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker><marker id="m0369a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0369a1"/></marker><marker id="mb45309" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b45309"/></marker><marker id="m0f172a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/></marker></defs>
+<rect width="2641" height="1440" fill="#ffffff"/>
+<rect x="585.7" y="200.0" width="1451.2" height="613.0" rx="16" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+<rect x="585.7" y="200.0" width="1451.2" height="40" rx="16" fill="#0f172a"/>
+<rect x="585.7" y="224.0" width="1451.2" height="16" fill="#0f172a"/>
+<rect x="50.0" y="200.0" width="345.7" height="150.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M50.0,242.5 V208.0 Q50.0,200.0 58.0,200.0 H387.7 Q395.7,200.0 395.7,208.0 V242.5 Z" fill="#0369a1"/>
+<text x="64.0" y="220.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ใช้งาน (นักศึกษา / อาจารย์)</text>
+<text x="64.0" y="234.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">role = student</text>
+<text x="64.0" y="258.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">เบราว์เซอร์บนคอม / มือถือ (สแกน QR ที่ติดอุปกรณ์)</text>
+<text x="64.0" y="278.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ค้นหาอุปกรณ์ · ตะกร้า · ยื่นคำขอ · ยกเลิก (เหตุผล)</text>
+<text x="64.0" y="298.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ขอคืน + นัด · ขอต่อเวลา · ใบยืม PDF · อัปใบที่เซ็น</text>
+<text x="64.0" y="318.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">สมัครเองด้วยอีเมล @cdti.ac.th / @student.cdti.ac.th</text>
+<text x="64.0" y="338.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   ไม่อยู่ในรายชื่อที่สาขารับรอง → รอเจ้าหน้าที่อนุมัติ</text>
+<rect x="50.0" y="378.5" width="345.7" height="150.5" rx="8" fill="#ffffff" stroke="#a16207" stroke-width="1.4"/>
+<path d="M50.0,421.0 V386.5 Q50.0,378.5 58.0,378.5 H387.7 Q395.7,378.5 395.7,386.5 V421.0 Z" fill="#a16207"/>
+<text x="64.0" y="399.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลคลัง</text>
+<text x="64.0" y="413.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">role = admin · ผ่าน require_admin()</text>
+<text x="64.0" y="437.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">อนุมัติ/ปฏิเสธคำขอ (บางชิ้น · เลือกหน่วย · นัดรับ)</text>
+<text x="64.0" y="457.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">รับคืน: สภาพ · รูปหลักฐาน · ค่าปรับ · รับชำระ</text>
+<text x="64.0" y="477.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">จัดการอุปกรณ์ · ชุด · สต็อก · นำเข้าทะเบียน · QR</text>
+<text x="64.0" y="497.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ผู้ใช้ · รายชื่อ นศ. · audit log · settings งานประจำ</text>
+<text x="64.0" y="517.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ยื่นคำขอแก้ไขข้อมูลถึง superadmin · ยืมของเองได้</text>
+<rect x="50.0" y="557.0" width="345.7" height="150.5" rx="8" fill="#ffffff" stroke="#b91c1c" stroke-width="1.4"/>
+<path d="M50.0,599.5 V565.0 Q50.0,557.0 58.0,557.0 H387.7 Q395.7,557.0 395.7,565.0 V599.5 Z" fill="#b91c1c"/>
+<text x="64.0" y="577.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลระบบสูงสุด</text>
+<text x="64.0" y="591.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">role = superadmin · ผ่าน require_superadmin()</text>
+<text x="64.0" y="615.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ทำได้ทุกอย่างของผู้ดูแลคลัง และเพิ่มเติม:</text>
+<text x="64.0" y="635.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">แก้ราคา / วันที่ได้มา / ค่าเสื่อม · settings ค่าปรับ</text>
+<text x="64.0" y="655.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ยกเว้นค่าปรับ · ลบประวัติ/บัญชีถาวร · เปลี่ยนสิทธิ์</text>
+<text x="64.0" y="675.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ตัดสินคำขอแก้ไขข้อมูล · หน้าตรวจสอบระบบ</text>
+<text x="64.0" y="695.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">บัญชีแรกสร้างด้วย scripts/create_admin.py --superadmin</text>
+<rect x="619.7" y="266.0" width="339.9" height="236.5" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<path d="M619.7,294.5 V274.0 Q619.7,266.0 627.7,266.0 H951.6 Q959.6,266.0 959.6,274.0 V294.5 Z" fill="#334155"/>
+<text x="633.7" y="286.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">container: frontend</text>
+<text x="633.7" y="310.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">build </text>
+<text x="668.7" y="310.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">node:20 → vite build → nginx:alpine</text>
+<text x="633.7" y="330.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">:80 → 301 redirect ไป https</text>
+<text x="633.7" y="350.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">:443 TLS (cert self-signed จาก ./certs)</text>
+<text x="633.7" y="370.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">HSTS · nosniff · X-Frame-Options DENY · no-referrer</text>
+<text x="633.7" y="390.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">rate limit /api/auth/login · forgot-password 5 ครั้ง/นาที</text>
+<text x="633.7" y="410.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">client_max_body_size 11m · proxy_read_timeout 120s</text>
+<text x="633.7" y="430.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">location / </text>
+<text x="716.2" y="430.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">→ dist/ (try_files → index.html)</text>
+<text x="633.7" y="450.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">location /api/ </text>
+<text x="746.2" y="450.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">→ ตัด /api → backend:8000</text>
+<text x="633.7" y="470.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">React SPA </text>
+<text x="698.0" y="470.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">26 route · 24 หน้า · 11 API module</text>
+<text x="633.7" y="490.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">รายละเอียด → รูป 01 หน้าบ้าน</text>
+<rect x="1129.6" y="266.0" width="416.1" height="196.5" rx="8" fill="#ffffff" stroke="#047857" stroke-width="1.4"/>
+<path d="M1129.6,294.5 V274.0 Q1129.6,266.0 1137.6,266.0 H1537.8 Q1545.8,266.0 1545.8,274.0 V294.5 Z" fill="#047857"/>
+<text x="1143.6" y="286.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">container: backend</text>
+<text x="1143.6" y="310.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">image </text>
+<text x="1185.8" y="310.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">python:3.12-slim + tesseract-ocr-tha + poppler</text>
+<text x="1143.6" y="330.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">command </text>
+<text x="1209.2" y="330.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">alembic upgrade head &amp;&amp; uvicorn --workers 1</text>
+<text x="1143.6" y="350.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">FastAPI </text>
+<text x="1194.3" y="350.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">11 router · 88 endpoint · 15 service</text>
+<text x="1143.6" y="370.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">APScheduler อยู่ใน process เดียวกัน (worker เดียวกันงานยิงซ้ำ)</text>
+<text x="1143.6" y="390.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">healthcheck GET /health ทุก 30 วิ (SELECT 1 ถึง DB จริง)</text>
+<text x="1143.6" y="410.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">DATABASE_URL ถูกบังคับให้ชี้ db:5432 เสมอ</text>
+<text x="1143.6" y="430.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ไม่ publish port — เข้าถึงได้ผ่าน nginx เท่านั้น</text>
+<text x="1143.6" y="450.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">รายละเอียด → รูป 02 หลังบ้าน</text>
+<rect x="1715.8" y="266.0" width="287.2" height="156.5" rx="8" fill="#ffffff" stroke="#1e3a8a" stroke-width="1.4"/>
+<path d="M1715.8,294.5 V274.0 Q1715.8,266.0 1723.8,266.0 H1995.0 Q2003.0,266.0 2003.0,274.0 V294.5 Z" fill="#1e3a8a"/>
+<text x="1729.8" y="286.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">container: db</text>
+<text x="1729.8" y="310.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">image </text>
+<text x="1771.9" y="310.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">postgres:16-alpine</text>
+<text x="1729.8" y="330.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">schema </text>
+<text x="1781.1" y="330.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">15 ตาราง · 191 คอลัมน์ · alembic 0039</text>
+<text x="1729.8" y="350.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">healthcheck pg_isready ทุก 10 วิ</text>
+<text x="1729.8" y="370.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">backend รอจน db healthy ก่อนบูต</text>
+<text x="1729.8" y="390.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ไม่ publish port 5432 ออกนอก</text>
+<text x="1729.8" y="410.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">รายละเอียด → รูป 03 ฐานข้อมูล</text>
+<rect x="619.7" y="562.5" width="159.6" height="46.0" rx="14" fill="#ffffff" stroke="#334155" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="634.7" y="581.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre" font-weight="700">./certs (bind, ro)</text>
+<text x="634.7" y="598.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#64748b" text-anchor="start" style="white-space:pre">→ /etc/nginx/certs</text>
+<path d="M789.7,502.5 L789.7,532.5 L699.5,532.5 L699.5,562.5" fill="none" stroke="#334155" stroke-width="1.3" stroke-linejoin="round" stroke-dasharray="4 3"/>
+<rect x="1129.6" y="562.5" width="122.4" height="46.0" rx="14" fill="#ffffff" stroke="#047857" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="1144.6" y="581.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">uploads_data</text>
+<text x="1144.6" y="598.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#64748b" text-anchor="start" style="white-space:pre">→ /app/uploads</text>
+<rect x="1268.0" y="562.5" width="175.2" height="46.0" rx="14" fill="#ffffff" stroke="#047857" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="1283.0" y="581.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">private_uploads_data</text>
+<text x="1283.0" y="598.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#64748b" text-anchor="start" style="white-space:pre">→ /app/private_uploads</text>
+<path d="M1337.7,502.5 L1337.7,532.5 L1190.8,532.5 L1190.8,562.5" fill="none" stroke="#047857" stroke-width="1.3" stroke-linejoin="round" stroke-dasharray="4 3"/>
+<path d="M1337.7,502.5 L1337.7,532.5 L1355.7,532.5 L1355.7,562.5" fill="none" stroke="#047857" stroke-width="1.3" stroke-linejoin="round" stroke-dasharray="4 3"/>
+<rect x="1715.8" y="562.5" width="201.6" height="46.0" rx="14" fill="#ffffff" stroke="#1e3a8a" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="1730.8" y="581.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">postgres_data</text>
+<text x="1730.8" y="598.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#64748b" text-anchor="start" style="white-space:pre">→ /var/lib/postgresql/data</text>
+<path d="M1859.4,502.5 L1859.4,532.5 L1816.6,532.5 L1816.6,562.5" fill="none" stroke="#1e3a8a" stroke-width="1.3" stroke-linejoin="round" stroke-dasharray="4 3"/>
+<text x="619.7" y="634.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#64748b" text-anchor="start" style="white-space:pre">ทุก container: restart unless-stopped · log json-file 10MB × 3 ไฟล์ · คุยกันผ่าน network ภายในของ compose</text>
+<rect x="619.7" y="662.5" width="598.0" height="116.5" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<path d="M619.7,691.0 V670.5 Q619.7,662.5 627.7,662.5 H1209.7 Q1217.7,662.5 1217.7,670.5 V691.0 Z" fill="#475569"/>
+<text x="633.7" y="683.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">Host ของ VM (นอก container)</text>
+<text x="633.7" y="707.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">cron 02:00 </text>
+<text x="716.2" y="707.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">backup_db.sh → /var/backups/equipment-borrow (เก็บ 7 วัน)</text>
+<text x="633.7" y="727.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   pg_dump ผ่าน docker compose exec + สำรองไฟล์ uploads · กู้คืนด้วย restore_db.sh</text>
+<text x="633.7" y="747.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">.env </text>
+<text x="671.2" y="747.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">POSTGRES_* · SECRET_KEY · MAIL_* · ENABLE_EMAIL · ALLOWED_EMAIL_DOMAINS</text>
+<text x="633.7" y="767.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">gen-self-signed-cert.sh </text>
+<text x="813.7" y="767.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">สร้าง cert ก่อน up ครั้งแรก (มีโดเมนจริงค่อยเปลี่ยนเป็น certbot)</text>
+<text x="603.7" y="227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="16" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">Proxmox VM (เซิร์ฟเวอร์ของคณะ) — Docker Compose: docker-compose.prod.yml</text>
+<text x="2019.0" y="227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13" fill="#cbd5e1" text-anchor="end" style="white-space:pre">เข้าใช้งานที่ https://&lt;ip-ของ-VM&gt;/</text>
+<path d="M965.6,356.0 L1123.6,356.0" fill="none" stroke="#334155" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m334155)" marker-start="url(#m334155)"/>
+<rect x="1008.6" y="329.1" width="72.1" height="15.5" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1044.6" y="340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="middle" style="white-space:pre" font-weight="700">HTTP /api/*</text>
+<rect x="1005.5" y="370.0" width="78.2" height="14.2" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1044.6" y="380.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#64748b" text-anchor="middle" style="white-space:pre">(ตัด prefix /api)</text>
+<path d="M1551.8,356.0 L1709.8,356.0" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m1e3a8a)" marker-start="url(#m1e3a8a)"/>
+<rect x="1587.8" y="329.1" width="85.8" height="15.5" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1630.8" y="340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#1e3a8a" text-anchor="middle" style="white-space:pre" font-weight="700">asyncpg :5432</text>
+<rect x="1581.7" y="370.0" width="98.0" height="14.2" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1630.8" y="380.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#64748b" text-anchor="middle" style="white-space:pre">SQLAlchemy async</text>
+<path d="M1223.7,702.5 L1859.4,702.5 L1859.4,614.5" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#m475569)"/>
+<rect x="1767.5" y="680.0" width="183.8" height="14.9" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1859.4" y="690.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11" fill="#475569" text-anchor="middle" style="white-space:pre" font-weight="700">pg_dump (docker compose exec)</text>
+<path d="M399.7,275.2 L505.7,275.2 L505.7,306.0" fill="none" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/>
+<path d="M399.7,453.8 L505.7,453.8 L505.7,306.0" fill="none" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/>
+<path d="M399.7,632.2 L505.7,632.2 L505.7,306.0" fill="none" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/>
+<path d="M505.7,306.0 L613.7,306.0" fill="none" stroke="#0369a1" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m0369a1)"/>
+<rect x="489.1" y="278.1" width="73.3" height="16.9" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="525.7" y="290.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0369a1" text-anchor="middle" style="white-space:pre" font-weight="700">HTTPS :443</text>
+<rect x="497.3" y="322.0" width="56.9" height="14.2" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="525.7" y="332.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#64748b" text-anchor="middle" style="white-space:pre">(:80 → 301)</text>
+<rect x="2207.0" y="200.0" width="290.7" height="156.5" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M2207.0,228.5 V208.0 Q2207.0,200.0 2215.0,200.0 H2489.7 Q2497.7,200.0 2497.7,208.0 V228.5 Z" fill="#b45309"/>
+<text x="2221.0" y="220.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">SMTP — smtp.gmail.com:587</text>
+<text x="2221.0" y="244.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">FastAPI-Mail · STARTTLS</text>
+<text x="2221.0" y="264.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ENABLE_EMAIL=false → print ลง log แทนการส่ง</text>
+<text x="2221.0" y="284.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ถึงผู้ใช้: ลิงก์ยืนยันอีเมล · รีเซ็ตรหัสผ่าน</text>
+<text x="2221.0" y="304.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   อนุมัติ/ปฏิเสธ · รับคืน · ใกล้ครบ/เกินกำหนด</text>
+<text x="2221.0" y="324.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ถึงเจ้าหน้าที่: คำขอใหม่ · แจ้งขอคืน</text>
+<text x="2221.0" y="344.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   สรุปรายการเกินกำหนด (digest)</text>
+<rect x="2207.0" y="384.5" width="385.0" height="196.5" rx="8" fill="#ffffff" stroke="#7f1d1d" stroke-width="1.4"/>
+<path d="M2207.0,413.0 V392.5 Q2207.0,384.5 2215.0,384.5 H2584.0 Q2592.0,384.5 2592.0,392.5 V413.0 Z" fill="#7f1d1d"/>
+<text x="2221.0" y="405.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ความปลอดภัยตลอดเส้นทาง</text>
+<text x="2221.0" y="429.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ขนส่ง </text>
+<text x="2254.4" y="429.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">TLS · HSTS · X-Frame-Options DENY · nosniff</text>
+<text x="2221.0" y="449.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ขอบระบบ </text>
+<text x="2273.8" y="449.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">backend / db ไม่เปิดพอร์ต · rate limit ที่ nginx</text>
+<text x="2221.0" y="469.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ตัวตน </text>
+<text x="2255.1" y="469.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">bcrypt · JWT HS256 (access 30 นาที / refresh 7 วัน)</text>
+<text x="2221.0" y="489.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">สมัคร </text>
+<text x="2254.4" y="489.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">จำกัดโดเมนอีเมล · ยืนยันอีเมล · เทียบรายชื่อสาขา</text>
+<text x="2221.0" y="509.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">สิทธิ์ </text>
+<text x="2246.8" y="509.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">กัน 2 ชั้น: ProtectedRoute (หน้าเว็บ) + require_* (API)</text>
+<text x="2221.0" y="529.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ไฟล์ </text>
+<text x="2244.9" y="529.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">ตรวจนามสกุล + magic bytes + ขนาด ก่อนบันทึก</text>
+<text x="2221.0" y="549.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">PDPA </text>
+<text x="2257.2" y="549.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">ใบยืมที่เซ็นอยู่ private_uploads · เปิดผ่าน endpoint ตรวจสิทธิ์</text>
+<text x="2221.0" y="569.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ตรวจสอบย้อนหลัง </text>
+<text x="2320.8" y="569.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#334155" text-anchor="start" style="white-space:pre">audit log ทุก action · snapshot ผู้ทำ · ลบไม่ได้</text>
+<path d="M1495.8,264.0 L1495.8,254.0 L2201.0,254.0" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#mb45309)"/>
+<rect x="2051.5" y="227.1" width="141.0" height="15.5" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="2122.0" y="238.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#b45309" text-anchor="middle" style="white-space:pre" font-weight="700">send_email() · SMTP 587</text>
+<text x="50.0" y="883.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="22" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">วงจรยืม-คืนครบวงจร — ทุกส่วนทำงานร่วมกันอย่างไร</text>
+<text x="558.9" y="883.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13.5" fill="#64748b" text-anchor="start" style="white-space:pre">หน้าเว็บ (รูป 01) → API (รูป 02) → ฐานข้อมูล (รูป 03) · สีหัวการ์ด = ใครเป็นคนทำขั้นนั้น</text>
+<rect x="50.0" y="933.0" width="471.6" height="145.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M50.0,975.5 V941.0 Q50.0,933.0 58.0,933.0 H513.6 Q521.6,933.0 521.6,941.0 V975.5 Z" fill="#0369a1"/>
+<text x="64.0" y="953.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">1. ล็อกอิน</text>
+<text x="64.0" y="967.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ใช้งาน</text>
+<text x="64.0" y="990.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="90.7" y="990.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST /auth/login</text>
+<text x="64.0" y="1009.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">รหัส นศ. / username / อีเมล + รหัสผ่าน (bcrypt)</text>
+<text x="64.0" y="1028.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">401 รหัสผิด · 403 อีเมลยังไม่ยืนยัน / รออนุมัติ / ปิดบัญชี</text>
+<text x="64.0" y="1047.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ได้ access token 30 นาที + refresh token 7 วัน</text>
+<text x="64.0" y="1066.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">เก็บใน localStorage แล้วโหลด GET /users/me</text>
+<rect x="567.6" y="933.0" width="471.6" height="145.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M567.6,975.5 V941.0 Q567.6,933.0 575.6,933.0 H1031.2 Q1039.2,933.0 1039.2,941.0 V975.5 Z" fill="#0369a1"/>
+<text x="581.6" y="953.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">2. ค้นหาอุปกรณ์ / สแกน QR</text>
+<text x="581.6" y="967.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ใช้งาน</text>
+<text x="581.6" y="990.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="608.3" y="990.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">GET /equipment/grouped</text>
+<text x="581.6" y="1009.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="608.3" y="1009.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">GET /equipment/grouped/{id}</text>
+<text x="581.6" y="1028.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">การ์ดรุ่น (รวมหน่วยรุ่นเดียวกัน) + จำนวนคงเหลือ</text>
+<text x="581.6" y="1047.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">สแกน QR → /equipment/:id</text>
+<text x="581.6" y="1066.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">   ยังไม่ล็อกอิน → ล็อกอินแล้วพากลับหน้าเดิม</text>
+<rect x="1085.2" y="933.0" width="471.6" height="126.5" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<path d="M1085.2,975.5 V941.0 Q1085.2,933.0 1093.2,933.0 H1548.8 Q1556.8,933.0 1556.8,941.0 V975.5 Z" fill="#334155"/>
+<text x="1099.2" y="953.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">3. ใส่ตะกร้า</text>
+<text x="1099.2" y="967.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">หน้าเว็บ (ไม่เรียก API)</text>
+<text x="1099.2" y="990.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ไม่เรียก API — ตะกร้าอยู่ใน localStorage (borrowCart)</text>
+<text x="1099.2" y="1009.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">หยิบอุปกรณ์ตัวกระตุ้น → ขยายเป็นทั้งชุด (bundles)</text>
+<text x="1099.2" y="1028.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ของในชุดที่ยืมไม่ได้จะถูกข้าม และแจ้งชื่อให้รู้</text>
+<text x="1099.2" y="1047.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">จำนวนไม่เกินของคงเหลือของรุ่นนั้น</text>
+<rect x="1602.8" y="933.0" width="471.6" height="183.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M1602.8,975.5 V941.0 Q1602.8,933.0 1610.8,933.0 H2066.4 Q2074.4,933.0 2074.4,941.0 V975.5 Z" fill="#0369a1"/>
+<text x="1616.8" y="953.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">4. ยื่นคำขอยืม</text>
+<text x="1616.8" y="967.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ใช้งาน</text>
+<text x="1616.8" y="990.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="1643.5" y="990.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST /borrow-requests</text>
+<text x="1616.8" y="1009.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ตรวจ: คำขอค้าง ≤ max_active_requests_per_student</text>
+<text x="1616.8" y="1028.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">   รายการ ≤ max_items_per_request · สต็อก · สถานะ</text>
+<text x="1616.8" y="1047.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">   วัตถุประสงค์บังคับ · วันคืนต้องเป็นอนาคต ≤ 3 ปี</text>
+<text x="1616.8" y="1066.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">DB  </text>
+<text x="1640.0" y="1066.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre">INSERT borrow_requests + borrow_items (pending)</text>
+<text x="1616.8" y="1085.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">แจ้ง  </text>
+<text x="1644.2" y="1085.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre">staff: new_request_admin + อีเมล</text>
+<text x="1616.8" y="1104.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">audit_logs: create_request</text>
+<rect x="2120.4" y="933.0" width="471.6" height="126.5" rx="8" fill="#ffffff" stroke="#a16207" stroke-width="1.4"/>
+<path d="M2120.4,975.5 V941.0 Q2120.4,933.0 2128.4,933.0 H2584.0 Q2592.0,933.0 2592.0,941.0 V975.5 Z" fill="#a16207"/>
+<text x="2134.4" y="953.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">5. เจ้าหน้าที่เห็นคิว</text>
+<text x="2134.4" y="967.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ดูแลคลัง</text>
+<text x="2134.4" y="990.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="2161.1" y="990.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">GET /borrow-requests  (poll ทุก 4 วิ)</text>
+<text x="2134.4" y="1009.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="2161.1" y="1009.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">GET /notifications/me  (กระดิ่ง + เสียง)</text>
+<text x="2134.4" y="1028.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">คิวอนุมัติ + คิวคืนเรียงตามเวลานัดที่เร็วที่สุด</text>
+<text x="2134.4" y="1047.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">เปิดใบยืม PDF ดูรายละเอียดก่อนตัดสิน</text>
+<rect x="50.0" y="1206.5" width="471.6" height="183.5" rx="8" fill="#ffffff" stroke="#a16207" stroke-width="1.4"/>
+<path d="M50.0,1249.0 V1214.5 Q50.0,1206.5 58.0,1206.5 H513.6 Q521.6,1206.5 521.6,1214.5 V1249.0 Z" fill="#a16207"/>
+<text x="64.0" y="1227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">6. อนุมัติ (ทั้งใบ / บางชิ้น)</text>
+<text x="64.0" y="1241.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ดูแลคลัง</text>
+<text x="64.0" y="1264.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="90.7" y="1264.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">PATCH /borrow-requests/{id}/approve</text>
+<text x="64.0" y="1283.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ล็อกแถว FOR UPDATE → เลือกหน่วยด้วย dispatch_key</text>
+<text x="64.0" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">DB  </text>
+<text x="87.2" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre">หัก quantity_available · snapshot ราคา/มูลค่า/SN</text>
+<text x="64.0" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">วันคืนรายชิ้น · นัดรับของ (เว้นว่างได้)</text>
+<text x="64.0" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ปฏิเสธบางชิ้นต้องมีเหตุผล · ปฏิเสธครบ = rejected</text>
+<text x="64.0" y="1359.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">แจ้ง  </text>
+<text x="91.4" y="1359.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre">ผู้ยืม: approved + อีเมล</text>
+<text x="64.0" y="1378.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">audit_logs: approve_request</text>
+<rect x="567.6" y="1206.5" width="471.6" height="145.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M567.6,1249.0 V1214.5 Q567.6,1206.5 575.6,1206.5 H1031.2 Q1039.2,1206.5 1039.2,1214.5 V1249.0 Z" fill="#0369a1"/>
+<text x="581.6" y="1227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">7. รับของ + ใบยืม</text>
+<text x="581.6" y="1241.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ใช้งาน</text>
+<text x="581.6" y="1264.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="608.3" y="1264.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">GET /borrow-requests/{id}/pdf</text>
+<text x="581.6" y="1283.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ใบยืม PDF ฟอนต์ไทย พิมพ์สเปก ณ วันยืม</text>
+<text x="581.6" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="608.3" y="1302.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST /borrow-requests/{id}/signed-form</text>
+<text x="581.6" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">DB  </text>
+<text x="604.8" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre">ไฟล์ที่เซ็น → private_uploads (ชื่อไฟล์เปล่า)</text>
+<text x="581.6" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">เปิดดูได้เฉพาะเจ้าของคำขอ / เจ้าหน้าที่ + ลง audit</text>
+<rect x="1085.2" y="1206.5" width="471.6" height="164.5" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.4"/>
+<path d="M1085.2,1249.0 V1214.5 Q1085.2,1206.5 1093.2,1206.5 H1548.8 Q1556.8,1206.5 1556.8,1214.5 V1249.0 Z" fill="#0369a1"/>
+<text x="1099.2" y="1227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">8. ขอคืน / ขอต่อเวลา</text>
+<text x="1099.2" y="1241.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ใช้งาน</text>
+<text x="1099.2" y="1264.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="1125.9" y="1264.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST …/request-return</text>
+<text x="1099.2" y="1283.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">   ต้องระบุวันเวลา + สถานที่นัดคืน (รายชิ้น)</text>
+<text x="1099.2" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="1125.9" y="1302.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST …/items/{item}/renew-request</text>
+<text x="1099.2" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">   วันที่ต้องการคืนใหม่ + เหตุผล (≤ max_renew_count)</text>
+<text x="1099.2" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">แจ้ง  </text>
+<text x="1126.6" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre">staff: return_requested_admin / renew_requested_admin</text>
+<text x="1099.2" y="1359.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">staff: renew-approve → extended_due_date / renew-reject</text>
+<rect x="1602.8" y="1206.5" width="471.6" height="164.5" rx="8" fill="#ffffff" stroke="#a16207" stroke-width="1.4"/>
+<path d="M1602.8,1249.0 V1214.5 Q1602.8,1206.5 1610.8,1206.5 H2066.4 Q2074.4,1206.5 2074.4,1214.5 V1249.0 Z" fill="#a16207"/>
+<text x="1616.8" y="1227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">9. รับคืน + ค่าปรับ</text>
+<text x="1616.8" y="1241.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ผู้ดูแลคลัง</text>
+<text x="1616.8" y="1264.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">API  </text>
+<text x="1643.5" y="1264.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0369a1" text-anchor="start" style="white-space:pre">POST …/items/{item}/return · …/return-all</text>
+<text x="1616.8" y="1283.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">สภาพ ok/damaged/lost · returned_full/used_up/discarded</text>
+<text x="1616.8" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">เสียหายต้องแนบรูป · คืนสต็อกเฉพาะ ok / returned_full</text>
+<text x="1616.8" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre" font-weight="700">DB  </text>
+<text x="1640.0" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e3a8a" text-anchor="start" style="white-space:pre">freeze ค่าปรับ · ครบทุกชิ้นที่อนุมัติ → completed</text>
+<text x="1616.8" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">แจ้ง  </text>
+<text x="1644.2" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre">ผู้ยืม: returned_confirmed + อีเมล</text>
+<text x="1616.8" y="1359.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">ค่าปรับ: รับชำระ (staff) · ยกเว้น (superadmin)</text>
+<rect x="2120.4" y="1206.5" width="471.6" height="145.5" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<path d="M2120.4,1249.0 V1214.5 Q2120.4,1206.5 2128.4,1206.5 H2584.0 Q2592.0,1206.5 2592.0,1214.5 V1249.0 Z" fill="#475569"/>
+<text x="2134.4" y="1227.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">10. งานอัตโนมัติ</text>
+<text x="2134.4" y="1241.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ระบบอัตโนมัติ</text>
+<text x="2134.4" y="1264.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">APScheduler ใน backend (เวลาไทย)</text>
+<text x="2134.4" y="1283.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">00:00 due_soon — ใกล้ครบกำหนดตาม setting</text>
+<text x="2134.4" y="1302.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">00:01 overdue — ตั้ง is_overdue = true</text>
+<text x="2134.4" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">แจ้ง  </text>
+<text x="2161.8" y="1321.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#b45309" text-anchor="start" style="white-space:pre">ผู้ยืม in-app + อีเมล · staff digest</text>
+<text x="2134.4" y="1340.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#1e293b" text-anchor="start" style="white-space:pre">02:00 cron บน host: backup_db.sh</text>
+<path d="M525.6,967.0 L563.6,967.0" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1043.2,967.0 L1081.2,967.0" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1560.8,967.0 L1598.8,967.0" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M2078.4,967.0 L2116.4,967.0" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M2356.2,1120.5 L2356.2,1161.5 L285.8,1161.5 L285.8,1202.5" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M525.6,1240.5 L563.6,1240.5" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1043.2,1240.5 L1081.2,1240.5" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1560.8,1240.5 L1598.8,1240.5" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M2078.4,1240.5 L2116.4,1240.5" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<rect x="2509.7" y="899.0" width="81.3" height="20.0" rx="10" fill="#475569" stroke="none" stroke-width="1.2"/>
+<text x="2517.7" y="913.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ระบบอัตโนมัติ</text>
+<rect x="2378.0" y="899.0" width="121.6" height="20.0" rx="10" fill="#334155" stroke="none" stroke-width="1.2"/>
+<text x="2386.0" y="913.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">หน้าเว็บ (ไม่เรียก API)</text>
+<rect x="2270.3" y="899.0" width="97.7" height="20.0" rx="10" fill="#b91c1c" stroke="none" stroke-width="1.2"/>
+<text x="2278.3" y="913.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลระบบสูงสุด</text>
+<rect x="2194.1" y="899.0" width="66.2" height="20.0" rx="10" fill="#a16207" stroke="none" stroke-width="1.2"/>
+<text x="2202.1" y="913.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลคลัง</text>
+<rect x="2130.8" y="899.0" width="53.2" height="20.0" rx="10" fill="#0369a1" stroke="none" stroke-width="1.2"/>
+<text x="2138.8" y="913.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ใช้งาน</text>
+<text x="50.0" y="62.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="30" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">04 · ภาพรวมระบบ (System Overview) — การติดตั้งและความสัมพันธ์ของทุกส่วน</text>
+<text x="50.0" y="96.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ระบบยืม-คืนอุปกรณ์ · React SPA (26 route) + FastAPI (88 endpoint) + PostgreSQL 16 (15 ตาราง) · Docker Compose บน Proxmox VM ของคณะ · ผู้ใช้ ~100–300 คน</text>
+<text x="50.0" y="122.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre">อ่านจาก docker-compose.prod.yml · frontend/nginx.conf · backend/Dockerfile · scripts/backup_db.sh · และตัวเลขจากซอร์สจริง · ข้อมูล ณ 14 ก.ย. 2569</text>
+</svg>

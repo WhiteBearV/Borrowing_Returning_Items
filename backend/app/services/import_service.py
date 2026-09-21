@@ -25,7 +25,7 @@ from app.models.equipment import Equipment
 from app.models.equipment_category import EquipmentCategory
 from app.models.user import User
 from app.schemas.equipment import ImportCommitRequest
-from app.services import audit_service, ocr_import
+from app.services import audit_service, equipment_service, ocr_import
 
 # กฎจัดหมวดตามคีย์เวิร์ด — ชุดเดียวกับ scripts/import_register.py ที่ใช้ seed ครั้งแรก
 # เช็คจากบนลงล่าง เจอก่อนชนะ (คอมพิวเตอร์มาก่อนเฟอร์นิเจอร์ ไม่งั้น "คอมพิวเตอร์ตั้งโต๊ะ" เข้าหมวดโต๊ะ)
@@ -494,6 +494,24 @@ async def commit_import(
             )
             eq.categories = [await _get_or_create_category(db, n, cat_cache) for n in cat_names]
             db.add(eq)
+            # flush ก่อนเรียก _inherit_quality_from_group เสมอ — eq.id ใช้ default ฝั่ง Python ยังเป็น None
+            # จนกว่าจะ flush จริง ไม่งั้น exclude_id=eq.id จับค่า None ไป แล้ว autoflush ข้างใน
+            # find_group_members() (ผ่าน SELECT) จะ INSERT eq เข้า DB "ระหว่างคำนวณ" โดยไม่มีใครกัน eq
+            # ออกจากผลลัพธ์ของตัวเอง (id จริงไม่ตรงกับ exclude_id=None ที่จับไว้ก่อนหน้า) ทำให้เช็ค "ทุกหน่วย
+            # ติดตามครบไหม" เจอ eq เอง (quality_tracked=False เสมอ ยังไม่ทันตั้งค่า) ปนอยู่ด้วย กลายเป็น False
+            # ทุกครั้งแม้ sibling จริงจะติดตามครบก็ตาม (ดู comment เดียวกันใน equipment_service.create_equipment
+            # — จุดเดียวกัน เจอจากเทสจริงตอนแก้ M-a รีวิวรอบ 4)
+            await db.flush()
+            # หน่วยใหม่ของรุ่นที่เปิดติดตามคุณภาพอยู่แล้วต้องได้สวิตช์ตามรุ่นอัตโนมัติ (ดู CLAUDE.md) — ใช้
+            # equipment_service._inherit_quality_from_group() จุดเดียวกับ create_equipment/update_equipment/
+            # bulk_update_equipment — เดิมไฟล์นี้ก็อปสูตรง่าย ๆ ของตัวเอง ("มี sibling ที่ tracked=True สักตัว
+            # ก็ inherit True") ไม่มี consumable guard และไม่รองรับกลุ่มปลายทางที่ติดตามไม่ครบ (mixed ต้องได้
+            # False ไม่ใช่เงียบ ๆ ไม่แตะอะไรเลย) แก้ตามรีวิวรอบ 4, M-d
+            inherited = await equipment_service._inherit_quality_from_group(
+                db, eq.name, eq.item_type, exclude_id=eq.id,
+            )
+            if inherited:
+                eq.quality_tracked, eq.quality_life_years = inherited
             await db.flush()
             await audit_service.log_action(
                 db, admin, "create_equipment", "equipment", eq.id,
@@ -521,6 +539,8 @@ async def commit_import(
 
         # action == update — เขียนทับด้วยค่าที่แอดมินยืนยันในร่าง
         old_status, old_qty = eq.status, eq.quantity_total
+        old_group = (eq.name, eq.item_type)
+        old_quality = (eq.quality_tracked, eq.quality_life_years)
         eq.name, eq.location, eq.status = row.name, row.location, row.status
         eq.item_type, eq.quantity_total = row.item_type, row.quantity
         if row.unit is not None:
@@ -550,9 +570,23 @@ async def commit_import(
                 eq.quantity_available = max(0, min(row.quantity, eq.quantity_available + (row.quantity - old_qty)))
             else:
                 eq.quantity_available = 0
+        # ย้ายรุ่น/แปลงเป็น consumable ผ่านไฟล์ทะเบียน → กฎเดียวกับ update_equipment (รีวิวรอบ 4 MINOR ข้อ 5)
+        if eq.item_type == "consumable" and eq.quality_tracked:
+            eq.quality_tracked, eq.quality_life_years = False, None
+        elif (eq.name, eq.item_type) != old_group:
+            inherited = await equipment_service._inherit_quality_from_group(
+                db, eq.name, eq.item_type, exclude_id=eq.id,
+            )
+            if inherited:
+                eq.quality_tracked, eq.quality_life_years = inherited
+        changes = dict(ref["changes"])
+        for f, before, after in zip(equipment_service.QUALITY_SWITCH_FIELDS, old_quality,
+                                    (eq.quality_tracked, eq.quality_life_years)):
+            if before != after:
+                changes[f] = [before, after]
         await audit_service.log_action(
             db, admin, "update_equipment", "equipment", eq.id,
-            {"code": eq.code, "changes": ref["changes"], "source": src},
+            {"code": eq.code, "changes": changes, "source": src},
         )
         applied["update"] += 1
 

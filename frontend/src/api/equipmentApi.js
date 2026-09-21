@@ -5,7 +5,11 @@ export const equipmentApi = {
   get: (id) => api.get(`/equipment/${id}`).then((r) => r.data),
   // อุปกรณ์รุ่นเดียวกันหลายหน่วย (ครุภัณฑ์/วัสดุ) ยุบเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้
   listGrouped: (params) => api.get('/equipment/grouped', { params }).then((r) => r.data),
-  getGrouped: (id) => api.get(`/equipment/grouped/${id}`).then((r) => r.data),
+  // recommendFor (เฉพาะเจ้าหน้าที่, ไม่บังคับ): user_id ของผู้ยืม — ได้ recommended_unit_id กลับมาด้วย
+  // (equipment_service.dispatch_order กฎเดียวกับตอนอนุมัติจริง) ใช้ใน UnitPickerModal
+  getGrouped: (id, recommendFor) =>
+    api.get(`/equipment/grouped/${id}`, { params: recommendFor ? { recommend_for: recommendFor } : {} })
+      .then((r) => r.data),
   create: (data) => api.post('/equipment', data).then((r) => r.data),
   update: (id, data) => api.patch(`/equipment/${id}`, data).then((r) => r.data),
   retire: (id, reason) => api.delete(`/equipment/${id}`, { params: reason ? { reason } : {} }),
@@ -30,8 +34,14 @@ export const equipmentApi = {
   bulkDelete: (equipment_ids) => api.post('/equipment/bulk-delete', { equipment_ids }).then((r) => r.data),
   // แก้ไขฟิลด์ปลอดภัยของหลายหน่วยพร้อมกัน (all-or-nothing) — คืน { updated: [...] }
   // status_reason บังคับเมื่อ update.status ถูกส่งมา (เฟส 8 — เปลี่ยนสถานะต้องอธิบายได้เสมอ)
-  bulkUpdate: (equipment_ids, update, status_reason) =>
-    api.patch('/equipment/bulk-update', { equipment_ids, update, status_reason }).then((r) => r.data),
+  // quality_baseline/quality_reason (เฟส 10, ไม่บังคับ): ประเมินคุณภาพทั้งชุดพร้อมกัน
+  bulkUpdate: (equipment_ids, update, status_reason, quality_baseline, quality_reason) =>
+    api.patch('/equipment/bulk-update', {
+      equipment_ids, update, status_reason, quality_baseline, quality_reason,
+    }).then((r) => r.data),
+  // ประเมินคุณภาพอุปกรณ์ (เฟส 10) — ปุ่ม "ประเมินคุณภาพ" บังคับเหตุผลเสมอ
+  assessQuality: (id, quality_after, reason) =>
+    api.post(`/equipment/${id}/quality`, { quality_after, reason }).then((r) => r.data),
   // ปรับยอดคงเหลือหลายรายการพร้อมกันแบบ delta (บวก/ลบเท่ากันทุกแถว) — clamp อิสระต่อแถว คืน { updated: [...] }
   bulkAdjustStock: (equipment_ids, delta, reason) =>
     api.patch('/equipment/bulk-adjust-stock', { equipment_ids, delta, reason }).then((r) => r.data),

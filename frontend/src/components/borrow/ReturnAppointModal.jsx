@@ -1,23 +1,12 @@
 import { useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
-
-// พรุ่งนี้เวลาที่กำหนด (ค่าเริ่มต้นของช่อง datetime-local) — ใช้เวลาเครื่องผู้ใช้ ไม่ผ่าน toISOString
-// เพราะ toISOString แปลงเป็น UTC แล้วช่องจะขึ้นเวลาเพี้ยนไป 7 ชั่วโมง
-const tomorrowAt = (hhmm = '13:00') => {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  const [h, m] = hhmm.split(':')
-  d.setHours(Number(h) || 13, Number(m) || 0, 0, 0)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const nowLocal = () => tomorrowAt().slice(0, 10) // ใช้แค่ให้ min ไม่ย้อนอดีตแบบหยาบ ๆ
+import DateInput from '../common/DateInput.jsx'
+import { todayTH } from '../../utils/formatDate.js'
 
 /** นักศึกษาแจ้งขอคืน — ต้องนัดวัน-เวลา-สถานที่ ไม่ใช่แค่กดแจ้งเฉย ๆ
  *  แอดมินจะได้รู้ล่วงหน้าว่าวันนี้ใครจะมาคืนอะไรกี่โมง (feedback อาจารย์ ข้อ 12) */
 export function ReturnAppointModal({ requestId, itemIds, defaultLocation, onClose, onDone }) {
-  const [when, setWhen] = useState(tomorrowAt())
+  const [when, setWhen] = useState(`${todayTH(1)}T13:00`)  // ค่าเริ่มต้น พรุ่งนี้ 13:00 (ปฏิทินไทย)
   // ค่าเริ่มต้น = ที่ที่ไปรับของมา (ปกติคืนที่เดิม) — ไม่ดึงจาก settings เพราะ GET /settings เป็นสิทธิ์
   // เจ้าหน้าที่ นักศึกษาเรียกแล้วได้ 403 ช่องนี้ก็จะว่างเปล่าอยู่ดี
   const [where, setWhere] = useState(defaultLocation ?? '')
@@ -45,7 +34,7 @@ export function ReturnAppointModal({ requestId, itemIds, defaultLocation, onClos
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">วัน-เวลาที่จะมาคืน</label>
-          <input type="datetime-local" min={`${nowLocal()}T00:00`} value={when}
+          <DateInput type="datetime-local" min={`${todayTH()}T00:00`} value={when}
             onChange={(e) => setWhen(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>

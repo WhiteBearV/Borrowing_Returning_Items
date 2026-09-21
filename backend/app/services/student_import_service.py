@@ -339,10 +339,15 @@ async def import_students(
 
 
 async def list_students(
-    db: AsyncSession, page: int, page_size: int, search: str | None = None,
+    db: AsyncSession, page: int, page_size: int, search: str | None = None, cohort: str | None = None,
 ) -> PaginatedEligibleStudents:
-    """รายชื่อที่รับรองไว้ + ธงว่าคนนั้นสมัครใช้งานแล้วหรือยัง (ไล่ตามคนที่ยังไม่เข้าระบบได้)"""
+    """รายชื่อที่รับรองไว้ + ธงว่าคนนั้นสมัครใช้งานแล้วหรือยัง (ไล่ตามคนที่ยังไม่เข้าระบบได้)
+
+    cohort = 2 หลักแรกของรหัสนักศึกษา (ปีที่เข้า เช่น "66") — หลักเดียวกับ study_year.enrollment_year_from_student_id
+    """
     query = select(EligibleStudent)
+    if cohort:
+        query = query.where(EligibleStudent.student_id.like(f"{cohort}%"))
     if search:
         kw = f"%{search.strip()}%"
         query = query.where(or_(EligibleStudent.student_id.ilike(kw),
@@ -362,7 +367,10 @@ async def list_students(
         item = EligibleStudentResponse.model_validate(row, from_attributes=True)
         item.has_account = row.student_id in registered
         items.append(item)
-    return PaginatedEligibleStudents(items=items, total=total, page=page, page_size=page_size)
+    prefix = func.left(EligibleStudent.student_id, 2)
+    cohorts = dict((await db.execute(
+        select(prefix, func.count()).group_by(prefix).order_by(prefix))).all())
+    return PaginatedEligibleStudents(items=items, total=total, page=page, page_size=page_size, cohorts=cohorts)
 
 
 async def delete_student(db: AsyncSession, admin: User, row_id: uuid.UUID) -> None:

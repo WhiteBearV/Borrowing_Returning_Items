@@ -3,6 +3,7 @@ import { borrowApi } from '../../api/borrowApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { settingsApi } from '../../api/settingsApi.js'
 import { fineMoney, previewFine } from '../../utils/fine.js'
+import QualityAssessField from '../equipment/QualityAssessField.jsx'
 
 // สถานะสรุปผลแยกตามชนิด + สถานะที่ต้องแนบรูป
 const DURABLE_OPTIONS = [{ value: 'ok', label: 'ปกติ' }, { value: 'damaged', label: 'เสียหาย' }, { value: 'lost', label: 'สูญหาย' }]
@@ -29,11 +30,26 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
   // ยอดที่แอดมินกรอกทับ ('' = ใช้ยอดที่ระบบคิดให้)
   const [lateOverride, setLateOverride] = useState('')
   const [damageOverride, setDamageOverride] = useState('')
+  // ค่าคุณภาพ (เฟส 10) — จังหวะที่ 4 ของ 4 จังหวะให้ประเมิน: รับคืนแบบชำรุด มีผลเฉพาะเครื่องที่เปิดติดตามอยู่
+  const [eqQuality, setEqQuality] = useState(null) // { tracked, current }
+  const [qualityAfter, setQualityAfter] = useState(null)
 
   const needPhoto = PHOTO_REQUIRED.has(condition)
 
   // อัตราค่าปรับอ่านจาก settings เพื่อพรีวิวยอดก่อนกดยืนยัน — ยอดจริงคำนวณและ freeze ที่ backend
   useEffect(() => { settingsApi.list().then(setSettings).catch(() => setSettings([])) }, [])
+  const defaultDrop = (() => {
+    const v = Number(settings?.find?.((s) => s.key === 'quality_repair_default_drop')?.value)
+    return Number.isFinite(v) ? v : 2
+  })()
+
+  // ดึงข้อมูลคุณภาพของเครื่องเฉพาะตอนเลือก "เสียหาย" — ไม่โหลดล่วงหน้าทุกครั้งเพราะส่วนใหญ่คืนปกติ
+  useEffect(() => {
+    if (condition !== 'damaged' || !item.equipment_id) { setEqQuality(null); return }
+    equipmentApi.get(item.equipment_id)
+      .then((eq) => setEqQuality({ tracked: !!eq.quality_tracked, current: eq.current_quality ?? null }))
+      .catch(() => setEqQuality(null))
+  }, [condition, item.equipment_id])
   const fine = useMemo(
     () => previewFine(item, req, condition, settings), [item, req, condition, settings])
   const shownLate = lateOverride === '' ? fine.lateAmount : Number(lateOverride) || 0
@@ -69,6 +85,9 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
         damage_photo_urls: photos.length ? photos : undefined,
         fine_late_amount_override: lateOverride === '' ? undefined : Number(lateOverride),
         fine_damage_amount_override: damageOverride === '' ? undefined : Number(damageOverride),
+        // ประเมินคุณภาพใหม่ (ไม่บังคับ) — มีผลเฉพาะเครื่องที่เปิดติดตามคุณภาพและเลือก "เสียหาย"
+        ...(condition === 'damaged' && eqQuality?.tracked && qualityAfter != null
+          ? { quality_after: qualityAfter } : {}),
       })
       onDone()
     } catch (err) {
@@ -80,7 +99,7 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
-        <h2 className="font-bold text-gray-800">{isConsumable ? 'สรุปผลวัสดุ' : 'ยืนยันรับคืนอุปกรณ์'}</h2>
+        <h2 className="font-bold text-gray-800">{isConsumable ? 'สรุปผลวัสดุสิ้นเปลือง' : 'ยืนยันรับคืนอุปกรณ์'}</h2>
         <p className="text-sm text-gray-500">{item.equipment_name ?? item.equipment_id} ×{item.quantity}</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">{isConsumable ? 'ผลการใช้งาน' : 'สภาพอุปกรณ์'}</label>
@@ -116,6 +135,12 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="อธิบายความเสียหาย…" />
             </div>
+            {condition === 'damaged' && eqQuality?.tracked && (
+              <QualityAssessField
+                currentQuality={eqQuality.current} defaultDrop={defaultDrop}
+                value={qualityAfter} onChange={setQualityAfter}
+              />
+            )}
           </>
         )}
         {hasFine && (

@@ -4,6 +4,7 @@ import { useAuthContext } from '../../context/AuthContext.jsx'
 import { isSuperadmin } from '../../utils/role.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import { formatDateTime } from '../../utils/formatDate.js'
 
 const STATUS_LABEL = { pending: 'รอดำเนินการ', approved: 'ทำให้แล้ว', rejected: 'ไม่ดำเนินการ' }
 const STATUS_CLASS = {
@@ -200,7 +201,7 @@ export default function ChangeRequestsPage() {
                   {cr.target_label ? ` · ${cr.target_label}` : ''}
                 </span>
                 <span className="text-xs text-gray-400 ml-auto">
-                  {cr.requester_name} · {new Date(cr.created_at).toLocaleString('th-TH')}
+                  {cr.requester_name} · {formatDateTime(cr.created_at)}
                 </span>
               </div>
               <p className="text-sm text-gray-700">เหตุผล: {cr.reason}</p>
@@ -208,7 +209,7 @@ export default function ChangeRequestsPage() {
               {cr.status !== 'pending' && (
                 <p className="text-xs text-gray-500 mt-1">
                   {STATUS_LABEL[cr.status]} โดย {cr.decided_by_name ?? '—'}
-                  {cr.decided_at ? ` · ${new Date(cr.decided_at).toLocaleString('th-TH')}` : ''}
+                  {cr.decided_at ? ` · ${formatDateTime(cr.decided_at)}` : ''}
                   {cr.decision_note ? ` · ${cr.decision_note}` : ''}
                 </p>
               )}

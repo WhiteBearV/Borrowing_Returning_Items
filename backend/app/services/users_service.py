@@ -4,7 +4,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import audit_service, equipment_service
+from app.services import audit_service, equipment_service, settings_service
 from app.models.auth_token import AuthToken
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
@@ -13,7 +13,30 @@ from app.core.security import hash_password
 from app.models.user import User
 from app.utils.identity import is_student_identifier
 from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, SUPERADMIN
+from app.utils.study_year import compute_study_year, year_group_key
 from app.schemas.user import PaginatedUsers, UserCreateRequest, UserUpdateRequest
+
+
+async def attach_study_year(db: AsyncSession, users: list[User]) -> None:
+    """เติม year_level/is_retained/remaining_study_years/study_year_label ให้ user objects ก่อนแปลงเป็น
+    response — pattern เดียวกับ equipment_service.attach_book_values อ่าน setting academic_year_start
+    ครั้งเดียวต่อ request แล้วคำนวณผ่าน app.utils.study_year (จุดเดียว) ให้ทุกแถว
+
+    role != "student" ถือเป็นบุคลากรเสมอ (ส่ง enrollment_year=None เข้าสูตรแทนค่าจริงที่อาจค้างอยู่) แม้บัญชี
+    จะเคยเป็นนักศึกษามาก่อนแล้วถูกเลื่อนสิทธิ์เป็น admin/superadmin ที่ /users/{id}/role — role ปัจจุบันคือ
+    ความจริงเสมอ ไม่งั้นบัญชีที่เพิ่งเลื่อนสิทธิ์จะยังโชว์ "ปีที่ X" และถูกเข้าเงื่อนไขจับคู่คุณภาพผิดพลาด
+    (พบตอนรีวิวรอบ 2 — MINOR 6)
+    """
+    if not users:
+        return
+    start = await settings_service.get_academic_year_start(db)
+    for u in users:
+        enrollment_year = u.enrollment_year if u.role == "student" else None
+        info = compute_study_year(enrollment_year, u.study_years or 4, academic_year_start=start)
+        u.year_level = info.year_level
+        u.is_retained = info.is_retained
+        u.remaining_study_years = info.remaining_study_years
+        u.study_year_label = info.label
 
 
 async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) -> User:
@@ -38,6 +61,9 @@ async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) ->
         dup_username = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
         if dup_username:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered.")
+    # อาจารย์/เจ้าหน้าที่ไม่มี enrollment_year (บุคลากร) · นักศึกษาที่แอดมินเพิ่มเองก็คำนวณปีที่เข้าศึกษาจาก
+    # รหัสได้เหมือนตอนสมัครเอง (จุดเดียวกับ auth_service.register / migration 0040 backfill)
+    from app.utils.study_year import enrollment_year_from_student_id
     user = User(
         email=body.email,
         full_name=body.full_name,
@@ -49,6 +75,7 @@ async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) ->
         role=body.role,
         email_verified=True,
         is_active=True,
+        enrollment_year=enrollment_year_from_student_id(body.student_id) if body.student_id else None,
     )
     db.add(user)
     await db.flush()  # ได้ user.id ก่อนเขียน audit
@@ -58,6 +85,7 @@ async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) ->
     })
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
     return user
 
 
@@ -71,6 +99,7 @@ async def update_profile(db: AsyncSession, user: User, body: UserUpdateRequest) 
         user.full_name = body.full_name
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
     return user
 
 
@@ -79,13 +108,20 @@ async def update_avatar(db: AsyncSession, user: User, file: UploadFile) -> User:
     user.avatar_url = await equipment_service.save_image(file)
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
     return user
 
 
 async def list_users(
     db: AsyncSession, page: int, page_size: int, role: str | None, major: str | None,
-    approval_status: str | None = None,
+    approval_status: str | None = None, year_group: str | None = None,
 ) -> PaginatedUsers:
+    """year_group: "1".."4" (ชั้นปี) / "retained" (ตกค้าง) / "staff" (บุคลากร) / "unknown" (นักศึกษาที่
+    enrollment_year เป็น None — คนละกลุ่มกับ "staff" จริง ดู dashboard_service.YEAR_GROUP_LABEL) ไม่ใช่
+    คอลัมน์ตรงใน DB (ชั้นปีคำนวณสดจาก enrollment_year) ต้องดึงมาทั้งหมดที่ตรงตัวกรองอื่นก่อน แล้วกรอง/
+    แบ่งหน้าในหน่วยความจำ — สเกล ≤300 ผู้ใช้ (CLAUDE.md) พอทำแบบนี้ได้โดยไม่ต้องพึ่ง window function/
+    คอลัมน์ generated
+    """
     query = select(User)
     if role:
         query = query.where(User.role == role)
@@ -93,10 +129,32 @@ async def list_users(
         query = query.where(User.major == major)
     if approval_status:
         query = query.where(User.approval_status == approval_status)
+
+    if year_group:
+        start = await settings_service.get_academic_year_start(db)
+        rows = list((await db.execute(query)).scalars().all())
+
+        def matches(u: User) -> bool:
+            # ใช้ year_group_key() จุดเดียวกับ dashboard_service.get_summary() (แก้ตามรีวิวรอบ 4, M-b) —
+            # เดิมคำนวณ/พับกลุ่ม "นอกช่วง 1-4 ที่ยังไม่ตกค้างตามนิยาม" ไม่ตรงกับ dashboard ทำให้ user บางคน
+            # (เช่น study_years ค้างข้อมูลเก่านอกช่วง 2-4) การ์ดนับว่าอยู่กลุ่ม retained แต่กรองที่นี่ไม่เจอเลย
+            # สักกลุ่ม (role != student ถือเป็นบุคลากรเสมอ — กฎเดียวกับ attach_study_year แม้ enrollment_year
+            # จะยังค้างจากก่อนถูกเลื่อนสิทธิ์ก็ตาม — year_group_key() รับ is_student ตรง ๆ ไม่ใช่ role)
+            return year_group_key(
+                u.role == "student", u.enrollment_year, u.study_years or 4, academic_year_start=start,
+            ) == year_group
+
+        rows = [u for u in rows if matches(u)]
+        total = len(rows)
+        items = rows[(page - 1) * page_size: (page - 1) * page_size + page_size]
+        await attach_study_year(db, items)
+        return PaginatedUsers(items=items, total=total, page=page, page_size=page_size)  # type: ignore
+
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
+    await attach_study_year(db, items)
     return PaginatedUsers(items=items, total=total, page=page, page_size=page_size)  # type: ignore
 
 
@@ -145,6 +203,7 @@ async def update_status(db: AsyncSession, admin: User, user_id: uuid.UUID, is_ac
     })
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
     return user
 
 
@@ -176,6 +235,7 @@ async def update_approval(
     ))
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
     return user
 
 
@@ -212,4 +272,48 @@ async def update_role(
     })
     await db.commit()
     await db.refresh(user)
+    await attach_study_year(db, [user])
+    return user
+
+
+async def update_study(
+    db: AsyncSession, admin: User, user_id: uuid.UUID,
+    enrollment_year: int | None, study_years: int | None, is_transfer: bool | None, reason: str,
+    enrollment_year_set: bool = True,
+) -> User:
+    """แอดมินแก้ปีที่เข้าศึกษา/จำนวนปี/เทียบโอนของผู้ใช้รายคน (เฟส 10) — เคสพิเศษที่สูตรอัตโนมัติไม่ตรง
+    (ย้ายสาขา/เทียบโอนที่ยังไม่ได้ตั้งค่าตอนสมัคร/ข้อมูลรหัสผิด) บังคับเหตุผลเสมอเพราะกระทบกฎจ่ายของ
+    (จับคู่อายุอุปกรณ์กับเวลาเรียนที่เหลือ) ไม่ใช่แค่ข้อมูลแสดงผล
+
+    enrollment_year_set: แยก "ไม่ได้ส่งฟิลด์นี้มา" ออกจาก "ส่งมาเป็น null ตั้งใจล้างค่า" (router อ่านจาก
+    `"enrollment_year" in body.model_fields_set`) — เดิมเช็คแค่ `enrollment_year is not None` ทำให้ส่ง null
+    มาล้างค่า (เช่นแก้กลับเป็น "ไม่รู้ชั้นปี") ทำไม่ได้เลยสักครั้ง เพราะ None ถูกตีความว่า "ไม่ได้แก้" เสมอ
+    (พบตอนรีวิวรอบ 2 — MINOR 8) study_years/is_transfer ไม่มีปัญหานี้เพราะไม่มีสถานะ "ล้างค่า" ที่มีความหมาย
+    """
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="กรุณาระบุเหตุผลที่แก้ไขข้อมูลชั้นปี")
+
+    changes: dict[str, list] = {}
+    if enrollment_year_set and enrollment_year != user.enrollment_year:
+        changes["enrollment_year"] = [user.enrollment_year, enrollment_year]
+        user.enrollment_year = enrollment_year
+    if study_years is not None and study_years != user.study_years:
+        changes["study_years"] = [user.study_years, study_years]
+        user.study_years = study_years
+    if is_transfer is not None and is_transfer != user.is_transfer:
+        changes["is_transfer"] = [user.is_transfer, is_transfer]
+        user.is_transfer = is_transfer
+
+    if changes:
+        await audit_service.log_action(db, admin, "update_user_study", "users", user.id, {
+            "full_name": user.full_name, "identifier": user.student_id or user.username,
+            "changes": changes, "reason": reason,
+        })
+        await db.commit()
+        await db.refresh(user)
+    await attach_study_year(db, [user])
     return user

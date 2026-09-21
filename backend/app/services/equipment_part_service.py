@@ -92,12 +92,17 @@ async def _get_part(db: AsyncSession, equipment_id: uuid.UUID, part_id: uuid.UUI
 async def install_part(
     db: AsyncSession, admin: User, equipment_id: uuid.UUID, body: PartCreate
 ) -> PartResponse:
-    """ติดตั้งชิ้นส่วนใหม่เข้ากับอุปกรณ์ — ไม่แตะอายุ/ราคาของเครื่องหลัก"""
-    eq = await equipment_service.get_equipment(db, equipment_id)  # 404 ถ้าไม่มีอุปกรณ์นี้
+    """ติดตั้งชิ้นส่วนใหม่เข้ากับอุปกรณ์ — ไม่แตะอายุ/ราคาของเครื่องหลัก
+
+    quality_after (ไม่บังคับ): ประเมินคุณภาพเครื่องหลักใหม่พร้อมกัน — จังหวะที่ 2 ของ 4 จังหวะที่ให้ประเมิน
+    ใหม่ (ดู CLAUDE.md) มีผลเฉพาะเครื่องหลักที่เปิดติดตามคุณภาพอยู่ (quality_tracked) เท่านั้น
+    """
+    eq = await equipment_service.get_equipment(db, equipment_id, viewer=admin)  # 404 ถ้าไม่มีอุปกรณ์นี้
     # ชิ้นที่บอกว่า "มาแทน" ต้องเป็นชิ้นของเครื่องเดียวกัน — ไม่งั้นไทม์ไลน์ข้ามเครื่องกันมั่ว
     replaced = (await _get_part(db, equipment_id, body.replaces_part_id)
                 if body.replaces_part_id else None)
-    part = EquipmentPart(**body.model_dump(), equipment_id=equipment_id)
+    part_data = body.model_dump(exclude={"quality_after"})
+    part = EquipmentPart(**part_data, equipment_id=equipment_id)
     db.add(part)
     await db.flush()
     # target_id เป็น "เครื่องหลัก" ไม่ใช่ part.id — ไม่งั้นเหตุการณ์นี้จะไม่โผล่ในไทม์ไลน์ประวัติของเครื่อง
@@ -111,6 +116,13 @@ async def install_part(
     )
     await db.commit()
     await db.refresh(part)
+
+    if body.quality_after is not None and eq.quality_tracked:
+        await equipment_service.assess_quality(
+            db, admin, equipment_id, body.quality_after,
+            f"ติดตั้งชิ้นส่วน: {part.name}", event="install_part",
+        )
+
     await _attach_book_values(db, [part])
     await _attach_replaced_names(db, [part])
     return PartResponse.model_validate(part, from_attributes=True)
@@ -120,7 +132,7 @@ async def update_part(
     db: AsyncSession, admin: User, equipment_id: uuid.UUID, part_id: uuid.UUID, body: PartUpdate
 ) -> PartResponse:
     """แก้ข้อมูลชิ้นส่วน (พิมพ์ผิด/เติมราคาทีหลัง) — diff ลง audit ด้วย helper ตัวเดียวกับอุปกรณ์"""
-    eq = await equipment_service.get_equipment(db, equipment_id)
+    eq = await equipment_service.get_equipment(db, equipment_id, viewer=admin)
     part = await _get_part(db, equipment_id, part_id)
     changed = body.model_dump(exclude_unset=True)
     field_diffs = audit_service.diff_fields(part, changed)
@@ -145,7 +157,7 @@ async def remove_part(
     ไม่ตัด/คืนสต็อกในคลังใด ๆ — ระบบไม่รู้ว่าของที่ถอดออกถูกเก็บเข้าคลัง ทิ้ง หรือใส่เครื่องอื่นต่อ
     ถ้าจะเอาเข้าคลังให้แอดมินเพิ่มเป็นวัสดุแยกเองที่หน้าจัดการอุปกรณ์ (ตัดสินใจโดยคน ไม่ให้ระบบเดา)
     """
-    eq = await equipment_service.get_equipment(db, equipment_id)
+    eq = await equipment_service.get_equipment(db, equipment_id, viewer=admin)
     part = await _get_part(db, equipment_id, part_id)
     if part.removed_at is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ชิ้นส่วนนี้ถูกถอดออกไปแล้ว")

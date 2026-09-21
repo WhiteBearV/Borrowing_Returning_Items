@@ -1,0 +1,1080 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3745" height="2927" viewBox="0 0 3745 2927">
+<defs><marker id="m334155" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker><marker id="m7c2d12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c2d12"/></marker><marker id="m047857" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker><marker id="m1e3a8a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e3a8a"/></marker></defs>
+<rect width="3745" height="2927" fill="#ffffff"/>
+<text x="50.0" y="228.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="19" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ชั้น 1 · ขาเข้าและโครงแอป</text>
+<text x="270.8" y="228.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13" fill="#64748b" text-anchor="start" style="white-space:pre">request วิ่งจาก nginx เข้า FastAPI แล้วผ่าน Depends ก่อนถึง router</text>
+<rect x="50.0" y="250.0" width="328.4" height="156.0" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<path d="M50.0,278.0 V258.0 Q50.0,250.0 58.0,250.0 H370.4 Q378.4,250.0 378.4,258.0 V278.0 Z" fill="#334155"/>
+<text x="64.0" y="270.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ขาเข้า — nginx → uvicorn</text>
+<text x="64.0" y="294.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">nginx :443 → location /api/ → rewrite ตัด /api</text>
+<text x="64.0" y="314.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">proxy_pass http://backend:8000</text>
+<text x="64.0" y="334.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">rate limit /auth/login · /auth/forgot-password 5/นาที</text>
+<text x="64.0" y="354.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">uvicorn app.main:app --workers 1</text>
+<text x="64.0" y="374.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   worker เดียว เพราะ APScheduler รันใน process</text>
+<text x="64.0" y="394.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">ก่อนบูต: alembic upgrade head (39 migration)</text>
+<rect x="1159.7" y="250.0" width="323.5" height="156.0" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+<path d="M1159.7,278.0 V258.0 Q1159.7,250.0 1167.7,250.0 H1475.2 Q1483.2,250.0 1483.2,258.0 V278.0 Z" fill="#0f172a"/>
+<text x="1173.7" y="270.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">main.py — FastAPI app</text>
+<text x="1173.7" y="294.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">lifespan: เตือน config อันตราย → start_scheduler()</text>
+<text x="1173.7" y="314.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   DEV_AUTO_VERIFY_EMAIL=true · อีเมลถูกปิด</text>
+<text x="1173.7" y="334.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">CORSMiddleware(allow_origins=[FRONTEND_URL])</text>
+<text x="1173.7" y="354.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">StaticFiles /uploads → UPLOAD_DIR (ไม่ตรวจสิทธิ์)</text>
+<text x="1173.7" y="374.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">GET /health → SELECT 1 (healthcheck ของ Docker)</text>
+<text x="1173.7" y="394.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">include_router × 11 · Swagger ที่ /docs</text>
+<rect x="2264.5" y="250.0" width="340.5" height="176.0" rx="8" fill="#ffffff" stroke="#7c2d12" stroke-width="1.4"/>
+<path d="M2264.5,278.0 V258.0 Q2264.5,250.0 2272.5,250.0 H2597.0 Q2605.0,250.0 2605.0,258.0 V278.0 Z" fill="#7c2d12"/>
+<text x="2278.5" y="270.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">dependencies.py — Depends()</text>
+<text x="2278.5" y="294.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">get_db() → AsyncSessionLocal (1 session ต่อ request)</text>
+<text x="2278.5" y="314.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">get_current_user(): Bearer JWT → decode</text>
+<text x="2278.5" y="334.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   type ≠ access / ไม่พบ user → 401</text>
+<text x="2278.5" y="354.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   ปิดบัญชี / อีเมลยังไม่ยืนยัน → 403</text>
+<text x="2278.5" y="374.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   อัปเดต last_seen_at ห่างกัน ≥ 5 นาที</text>
+<text x="2278.5" y="394.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">require_admin(): is_staff() → 403 · 50 endpoint</text>
+<text x="2278.5" y="414.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">require_superadmin(): superadmin → 403 · 7 endpoint</text>
+<rect x="3386.3" y="250.0" width="309.3" height="156.0" rx="8" fill="#ffffff" stroke="#1e3a8a" stroke-width="1.4"/>
+<path d="M3386.3,278.0 V258.0 Q3386.3,250.0 3394.3,250.0 H3687.6 Q3695.6,250.0 3695.6,258.0 V278.0 Z" fill="#1e3a8a"/>
+<text x="3400.3" y="270.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">core/ — ค่าตั้งต้นของทั้งแอป</text>
+<text x="3400.3" y="294.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">config.py — pydantic-settings อ่าน backend/.env</text>
+<text x="3400.3" y="314.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   TZ = Asia/Bangkok (DB เก็บ UTC)</text>
+<text x="3400.3" y="334.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">security.py — bcrypt · JWT HS256</text>
+<text x="3400.3" y="354.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   access 30 นาที · refresh 7 วัน · claim type</text>
+<text x="3400.3" y="374.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">database.py — create_async_engine (asyncpg)</text>
+<text x="3400.3" y="394.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   async_sessionmaker(expire_on_commit=False)</text>
+<path d="M384.4,310.0 L1153.7,310.0" fill="none" stroke="#334155" stroke-width="2" stroke-linejoin="round" marker-end="url(#m334155)"/>
+<path d="M1489.2,310.0 L2258.5,310.0" fill="none" stroke="#334155" stroke-width="2" stroke-linejoin="round" marker-end="url(#m334155)"/>
+<path d="M2611.0,310.0 L3380.3,310.0" fill="none" stroke="#334155" stroke-width="2" stroke-linejoin="round" marker-end="url(#m334155)"/>
+<path d="M497.5,432.0 L497.5,512.0" fill="none" stroke="#7c2d12" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m7c2d12)"/>
+<path d="M3248.2,432.0 L3248.2,512.0" fill="none" stroke="#7c2d12" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m7c2d12)"/>
+<rect x="1605.3" y="462.1" width="534.9" height="16.9" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1872.8" y="474.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#7c2d12" text-anchor="middle" style="white-space:pre" font-weight="700">Depends(get_db) + Depends(get_current_user | require_admin | require_superadmin)</text>
+<text x="50.0" y="534.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="19" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ชั้น 2 · Routers — 11 ไฟล์ · 88 endpoint (+ /health)</text>
+<text x="513.2" y="534.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13" fill="#64748b" text-anchor="start" style="white-space:pre">public 6 · login 25 · staff 50 · superadmin 7 — router แค่ตรวจ input → เรียก service → คืน response</text>
+<rect x="50.0" y="556.0" width="894.9" height="609.0" rx="8" fill="#ffffff" stroke="#7e22ce" stroke-width="1.4"/>
+<path d="M50.0,604.0 V564.0 Q50.0,556.0 58.0,556.0 H936.9 Q944.9,556.0 944.9,564.0 V604.0 Z" fill="#7e22ce"/>
+<text x="64.0" y="576.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/equipment.py</text>
+<text x="64.0" y="594.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix — (path เต็ม) · 29 endpoint · เรียก equipment_part_service, equipment_service, import_service</text>
+<text x="64.0" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment</text>
+<rect x="403.1" y="612.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="622.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.list_equipment</text>
+<rect x="52.0" y="628.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/grouped</text>
+<rect x="403.1" y="631.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="641.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.list_equipment_grouped</text>
+<text x="64.0" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/grouped/{equipment}</text>
+<rect x="403.1" y="650.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="660.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.get_equipment_group_detail</text>
+<rect x="52.0" y="666.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/repair-document</text>
+<rect x="403.1" y="669.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="679.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.build_repair_document</text>
+<text x="64.0" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/stock-document</text>
+<rect x="403.1" y="688.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="698.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.build_stock_document</text>
+<rect x="52.0" y="704.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/import/preview</text>
+<rect x="403.1" y="707.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="717.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#86198f" text-anchor="start" style="white-space:pre" font-weight="700">import_service.preview_import</text>
+<text x="64.0" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/import/{import}/commit</text>
+<rect x="403.1" y="726.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="736.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#86198f" text-anchor="start" style="white-space:pre" font-weight="700">import_service.commit_import</text>
+<rect x="52.0" y="742.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/bulk-delete</text>
+<rect x="403.1" y="745.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="755.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.bulk_delete_equipment</text>
+<text x="64.0" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/bulk-retire</text>
+<rect x="403.1" y="764.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="774.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.bulk_retire_equipment</text>
+<rect x="52.0" y="780.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="111.8" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/bulk-update</text>
+<rect x="403.1" y="783.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="793.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.bulk_update_equipment</text>
+<text x="64.0" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="111.8" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/bulk-adjust-stock</text>
+<rect x="403.1" y="802.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="812.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.bulk_adjust_stock</text>
+<rect x="52.0" y="818.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}</text>
+<rect x="403.1" y="821.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="831.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.get_equipment, </text>
+<text x="713.1" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.get_holders_map</text>
+<text x="64.0" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/upload-image</text>
+<rect x="403.1" y="840.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="850.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.save_image</text>
+<rect x="52.0" y="856.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment</text>
+<rect x="403.1" y="859.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="869.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.create_equipment</text>
+<text x="64.0" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="111.8" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}</text>
+<rect x="403.1" y="878.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="888.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.update_equipment</text>
+<rect x="52.0" y="894.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="111.8" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}</text>
+<rect x="403.1" y="897.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="907.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.retire_equipment</text>
+<text x="64.0" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/split</text>
+<rect x="403.1" y="916.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="926.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.split_equipment_into_units</text>
+<rect x="52.0" y="932.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/restock</text>
+<rect x="403.1" y="935.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="945.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.restock_equipment</text>
+<text x="64.0" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/adjust-stock</text>
+<rect x="403.1" y="954.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="964.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.adjust_stock</text>
+<rect x="52.0" y="970.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="111.8" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/permanent</text>
+<rect x="403.1" y="973.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="983.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.delete_equipment</text>
+<text x="64.0" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/parts</text>
+<rect x="403.1" y="992.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1002.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7e22ce" text-anchor="start" style="white-space:pre" font-weight="700">list_parts</text>
+<rect x="52.0" y="1008.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/parts</text>
+<rect x="403.1" y="1011.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1021.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7e22ce" text-anchor="start" style="white-space:pre" font-weight="700">install_part</text>
+<text x="64.0" y="1041.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="111.8" y="1041.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/parts/{part}</text>
+<rect x="403.1" y="1030.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1040.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1041.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1041.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7e22ce" text-anchor="start" style="white-space:pre" font-weight="700">update_part</text>
+<rect x="52.0" y="1046.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="1060.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="1060.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/parts/{part}/remove</text>
+<rect x="403.1" y="1049.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1059.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1060.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1060.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7e22ce" text-anchor="start" style="white-space:pre" font-weight="700">remove_part</text>
+<text x="64.0" y="1079.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="1079.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment/{equipment}/qrcode</text>
+<rect x="403.1" y="1068.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1078.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="1079.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1079.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.generate_qr</text>
+<rect x="52.0" y="1084.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="1098.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="111.8" y="1098.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment-categories</text>
+<rect x="403.1" y="1087.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1097.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="482.0" y="1098.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1098.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.list_categories</text>
+<text x="64.0" y="1117.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="111.8" y="1117.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment-categories</text>
+<rect x="403.1" y="1106.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1116.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1117.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1117.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.create_category</text>
+<rect x="52.0" y="1122.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="64.0" y="1136.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="111.8" y="1136.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment-categories/{category}</text>
+<rect x="403.1" y="1125.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1135.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1136.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1136.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.update_category</text>
+<text x="64.0" y="1155.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="111.8" y="1155.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/equipment-categories/{category}</text>
+<rect x="403.1" y="1144.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="408.1" y="1154.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="482.0" y="1155.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="495.2" y="1155.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.delete_category</text>
+<rect x="966.9" y="556.0" width="894.9" height="476.0" rx="8" fill="#ffffff" stroke="#047857" stroke-width="1.4"/>
+<path d="M966.9,604.0 V564.0 Q966.9,556.0 974.9,556.0 H1853.8 Q1861.8,556.0 1861.8,564.0 V604.0 Z" fill="#047857"/>
+<text x="980.9" y="576.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/borrow.py</text>
+<text x="980.9" y="594.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /borrow-requests · 22 endpoint · เรียก borrow_service</text>
+<text x="980.9" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="1320.0" y="612.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="622.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">create_request</text>
+<rect x="968.9" y="628.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="1320.0" y="631.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="641.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">list_requests</text>
+<text x="980.9" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}</text>
+<rect x="1320.0" y="650.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="660.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">get_request</text>
+<rect x="968.9" y="666.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/cancel</text>
+<rect x="1320.0" y="669.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="679.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">cancel_request</text>
+<text x="980.9" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/approve</text>
+<rect x="1320.0" y="688.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="698.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">approve_request</text>
+<rect x="968.9" y="704.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/reject</text>
+<rect x="1320.0" y="707.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="717.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">reject_request</text>
+<text x="980.9" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/renew-request</text>
+<rect x="1320.0" y="726.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="736.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">request_renew_item</text>
+<rect x="968.9" y="742.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/renew-approve</text>
+<rect x="1320.0" y="745.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="755.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">approve_renew_item</text>
+<text x="980.9" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/renew-reject</text>
+<rect x="1320.0" y="764.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="774.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">reject_renew_item</text>
+<rect x="968.9" y="780.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/request-return</text>
+<rect x="1320.0" y="783.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="793.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="794.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">request_return_items</text>
+<text x="980.9" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/signed-form</text>
+<rect x="1320.0" y="802.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="812.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="813.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">upload_signed_form</text>
+<rect x="968.9" y="818.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/signed-form</text>
+<rect x="1320.0" y="821.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="831.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="832.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">get_signed_form</text>
+<text x="980.9" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/return-all</text>
+<rect x="1320.0" y="840.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="850.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="851.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">return_all_items</text>
+<rect x="968.9" y="856.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/return</text>
+<rect x="1320.0" y="859.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="869.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="870.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">return_item</text>
+<text x="980.9" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/fine</text>
+<rect x="1320.0" y="878.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="888.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="889.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">update_fine</text>
+<rect x="968.9" y="894.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/fine/pay</text>
+<rect x="1320.0" y="897.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="907.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="908.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">pay_fine</text>
+<text x="980.9" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1028.7" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/items/{item}/fine/waive</text>
+<rect x="1320.0" y="916.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="926.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="1398.9" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="927.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">waive_fine</text>
+<rect x="968.9" y="932.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/pdf</text>
+<rect x="1320.0" y="935.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="945.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="946.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">generate_pdf</text>
+<text x="980.9" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/return-pdf</text>
+<rect x="1320.0" y="954.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="964.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="965.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">generate_return_pdf</text>
+<rect x="968.9" y="970.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/preview-pdf</text>
+<rect x="1320.0" y="973.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="983.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="1398.9" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="984.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">generate_preview_pdf</text>
+<text x="980.9" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="1028.7" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}</text>
+<rect x="1320.0" y="992.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="1002.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="1398.9" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="1003.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">delete_request</text>
+<rect x="968.9" y="1008.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/remind</text>
+<rect x="1320.0" y="1011.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="1021.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="1022.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">send_manual_reminder</text>
+<rect x="1883.8" y="556.0" width="894.9" height="229.0" rx="8" fill="#ffffff" stroke="#0e7490" stroke-width="1.4"/>
+<path d="M1883.8,604.0 V564.0 Q1883.8,556.0 1891.8,556.0 H2770.7 Q2778.7,556.0 2778.7,564.0 V604.0 Z" fill="#0e7490"/>
+<text x="1897.8" y="576.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/users.py</text>
+<text x="1897.8" y="594.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /users · 9 endpoint · เรียก users_service</text>
+<text x="1897.8" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/me</text>
+<rect x="2236.9" y="612.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="622.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">—</text>
+<rect x="1885.8" y="628.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/me</text>
+<rect x="2236.9" y="631.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="641.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">update_profile</text>
+<text x="1897.8" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1945.6" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/me/avatar</text>
+<rect x="2236.9" y="650.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="660.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">update_avatar</text>
+<rect x="1885.8" y="666.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="2236.9" y="669.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="679.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">list_users</text>
+<text x="1897.8" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1945.6" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="2236.9" y="688.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="698.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">create_user</text>
+<rect x="1885.8" y="704.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{user}/status</text>
+<rect x="2236.9" y="707.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="717.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">update_status</text>
+<text x="1897.8" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{user}/approval</text>
+<rect x="2236.9" y="726.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="736.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="737.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">update_approval</text>
+<rect x="1885.8" y="742.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{user}/role</text>
+<rect x="2236.9" y="745.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="755.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="2315.8" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="756.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">update_role</text>
+<text x="1897.8" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="1945.6" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{user}</text>
+<rect x="2236.9" y="764.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="774.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="2315.8" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="775.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0e7490" text-anchor="start" style="white-space:pre" font-weight="700">delete_user</text>
+<rect x="2800.7" y="556.0" width="894.9" height="172.0" rx="8" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.4"/>
+<path d="M2800.7,604.0 V564.0 Q2800.7,556.0 2808.7,556.0 H3687.6 Q3695.6,556.0 3695.6,564.0 V604.0 Z" fill="#1d4ed8"/>
+<text x="2814.7" y="576.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/auth.py</text>
+<text x="2814.7" y="594.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /auth · 6 endpoint · เรียก auth_service</text>
+<text x="2814.7" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/register</text>
+<rect x="3153.8" y="612.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="622.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="623.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">register</text>
+<rect x="2802.7" y="628.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/verify-email</text>
+<rect x="3153.8" y="631.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="641.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="642.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">verify_email</text>
+<text x="2814.7" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/login</text>
+<rect x="3153.8" y="650.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="660.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="661.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<rect x="2802.7" y="666.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/refresh</text>
+<rect x="3153.8" y="669.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="679.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="680.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">refresh_token</text>
+<text x="2814.7" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/forgot-password</text>
+<rect x="3153.8" y="688.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="698.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="699.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">forgot_password</text>
+<rect x="2802.7" y="704.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/reset-password</text>
+<rect x="3153.8" y="707.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="717.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="3232.7" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="718.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#1d4ed8" text-anchor="start" style="white-space:pre" font-weight="700">reset_password</text>
+<rect x="2800.7" y="750.0" width="894.9" height="153.0" rx="8" fill="#ffffff" stroke="#c2410c" stroke-width="1.4"/>
+<path d="M2800.7,798.0 V758.0 Q2800.7,750.0 2808.7,750.0 H3687.6 Q3695.6,750.0 3695.6,758.0 V798.0 Z" fill="#c2410c"/>
+<text x="2814.7" y="770.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/change_request.py</text>
+<text x="2814.7" y="788.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /change-requests · 5 endpoint · เรียก change_request_service, system_check_service</text>
+<text x="2814.7" y="817.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="817.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="3153.8" y="806.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="816.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="817.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="817.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#c2410c" text-anchor="start" style="white-space:pre" font-weight="700">create</text>
+<rect x="2802.7" y="822.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="836.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="2862.5" y="836.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="3153.8" y="825.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="835.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="836.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="836.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#c2410c" text-anchor="start" style="white-space:pre" font-weight="700">list_requests</text>
+<text x="2814.7" y="855.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="2862.5" y="855.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/approve</text>
+<rect x="3153.8" y="844.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="854.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="3232.7" y="855.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="855.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#c2410c" text-anchor="start" style="white-space:pre" font-weight="700">decide</text>
+<rect x="2802.7" y="860.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="2862.5" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{request}/reject</text>
+<rect x="3153.8" y="863.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="873.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="3232.7" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#c2410c" text-anchor="start" style="white-space:pre" font-weight="700">decide</text>
+<text x="2814.7" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="2862.5" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/system-check</text>
+<rect x="3153.8" y="882.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="892.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="3232.7" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7f1d1d" text-anchor="start" style="white-space:pre" font-weight="700">system_check_service.run_checks</text>
+<rect x="1883.8" y="807.0" width="894.9" height="134.0" rx="8" fill="#ffffff" stroke="#4d7c0f" stroke-width="1.4"/>
+<path d="M1883.8,855.0 V815.0 Q1883.8,807.0 1891.8,807.0 H2770.7 Q2778.7,807.0 2778.7,815.0 V855.0 Z" fill="#4d7c0f"/>
+<text x="1897.8" y="827.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/dashboard.py</text>
+<text x="1897.8" y="845.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /dashboard · 4 endpoint · เรียก dashboard_service</text>
+<text x="1897.8" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/summary</text>
+<rect x="2236.9" y="863.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="873.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="874.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#4d7c0f" text-anchor="start" style="white-space:pre" font-weight="700">get_summary</text>
+<rect x="1885.8" y="879.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/utilization</text>
+<rect x="2236.9" y="882.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="892.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="893.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#4d7c0f" text-anchor="start" style="white-space:pre" font-weight="700">get_utilization</text>
+<text x="1897.8" y="912.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="912.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/fines</text>
+<rect x="2236.9" y="901.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="911.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="912.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="912.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#4d7c0f" text-anchor="start" style="white-space:pre" font-weight="700">get_fines</text>
+<rect x="1885.8" y="917.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="931.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="931.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/fines/export</text>
+<rect x="2236.9" y="920.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="930.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="931.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="931.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#4d7c0f" text-anchor="start" style="white-space:pre" font-weight="700">get_fines</text>
+<rect x="2800.7" y="925.0" width="894.9" height="134.0" rx="8" fill="#ffffff" stroke="#be185d" stroke-width="1.4"/>
+<path d="M2800.7,973.0 V933.0 Q2800.7,925.0 2808.7,925.0 H3687.6 Q3695.6,925.0 3695.6,933.0 V973.0 Z" fill="#be185d"/>
+<text x="2814.7" y="945.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/bundle.py</text>
+<text x="2814.7" y="963.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /bundles · 4 endpoint · เรียก bundle_service</text>
+<text x="2814.7" y="992.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="2862.5" y="992.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="3153.8" y="981.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="991.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="3232.7" y="992.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="992.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#be185d" text-anchor="start" style="white-space:pre" font-weight="700">list_bundles</text>
+<rect x="2802.7" y="997.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="1011.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="2862.5" y="1011.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="3153.8" y="1000.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="1010.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="1011.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="1011.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#be185d" text-anchor="start" style="white-space:pre" font-weight="700">create_bundle</text>
+<text x="2814.7" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="2862.5" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{bundle}</text>
+<rect x="3153.8" y="1019.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="1029.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#be185d" text-anchor="start" style="white-space:pre" font-weight="700">update_bundle</text>
+<rect x="2802.7" y="1035.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="2862.5" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{bundle}</text>
+<rect x="3153.8" y="1038.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="1048.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#be185d" text-anchor="start" style="white-space:pre" font-weight="700">delete_bundle</text>
+<rect x="1883.8" y="963.0" width="894.9" height="115.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M1883.8,1011.0 V971.0 Q1883.8,963.0 1891.8,963.0 H2770.7 Q2778.7,963.0 2778.7,971.0 V1011.0 Z" fill="#b45309"/>
+<text x="1897.8" y="983.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/notification.py</text>
+<text x="1897.8" y="1001.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /notifications · 3 endpoint · เรียก notification_service</text>
+<text x="1897.8" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/me</text>
+<rect x="2236.9" y="1019.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="1029.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="1030.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">list_for_user</text>
+<rect x="1885.8" y="1035.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="1897.8" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{notification}/read</text>
+<rect x="2236.9" y="1038.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="1048.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="1049.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">mark_read</text>
+<text x="1897.8" y="1068.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="1945.6" y="1068.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/read-all</text>
+<rect x="2236.9" y="1057.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="1067.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="2315.8" y="1068.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="1068.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">mark_all_read</text>
+<rect x="966.9" y="1054.0" width="894.9" height="115.0" rx="8" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<path d="M966.9,1102.0 V1062.0 Q966.9,1054.0 974.9,1054.0 H1853.8 Q1861.8,1054.0 1861.8,1062.0 V1102.0 Z" fill="#0f766e"/>
+<text x="980.9" y="1074.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/eligible_students.py</text>
+<text x="980.9" y="1092.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /eligible-students · 3 endpoint · เรียก student_import_service</text>
+<text x="980.9" y="1121.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1028.7" y="1121.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="1320.0" y="1110.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="1120.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="1121.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="1121.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f766e" text-anchor="start" style="white-space:pre" font-weight="700">list_students</text>
+<rect x="968.9" y="1126.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="980.9" y="1140.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="1028.7" y="1140.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/import</text>
+<rect x="1320.0" y="1129.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="1139.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="1140.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="1140.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f766e" text-anchor="start" style="white-space:pre" font-weight="700">import_students</text>
+<text x="980.9" y="1159.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<text x="1028.7" y="1159.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{row}</text>
+<rect x="1320.0" y="1148.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="1325.0" y="1158.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="1398.9" y="1159.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="1412.1" y="1159.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f766e" text-anchor="start" style="white-space:pre" font-weight="700">delete_student</text>
+<rect x="2800.7" y="1081.0" width="894.9" height="96.0" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<path d="M2800.7,1129.0 V1089.0 Q2800.7,1081.0 2808.7,1081.0 H3687.6 Q3695.6,1081.0 3695.6,1089.0 V1129.0 Z" fill="#475569"/>
+<text x="2814.7" y="1101.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/settings.py</text>
+<text x="2814.7" y="1119.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /settings · 2 endpoint · เรียก settings_service</text>
+<text x="2814.7" y="1148.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="2862.5" y="1148.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="3153.8" y="1137.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="1147.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="1148.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="1148.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">list_settings</text>
+<rect x="2802.7" y="1153.5" width="890.9" height="19.0" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.2"/>
+<text x="2814.7" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="2862.5" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/{key}</text>
+<rect x="3153.8" y="1156.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="3158.8" y="1166.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="3232.7" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="3245.9" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">update_setting</text>
+<rect x="1883.8" y="1100.0" width="894.9" height="77.0" rx="8" fill="#ffffff" stroke="#9f1239" stroke-width="1.4"/>
+<path d="M1883.8,1148.0 V1108.0 Q1883.8,1100.0 1891.8,1100.0 H2770.7 Q2778.7,1100.0 2778.7,1108.0 V1148.0 Z" fill="#9f1239"/>
+<text x="1897.8" y="1120.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">routers/audit.py</text>
+<text x="1897.8" y="1138.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">prefix /audit-logs · 1 endpoint · เรียก audit_service</text>
+<text x="1897.8" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="10.5" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="1945.6" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0f172a" text-anchor="start" style="white-space:pre">/</text>
+<rect x="2236.9" y="1156.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="2241.9" y="1166.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="2315.8" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#94a3b8" text-anchor="start" style="white-space:pre">→ </text>
+<text x="2329.0" y="1167.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#9f1239" text-anchor="start" style="white-space:pre" font-weight="700">list_logs</text>
+<path d="M497.5,1183.0 L497.5,1263.0" fill="none" stroke="#047857" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m047857)"/>
+<path d="M3248.2,1183.0 L3248.2,1263.0" fill="none" stroke="#047857" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m047857)"/>
+<rect x="1625.1" y="1213.1" width="495.5" height="16.9" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1872.8" y="1225.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#047857" text-anchor="middle" style="white-space:pre" font-weight="700">await xxx_service.fn(db, current_user, body) — business logic อยู่ที่ service เท่านั้น</text>
+<text x="50.0" y="1285.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="19" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ชั้น 3 · Services — business logic ทั้งหมด (15 ไฟล์)</text>
+<text x="499.5" y="1285.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13" fill="#64748b" text-anchor="start" style="white-space:pre">สีหัวการ์ด = สีเดียวกับชื่อฟังก์ชันที่ router เรียกในชั้น 2</text>
+<rect x="50.0" y="1307.0" width="894.9" height="237.0" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.4"/>
+<path d="M50.0,1349.0 V1315.0 Q50.0,1307.0 58.0,1307.0 H936.9 Q944.9,1307.0 944.9,1315.0 V1349.0 Z" fill="#6d28d9"/>
+<text x="62.0" y="1327.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/equipment_service.py</text>
+<text x="62.0" y="1341.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">คลังอุปกรณ์ · จับกลุ่มรุ่น · ค่าเสื่อม · ลำดับจ่ายของ · ไฟล์อัปโหลด · สต็อก · เอกสาร · QR</text>
+<text x="62.0" y="1362.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">book_value · attach_book_values · find_group_members · borrowed_days_expr · usage_days_map · dispatch_key · save_upload</text>
+<text x="62.0" y="1379.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">save_private_upload · save_image · get_holders_map · list_equipment · list_equipment_grouped · get_equipment</text>
+<text x="62.0" y="1396.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">get_equipment_group_detail · create_equipment · update_equipment · retire_equipment · bulk_retire_equipment</text>
+<text x="62.0" y="1413.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">split_equipment_into_units · restock_equipment · adjust_stock · delete_equipment · bulk_delete_equipment</text>
+<text x="62.0" y="1430.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">bulk_update_equipment · bulk_adjust_stock · build_repair_document · build_stock_document · generate_qr · list_categories</text>
+<text x="62.0" y="1447.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">create_category · update_category · delete_category</text>
+<text x="62.0" y="1464.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="132.9" y="1464.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service</text>
+<text x="62.0" y="1481.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="95.3" y="1481.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> audit_logs, borrow_items, borrow_requests, bundles, bundle_items, equipment, equipment_category_links</text>
+<text x="62.0" y="1498.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">      equipment_categories, settings, users</text>
+<text x="62.0" y="1515.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="120.1" y="1515.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> qrcode_gen, roles, config</text>
+<text x="62.0" y="1532.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="136.5" y="1532.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> equipment</text>
+<rect x="966.9" y="1307.0" width="894.9" height="186.0" rx="8" fill="#ffffff" stroke="#047857" stroke-width="1.4"/>
+<path d="M966.9,1349.0 V1315.0 Q966.9,1307.0 974.9,1307.0 H1853.8 Q1861.8,1307.0 1861.8,1315.0 V1349.0 Z" fill="#047857"/>
+<text x="978.9" y="1327.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/borrow_service.py</text>
+<text x="978.9" y="1341.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">workflow ยืม → อนุมัติ → คืน · ต่อเวลา · นัดรับ/นัดคืน · ใบยืมที่เซ็น · ค่าปรับ · PDF</text>
+<text x="978.9" y="1362.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">create_request · list_requests · get_request · cancel_request · approve_request · reject_request · request_renew_item</text>
+<text x="978.9" y="1379.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">approve_renew_item · reject_renew_item · request_return_items · upload_signed_form · get_signed_form · return_item</text>
+<text x="978.9" y="1396.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">return_all_items · generate_pdf · generate_return_pdf · generate_preview_pdf · delete_request · send_manual_reminder</text>
+<text x="978.9" y="1413.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">update_fine · pay_fine · waive_fine</text>
+<text x="978.9" y="1430.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1049.8" y="1430.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, equipment_service</text>
+<text x="978.9" y="1447.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1012.2" y="1447.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> borrow_items, borrow_requests, equipment, equipment_category_links, equipment_parts, notifications, settings, users</text>
+<text x="978.9" y="1464.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="1037.0" y="1464.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> duedate, email, identity, roles, pdf, config</text>
+<text x="978.9" y="1481.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1053.4" y="1481.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> borrow</text>
+<rect x="1883.8" y="1307.0" width="894.9" height="152.0" rx="8" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.4"/>
+<path d="M1883.8,1349.0 V1315.0 Q1883.8,1307.0 1891.8,1307.0 H2770.7 Q2778.7,1307.0 2778.7,1315.0 V1349.0 Z" fill="#1d4ed8"/>
+<text x="1895.8" y="1327.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/auth_service.py</text>
+<text x="1895.8" y="1341.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">สมัคร (เทียบรายชื่อสาขา) · ยืนยันอีเมล · ล็อกอิน · refresh · ลืม/รีเซ็ตรหัสผ่าน</text>
+<text x="1895.8" y="1362.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">register · verify_email · login · refresh_token · forgot_password · reset_password</text>
+<text x="1895.8" y="1379.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1966.7" y="1379.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, student_import_service</text>
+<text x="1895.8" y="1396.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1929.1" y="1396.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> auth_tokens, notifications, users</text>
+<text x="1895.8" y="1413.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="1953.9" y="1413.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> email, roles, config, security</text>
+<text x="1895.8" y="1430.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="1934.1" y="1430.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> python-jose</text>
+<text x="1895.8" y="1447.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1970.3" y="1447.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> auth</text>
+<rect x="2800.7" y="1307.0" width="894.9" height="152.0" rx="8" fill="#ffffff" stroke="#86198f" stroke-width="1.4"/>
+<path d="M2800.7,1349.0 V1315.0 Q2800.7,1307.0 2808.7,1307.0 H3687.6 Q3695.6,1307.0 3695.6,1315.0 V1349.0 Z" fill="#86198f"/>
+<text x="2812.7" y="1327.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/import_service.py</text>
+<text x="2812.7" y="1341.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">นำเข้าทะเบียนครุภัณฑ์: preview (diff กับของเดิม) → commit</text>
+<text x="2812.7" y="1362.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">parse_workbook · diff_rows · preview_import · commit_import</text>
+<text x="2812.7" y="1379.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="2883.6" y="1379.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, ocr_import</text>
+<text x="2812.7" y="1396.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="2846.0" y="1396.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> equipment, equipment_category_links, equipment_categories, users</text>
+<text x="2812.7" y="1413.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="2870.8" y="1413.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> config</text>
+<text x="2812.7" y="1430.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="2851.0" y="1430.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> openpyxl</text>
+<text x="2812.7" y="1447.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="2887.2" y="1447.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> equipment</text>
+<rect x="1883.8" y="1481.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#c2410c" stroke-width="1.4"/>
+<path d="M1883.8,1523.0 V1489.0 Q1883.8,1481.0 1891.8,1481.0 H2770.7 Q2778.7,1481.0 2778.7,1489.0 V1523.0 Z" fill="#c2410c"/>
+<text x="1895.8" y="1501.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/change_request_service.py</text>
+<text x="1895.8" y="1515.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">คำขอแก้ไขข้อมูล ผู้ดูแลคลัง → superadmin (ระบบไม่รัน payload เอง)</text>
+<text x="1895.8" y="1536.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">create · list_requests · decide</text>
+<text x="1895.8" y="1553.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1966.7" y="1553.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service</text>
+<text x="1895.8" y="1570.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1929.1" y="1570.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> change_requests, users</text>
+<text x="1895.8" y="1587.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="1953.9" y="1587.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> roles</text>
+<text x="1895.8" y="1604.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1970.3" y="1604.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> change_request</text>
+<rect x="2800.7" y="1481.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#4d7c0f" stroke-width="1.4"/>
+<path d="M2800.7,1523.0 V1489.0 Q2800.7,1481.0 2808.7,1481.0 H3687.6 Q3695.6,1481.0 3695.6,1489.0 V1523.0 Z" fill="#4d7c0f"/>
+<text x="2812.7" y="1501.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/dashboard_service.py</text>
+<text x="2812.7" y="1515.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">สรุปภาพรวม · สถิติความคุ้มค่า · สรุปค่าปรับ</text>
+<text x="2812.7" y="1536.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">get_summary · get_utilization · get_fines</text>
+<text x="2812.7" y="1553.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="2883.6" y="1553.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> equipment_service</text>
+<text x="2812.7" y="1570.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="2846.0" y="1570.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> borrow_items, borrow_requests, equipment, equipment_category_links, settings, users</text>
+<text x="2812.7" y="1587.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="2870.8" y="1587.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> duedate, identity, config</text>
+<text x="2812.7" y="1604.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="2887.2" y="1604.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> dashboard</text>
+<rect x="966.9" y="1515.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<path d="M966.9,1557.0 V1523.0 Q966.9,1515.0 974.9,1515.0 H1853.8 Q1861.8,1515.0 1861.8,1523.0 V1557.0 Z" fill="#475569"/>
+<text x="978.9" y="1535.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/settings_service.py</text>
+<text x="978.9" y="1549.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">อ่าน/แก้ settings · แยกสิทธิ์รายคีย์ (ADMIN_EDITABLE_KEYS)</text>
+<text x="978.9" y="1570.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">list_settings · update_setting</text>
+<text x="978.9" y="1587.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1049.8" y="1587.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service</text>
+<text x="978.9" y="1604.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1012.2" y="1604.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> settings, users</text>
+<text x="978.9" y="1621.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="1037.0" y="1621.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> roles</text>
+<text x="978.9" y="1638.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1053.4" y="1638.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> settings</text>
+<rect x="50.0" y="1566.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<path d="M50.0,1608.0 V1574.0 Q50.0,1566.0 58.0,1566.0 H936.9 Q944.9,1566.0 944.9,1574.0 V1608.0 Z" fill="#0f766e"/>
+<text x="62.0" y="1586.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/student_import_service.py</text>
+<text x="62.0" y="1600.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">อ่านรายชื่อ นศ. .xls/.xlsx/.csv/.pdf (หัวกระดาษ + ตาราง) · อัปเดตทับตาม student_id</text>
+<text x="62.0" y="1621.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">normalize_name · map_major · parse_file · read_upload · import_students · list_students · delete_student · find_eligible</text>
+<text x="62.0" y="1638.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="132.9" y="1638.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, ocr_import</text>
+<text x="62.0" y="1655.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="95.3" y="1655.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> eligible_students, users</text>
+<text x="62.0" y="1672.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="100.3" y="1672.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> openpyxl, pypdf, xlrd</text>
+<text x="62.0" y="1689.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="136.5" y="1689.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> eligible_students</text>
+<rect x="1883.8" y="1638.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#0e7490" stroke-width="1.4"/>
+<path d="M1883.8,1680.0 V1646.0 Q1883.8,1638.0 1891.8,1638.0 H2770.7 Q2778.7,1638.0 2778.7,1646.0 V1680.0 Z" fill="#0e7490"/>
+<text x="1895.8" y="1658.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/users_service.py</text>
+<text x="1895.8" y="1672.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">โปรไฟล์ · รูป · สร้างบัญชี · เปิด/ปิด · อนุมัติผู้สมัคร · เปลี่ยนสิทธิ์ · ลบ</text>
+<text x="1895.8" y="1693.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">create_user · update_profile · update_avatar · list_users · delete_user · update_status · update_approval · update_role</text>
+<text x="1895.8" y="1710.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1966.7" y="1710.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, equipment_service</text>
+<text x="1895.8" y="1727.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1929.1" y="1727.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> auth_tokens, borrow_items, borrow_requests, notifications, users</text>
+<text x="1895.8" y="1744.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="1953.9" y="1744.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> identity, roles, security</text>
+<text x="1895.8" y="1761.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1970.3" y="1761.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> users</text>
+<rect x="2800.7" y="1638.0" width="894.9" height="118.0" rx="8" fill="#ffffff" stroke="#9f1239" stroke-width="1.4"/>
+<path d="M2800.7,1680.0 V1646.0 Q2800.7,1638.0 2808.7,1638.0 H3687.6 Q3695.6,1638.0 3695.6,1646.0 V1680.0 Z" fill="#9f1239"/>
+<text x="2812.7" y="1658.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/audit_service.py</text>
+<text x="2812.7" y="1672.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">log_action() snapshot ผู้ทำ · diff_fields() · ค้นหา/กรอง log</text>
+<text x="2812.7" y="1693.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">list_logs · diff_fields · log_action</text>
+<text x="2812.7" y="1710.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="2846.0" y="1710.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> audit_logs, users</text>
+<text x="2812.7" y="1727.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="2870.8" y="1727.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> identity, config</text>
+<text x="2812.7" y="1744.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="2887.2" y="1744.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> audit</text>
+<rect x="966.9" y="1672.0" width="894.9" height="118.0" rx="8" fill="#ffffff" stroke="#be185d" stroke-width="1.4"/>
+<path d="M966.9,1714.0 V1680.0 Q966.9,1672.0 974.9,1672.0 H1853.8 Q1861.8,1672.0 1861.8,1680.0 V1714.0 Z" fill="#be185d"/>
+<text x="978.9" y="1692.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/bundle_service.py</text>
+<text x="978.9" y="1706.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ชุดอุปกรณ์ + อุปกรณ์ตัวกระตุ้น</text>
+<text x="978.9" y="1727.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">list_bundles · create_bundle · update_bundle · delete_bundle</text>
+<text x="978.9" y="1744.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="1049.8" y="1744.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service</text>
+<text x="978.9" y="1761.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1012.2" y="1761.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> bundles, bundle_items, equipment, equipment_category_links, users</text>
+<text x="978.9" y="1778.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1053.4" y="1778.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> bundle</text>
+<rect x="50.0" y="1723.0" width="894.9" height="118.0" rx="8" fill="#ffffff" stroke="#7e22ce" stroke-width="1.4"/>
+<path d="M50.0,1765.0 V1731.0 Q50.0,1723.0 58.0,1723.0 H936.9 Q944.9,1723.0 944.9,1731.0 V1765.0 Z" fill="#7e22ce"/>
+<text x="62.0" y="1743.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/equipment_part_service.py</text>
+<text x="62.0" y="1757.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ชิ้นส่วนที่ติดตั้ง/ถอด + ไทม์ไลน์การเปลี่ยนชิ้น</text>
+<text x="62.0" y="1778.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">list_parts · parts_summary · install_part · update_part · remove_part</text>
+<text x="62.0" y="1795.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">เรียก service:</text>
+<text x="132.9" y="1795.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre"> audit_service, equipment_service</text>
+<text x="62.0" y="1812.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="95.3" y="1812.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> equipment_parts, users</text>
+<text x="62.0" y="1829.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="136.5" y="1829.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> equipment</text>
+<rect x="2800.7" y="1778.0" width="894.9" height="118.0" rx="8" fill="#ffffff" stroke="#7f1d1d" stroke-width="1.4"/>
+<path d="M2800.7,1820.0 V1786.0 Q2800.7,1778.0 2808.7,1778.0 H3687.6 Q3695.6,1778.0 3695.6,1786.0 V1820.0 Z" fill="#7f1d1d"/>
+<text x="2812.7" y="1798.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/system_check_service.py</text>
+<text x="2812.7" y="1812.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ตรวจสุขภาพระบบด้วย query ที่เขียนไว้ล่วงหน้า · ดิสก์ · ผู้ใช้ออนไลน์</text>
+<text x="2812.7" y="1833.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">run_checks</text>
+<text x="2812.7" y="1850.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="2846.0" y="1850.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> audit_logs, borrow_items, borrow_requests, equipment, equipment_category_links, users</text>
+<text x="2812.7" y="1867.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">utils/core:</text>
+<text x="2870.8" y="1867.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#b45309" text-anchor="start" style="white-space:pre"> scheduler, config</text>
+<text x="2812.7" y="1884.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="2887.2" y="1884.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> change_request</text>
+<rect x="1883.8" y="1795.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M1883.8,1837.0 V1803.0 Q1883.8,1795.0 1891.8,1795.0 H2770.7 Q2778.7,1795.0 2778.7,1803.0 V1837.0 Z" fill="#b45309"/>
+<text x="1895.8" y="1815.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/notification_service.py</text>
+<text x="1895.8" y="1829.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">แจ้งเตือน in-app: รายการของฉัน · อ่านแล้ว · สร้างแจ้งเตือน</text>
+<text x="1895.8" y="1850.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">list_for_user · mark_read · mark_all_read · send_notification</text>
+<text x="1895.8" y="1867.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ตาราง:</text>
+<text x="1929.1" y="1867.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre"> notifications</text>
+<text x="1895.8" y="1884.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">router ที่เรียก:</text>
+<text x="1970.3" y="1884.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> notification</text>
+<rect x="966.9" y="1812.0" width="894.9" height="84.0" rx="8" fill="#ffffff" stroke="#a21caf" stroke-width="1.4"/>
+<path d="M966.9,1854.0 V1820.0 Q966.9,1812.0 974.9,1812.0 H1853.8 Q1861.8,1812.0 1861.8,1820.0 V1854.0 Z" fill="#a21caf"/>
+<text x="978.9" y="1832.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">services/ocr_import.py</text>
+<text x="978.9" y="1846.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">โหมดทดลอง: OCR รูป/PDF ทะเบียนด้วย Tesseract ภาษาไทย</text>
+<text x="978.9" y="1867.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">parse_line · parse_scan · is_scan</text>
+<text x="978.9" y="1884.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="1017.2" y="1884.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> Pillow, pdf2image, pytesseract</text>
+<path d="M497.5,1902.0 L497.5,1982.0" fill="none" stroke="#1e3a8a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m1e3a8a)"/>
+<path d="M3248.2,1902.0 L3248.2,1982.0" fill="none" stroke="#1e3a8a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m1e3a8a)"/>
+<rect x="1665.9" y="1932.1" width="413.8" height="16.9" rx="3" fill="#ffffff" stroke="none" stroke-width="1.2"/>
+<text x="1872.8" y="1944.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#1e3a8a" text-anchor="middle" style="white-space:pre" font-weight="700">AsyncSession (SQLAlchemy 2.0 async ORM) · utils/* · ไลบรารีภายนอก</text>
+<text x="50.0" y="2004.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="19" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ชั้น 4 · Utils · ข้อมูล · ระบบภายนอก</text>
+<text x="349.5" y="2004.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="13" fill="#64748b" text-anchor="start" style="white-space:pre">และตัวอย่างลำดับการทำงานจริงของ approve_request()</text>
+<rect x="50.0" y="2026.0" width="1811.8" height="290.5" rx="8" fill="#ffffff" stroke="#047857" stroke-width="1.4"/>
+<path d="M50.0,2068.5 V2034.0 Q50.0,2026.0 58.0,2026.0 H1853.8 Q1861.8,2026.0 1861.8,2034.0 V2068.5 Z" fill="#047857"/>
+<text x="64.0" y="2046.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ลำดับการทำงานจริง: อนุมัติคำขอยืม</text>
+<text x="64.0" y="2060.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">อ่านจาก borrow_service.approve_request() — ทุกขั้นอยู่ใน transaction เดียว</text>
+<text x="64.0" y="2084.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH /borrow-requests/{request}/approve</text>
+<text x="352.0" y="2084.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  staff → borrow_service.approve_request()</text>
+<text x="64.0" y="2104.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">1) </text>
+<text x="78.1" y="2104.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">โหลดคำขอ + รายการ → สถานะต้องเป็น pending</text>
+<text x="64.0" y="2124.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">2) </text>
+<text x="78.1" y="2124.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">แยกชิ้นอนุมัติ / ไม่อนุมัติ (ชิ้นที่ไม่อนุมัติต้องมีเหตุผล)</text>
+<text x="64.0" y="2144.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">    </text>
+<text x="76.5" y="2144.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#64748b" text-anchor="start" style="white-space:pre">วันคืนรายชิ้น = ที่แอดมินส่ง › ที่ขอรายชิ้น › ที่ขอทั้งใบ (ห้ามเป็นวันที่ผ่านมาแล้ว)</text>
+<text x="64.0" y="2164.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">3) </text>
+<text x="78.1" y="2164.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">SELECT equipment ทั้งรุ่น ORDER BY code FOR UPDATE</text>
+<text x="407.4" y="2164.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#64748b" text-anchor="start" style="white-space:pre">  ลำดับล็อกเดียวกันทุก tx กัน deadlock</text>
+<text x="64.0" y="2184.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">4) </text>
+<text x="78.1" y="2184.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">usage_days_map() → เรียงหน่วยด้วย dispatch_key()</text>
+<text x="393.5" y="2184.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#64748b" text-anchor="start" style="white-space:pre">  ถูกยืมน้อยสุด › ได้มาก่อน › code</text>
+<text x="64.0" y="2204.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">    </text>
+<text x="76.5" y="2204.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#64748b" text-anchor="start" style="white-space:pre">แอดมินส่ง equipment_id มาเลือกหน่วยเองได้ (ต้องอยู่ในรุ่นเดียวกัน)</text>
+<text x="64.0" y="2224.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">5) </text>
+<text x="78.1" y="2224.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">ตรวจซ้ำ is_borrowable · status · สต็อก → หัก quantity_available</text>
+<text x="64.0" y="2244.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">6) </text>
+<text x="78.1" y="2244.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">snapshot unit_value · book_value · ชื่อ · code · unit · SN ลง borrow_items</text>
+<text x="64.0" y="2264.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">7) </text>
+<text x="78.1" y="2264.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">item_status + due_date รายชิ้น · นัดรับของ · status = approved (ปฏิเสธครบ = rejected)</text>
+<text x="64.0" y="2284.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">8) </text>
+<text x="78.1" y="2284.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">_notify() in-app → audit_service.log_action() → db.commit()</text>
+<text x="64.0" y="2304.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#047857" text-anchor="start" style="white-space:pre" font-weight="700">9) </text>
+<text x="78.1" y="2304.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">หลัง commit จึง send_email() — อีเมลล้มเหลวไม่ทำให้ผลการอนุมัติเสีย</text>
+<rect x="1883.8" y="2026.0" width="1811.8" height="370.5" rx="8" fill="#ffffff" stroke="#7f1d1d" stroke-width="1.4"/>
+<path d="M1883.8,2068.5 V2034.0 Q1883.8,2026.0 1891.8,2026.0 H3687.6 Q3695.6,2026.0 3695.6,2034.0 V2068.5 Z" fill="#7f1d1d"/>
+<text x="1897.8" y="2046.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14.5" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">กฎธุรกิจอยู่ที่ไหน — มีจุดเดียว ห้ามเขียนซ้ำ</text>
+<text x="1897.8" y="2060.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ตรวจแล้วว่าทุกฟังก์ชัน/ค่าคงที่ในรายการนี้มีอยู่ในโค้ดจริง</text>
+<text x="1897.8" y="2084.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">duedate.effective_due_date</text>
+<text x="2085.0" y="2084.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  วันครบกำหนดที่ใช้จริง (ต่อเวลา › รายชิ้น › ทั้งใบ)</text>
+<text x="1897.8" y="2104.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_service._compute_fine</text>
+<text x="2099.4" y="2104.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  สูตรค่าปรับ (ฟังก์ชันบริสุทธิ์) → freeze ด้วย _apply_fine</text>
+<text x="1897.8" y="2124.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_service._all_settled</text>
+<text x="2092.2" y="2124.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  คำขอสรุปผลครบหรือยัง (ข้ามชิ้นที่ rejected)</text>
+<text x="1897.8" y="2144.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_service._to_utc</text>
+<text x="2056.2" y="2144.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  เวลาที่กรอกจากหน้าเว็บ = เวลาไทย → แปลงเป็น UTC</text>
+<text x="1897.8" y="2164.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_service._next_request_code</text>
+<text x="2135.4" y="2164.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  เลขคำขอ REQ-{ปี}-{รหัส}-{hex6}</text>
+<text x="1897.8" y="2184.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_service.MAX_REQUESTED_DUE_DATE_YEARS</text>
+<text x="2207.4" y="2184.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  เพดานวันคืนที่ขอได้ (ค่าคงที่ 3 ปี)</text>
+<text x="1897.8" y="2204.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.dispatch_key</text>
+<text x="2113.8" y="2204.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  ลำดับจ่ายของในรุ่นเดียวกัน</text>
+<text x="1897.8" y="2224.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.borrowed_days_expr</text>
+<text x="2157.0" y="2224.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  สูตรนับวันที่ถูกยืม (ใช้ร่วมกับหน้าสถิติ)</text>
+<text x="1897.8" y="2244.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service._read_validated</text>
+<text x="2135.4" y="2244.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  ตรวจไฟล์อัปโหลด: นามสกุล + magic bytes + ขนาด</text>
+<text x="1897.8" y="2264.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service._search_clause</text>
+<text x="2128.2" y="2264.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  ค้นหาอุปกรณ์ครอบ ชื่อ · รุ่น · SN · รหัส</text>
+<text x="1897.8" y="2284.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service._assert_can_edit_finance</text>
+<text x="2200.2" y="2284.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  ด่านแก้ราคา/วันที่ได้มา/อายุ (superadmin)</text>
+<text x="1897.8" y="2304.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_service.book_value</text>
+<text x="2099.4" y="2304.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  มูลค่าตามบัญชี (ค่าเสื่อมเส้นตรง / override)</text>
+<text x="1897.8" y="2324.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">settings_service.ADMIN_EDITABLE_KEYS</text>
+<text x="2157.0" y="2324.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  คีย์ settings ที่ผู้ดูแลคลังแก้ได้</text>
+<text x="1897.8" y="2344.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">audit_service.log_action</text>
+<text x="2070.6" y="2344.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  บันทึก audit ก่อน db.commit() ทุก action</text>
+<text x="1897.8" y="2364.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">student_import_service.normalize_name</text>
+<text x="2164.2" y="2364.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  เทียบชื่อผู้สมัครกับรายชื่อ (ตัดคำนำหน้า/ช่องว่าง)</text>
+<text x="1897.8" y="2384.5" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="12" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">roles.is_staff</text>
+<text x="1998.6" y="2384.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12" fill="#334155" text-anchor="start" style="white-space:pre">  เช็คเจ้าหน้าที่ — ห้ามเขียน role == &quot;admin&quot; ตรง ๆ</text>
+<rect x="50.0" y="2418.0" width="894.9" height="257.0" rx="8" fill="#ffffff" stroke="#1e3a8a" stroke-width="1.4"/>
+<path d="M50.0,2446.0 V2426.0 Q50.0,2418.0 58.0,2418.0 H936.9 Q944.9,2418.0 944.9,2426.0 V2446.0 Z" fill="#1e3a8a"/>
+<text x="62.0" y="2438.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">models/ — SQLAlchemy ORM (13 ไฟล์ → 15 ตาราง)</text>
+<text x="62.0" y="2459.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">audit_log.py</text>
+<text x="144.8" y="2459.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → audit_logs</text>
+<text x="62.0" y="2476.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">auth_token.py</text>
+<text x="151.7" y="2476.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → auth_tokens</text>
+<text x="62.0" y="2493.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_item.py</text>
+<text x="158.6" y="2493.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → borrow_items</text>
+<text x="62.0" y="2510.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">borrow_request.py</text>
+<text x="179.3" y="2510.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → borrow_requests</text>
+<text x="62.0" y="2527.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">bundle.py</text>
+<text x="124.1" y="2527.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → bundles, bundle_items</text>
+<text x="62.0" y="2544.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">change_request.py</text>
+<text x="179.3" y="2544.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → change_requests</text>
+<text x="62.0" y="2561.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">eligible_student.py</text>
+<text x="193.1" y="2561.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → eligible_students</text>
+<text x="62.0" y="2578.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment.py</text>
+<text x="144.8" y="2578.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → equipment, equipment_category_links</text>
+<text x="62.0" y="2595.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_category.py</text>
+<text x="206.9" y="2595.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → equipment_categories</text>
+<text x="62.0" y="2612.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">equipment_part.py</text>
+<text x="179.3" y="2612.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → equipment_parts</text>
+<text x="62.0" y="2629.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">notification.py</text>
+<text x="165.5" y="2629.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → notifications</text>
+<text x="62.0" y="2646.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">setting.py</text>
+<text x="131.0" y="2646.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → settings</text>
+<text x="62.0" y="2663.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">user.py</text>
+<text x="110.3" y="2663.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  → users</text>
+<rect x="966.9" y="2418.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#1e3a8a" stroke-width="1.4"/>
+<path d="M966.9,2460.0 V2426.0 Q966.9,2418.0 974.9,2418.0 H1853.8 Q1861.8,2418.0 1861.8,2426.0 V2460.0 Z" fill="#1e3a8a"/>
+<text x="978.9" y="2438.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">PostgreSQL 16</text>
+<text x="978.9" y="2452.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">container db · volume postgres_data · ไม่เปิดพอร์ตออกนอก</text>
+<text x="978.9" y="2473.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">15 ตาราง · UUID PK · timestamptz (UTC) · JSONB</text>
+<text x="978.9" y="2490.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">CHECK กันสต็อกติดลบ · partial unique index ของ SN</text>
+<text x="978.9" y="2507.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">alembic/versions: 39 migration (0001 → 0039)</text>
+<text x="978.9" y="2524.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">สำรอง: backup_db.sh (pg_dump + uploads) ทุก 02:00</text>
+<text x="978.9" y="2541.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">รายละเอียดทุกคอลัมน์ → รูป 03 ฐานข้อมูล</text>
+<rect x="1883.8" y="2418.0" width="894.9" height="135.0" rx="8" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<path d="M1883.8,2460.0 V2426.0 Q1883.8,2418.0 1891.8,2418.0 H2770.7 Q2778.7,2418.0 2778.7,2426.0 V2460.0 Z" fill="#0f766e"/>
+<text x="1895.8" y="2438.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ที่เก็บไฟล์บนดิสก์</text>
+<text x="1895.8" y="2452.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ไม่เก็บ binary ใน DB</text>
+<text x="1895.8" y="2473.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">uploads/</text>
+<text x="1951.0" y="2473.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  เสิร์ฟสาธารณะผ่าน StaticFiles /uploads</text>
+<text x="1895.8" y="2490.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   รูปอุปกรณ์ · รูปความเสียหาย · avatar — save_upload()</text>
+<text x="1895.8" y="2507.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">private_uploads/</text>
+<text x="2006.2" y="2507.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  ไม่เสิร์ฟสาธารณะ (PDPA)</text>
+<text x="1895.8" y="2524.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   ใบยืมที่เซ็นแล้ว — เปิดผ่าน GET …/signed-form เท่านั้น</text>
+<text x="1895.8" y="2541.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">import_tmp/</text>
+<text x="1971.7" y="2541.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  ไฟล์ทะเบียนช่วง preview → commit</text>
+<rect x="2800.7" y="2418.0" width="894.9" height="104.0" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<path d="M2800.7,2446.0 V2426.0 Q2800.7,2418.0 2808.7,2418.0 H3687.6 Q3695.6,2418.0 3695.6,2426.0 V2446.0 Z" fill="#475569"/>
+<text x="2812.7" y="2438.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">ระบบภายนอก</text>
+<text x="2812.7" y="2459.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">SMTP</text>
+<text x="2840.3" y="2459.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  smtp.gmail.com:587 STARTTLS ผ่าน FastAPI-Mail</text>
+<text x="2812.7" y="2476.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   ปิดทั้งระบบได้ด้วย ENABLE_EMAIL=false</text>
+<text x="2812.7" y="2493.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">Tesseract OCR</text>
+<text x="2902.4" y="2493.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  ภาษาไทย + poppler (อยู่ใน Docker image)</text>
+<text x="2812.7" y="2510.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">LINE OA</text>
+<text x="2861.0" y="2510.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">  ยังไม่ใช้ (มีคอลัมน์ line_user_id เผื่อไว้)</text>
+<rect x="2800.7" y="2544.0" width="894.9" height="104.0" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+<path d="M2800.7,2572.0 V2552.0 Q2800.7,2544.0 2808.7,2544.0 H3687.6 Q3695.6,2544.0 3695.6,2552.0 V2572.0 Z" fill="#334155"/>
+<text x="2812.7" y="2564.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">เครื่องมือพัฒนา &amp; ดูแลระบบ</text>
+<text x="2812.7" y="2585.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">tests/  57 ไฟล์ pytest (PYTEST_ALLOW_DB กัน DB จริง)</text>
+<text x="2812.7" y="2602.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">scripts/  15 ไฟล์: create_admin.py --superadmin</text>
+<text x="2812.7" y="2619.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">   backup_db.sh · restore_db.sh · import_*.py · seed</text>
+<text x="2812.7" y="2636.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">alembic upgrade head รันทุกครั้งที่ container บูต</text>
+<rect x="966.9" y="2575.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M966.9,2617.0 V2583.0 Q966.9,2575.0 974.9,2575.0 H1853.8 Q1861.8,2575.0 1861.8,2583.0 V2617.0 Z" fill="#b45309"/>
+<text x="978.9" y="2595.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/email.py</text>
+<text x="978.9" y="2609.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">FastAPI-Mail · ENABLE_EMAIL=false → print ลง log แทนการส่งจริง</text>
+<text x="978.9" y="2630.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">send_email · send_verification_email · send_reset_password_email</text>
+<text x="978.9" y="2647.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="1010.9" y="2647.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> auth_service, borrow_service, main, scheduler</text>
+<text x="978.9" y="2664.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="1017.2" y="2664.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> FastAPI-Mail</text>
+<rect x="1883.8" y="2575.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M1883.8,2617.0 V2583.0 Q1883.8,2575.0 1891.8,2575.0 H2770.7 Q2778.7,2575.0 2778.7,2583.0 V2617.0 Z" fill="#b45309"/>
+<text x="1895.8" y="2595.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/pdf.py</text>
+<text x="1895.8" y="2609.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">ReportLab + ฟอนต์ไทย: ใบยืม · ใบคืน · พรีวิว · ใบขอซ่อม · ใบรับ/จำหน่ายพัสดุ</text>
+<text x="1895.8" y="2630.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">generate_borrow_pdf · generate_preview_pdf · generate_return_pdf · generate_repair_pdf · generate_stock_document_pdf</text>
+<text x="1895.8" y="2647.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="1927.8" y="2647.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> borrow_service</text>
+<text x="1895.8" y="2664.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="1934.1" y="2664.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> ReportLab</text>
+<rect x="2800.7" y="2670.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M2800.7,2712.0 V2678.0 Q2800.7,2670.0 2808.7,2670.0 H3687.6 Q3695.6,2670.0 3695.6,2678.0 V2712.0 Z" fill="#b45309"/>
+<text x="2812.7" y="2690.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/qrcode_gen.py</text>
+<text x="2812.7" y="2704.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">สร้างรูป QR (PNG) จาก URL หน้าอุปกรณ์</text>
+<text x="2812.7" y="2725.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">generate_qr_png</text>
+<text x="2812.7" y="2742.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="2844.7" y="2742.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> equipment_service</text>
+<text x="2812.7" y="2759.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="2851.0" y="2759.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> Pillow, qrcode</text>
+<rect x="50.0" y="2697.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M50.0,2739.0 V2705.0 Q50.0,2697.0 58.0,2697.0 H936.9 Q944.9,2697.0 944.9,2705.0 V2739.0 Z" fill="#b45309"/>
+<text x="62.0" y="2717.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/roles.py</text>
+<text x="62.0" y="2731.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">student / admin / superadmin · is_staff() · is_superadmin()</text>
+<text x="62.0" y="2752.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">is_staff · is_superadmin</text>
+<text x="62.0" y="2769.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="94.0" y="2769.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> auth_service, borrow_service, bundle, change_request_service, dependencies, equipment_service, scheduler</text>
+<text x="62.0" y="2786.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre">      settings_service, users_service</text>
+<rect x="966.9" y="2698.0" width="894.9" height="101.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M966.9,2740.0 V2706.0 Q966.9,2698.0 974.9,2698.0 H1853.8 Q1861.8,2698.0 1861.8,2706.0 V2740.0 Z" fill="#b45309"/>
+<text x="978.9" y="2718.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/scheduler.py</text>
+<text x="978.9" y="2732.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">APScheduler (Asia/Bangkok): 00:00 due_soon · 00:01 overdue · misfire 1 ชม.</text>
+<text x="978.9" y="2753.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">start_scheduler</text>
+<text x="978.9" y="2770.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="1010.9" y="2770.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> main, system_check_service</text>
+<text x="978.9" y="2787.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ไลบรารี:</text>
+<text x="1017.2" y="2787.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#0e7490" text-anchor="start" style="white-space:pre"> APScheduler</text>
+<rect x="1883.8" y="2698.0" width="894.9" height="84.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M1883.8,2740.0 V2706.0 Q1883.8,2698.0 1891.8,2698.0 H2770.7 Q2778.7,2698.0 2778.7,2706.0 V2740.0 Z" fill="#b45309"/>
+<text x="1895.8" y="2718.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/duedate.py</text>
+<text x="1895.8" y="2732.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">effective_due_date() — จุดเดียวที่ตัดสินวันครบกำหนดจริง</text>
+<text x="1895.8" y="2753.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">effective_due_date</text>
+<text x="1895.8" y="2770.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="1927.8" y="2770.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> borrow_service, dashboard_service, pdf</text>
+<rect x="2800.7" y="2793.0" width="894.9" height="84.0" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.4"/>
+<path d="M2800.7,2835.0 V2801.0 Q2800.7,2793.0 2808.7,2793.0 H3687.6 Q3695.6,2793.0 3695.6,2801.0 V2835.0 Z" fill="#b45309"/>
+<text x="2812.7" y="2813.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="14" fill="#ffffff" text-anchor="start" style="white-space:pre" font-weight="700">utils/identity.py</text>
+<text x="2812.7" y="2827.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="10.5" fill="#e2e8f0" text-anchor="start" style="white-space:pre">รหัสประจำตัวที่แสดงผล (รหัส นศ. หรือ username)</text>
+<text x="2812.7" y="2848.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#1e293b" text-anchor="start" style="white-space:pre">user_identifier · is_student_identifier</text>
+<text x="2812.7" y="2865.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ใช้โดย:</text>
+<text x="2844.7" y="2865.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre"> audit_service, borrow_service, dashboard_service, users_service</text>
+<text x="50.0" y="62.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="30" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">02 · หลังบ้าน (Backend) — FastAPI แบบแบ่งชั้น</text>
+<text x="50.0" y="96.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">Python 3.12 · FastAPI · SQLAlchemy 2.0 async · Alembic · PostgreSQL 16 · JWT · APScheduler · 11 router · 88 endpoint · 15 service · 7 utils · 15 ตาราง</text>
+<text x="50.0" y="122.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="12.5" fill="#64748b" text-anchor="start" style="white-space:pre">อ่านจากซอร์สจริง: main.py · routers/* (decorator + Depends + การเรียก service) · import ของทุก service/utils · ข้อมูล ณ 14 ก.ย. 2569</text>
+<text x="50.0" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">GET</text>
+<text x="83.8" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#15803d" text-anchor="start" style="white-space:pre" font-weight="700">POST</text>
+<text x="124.2" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#a16207" text-anchor="start" style="white-space:pre" font-weight="700">PATCH</text>
+<text x="171.2" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#7c3aed" text-anchor="start" style="white-space:pre" font-weight="700">PUT</text>
+<text x="205.0" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">DELETE</text>
+<rect x="274.6" y="149.0" width="38.9" height="14.0" rx="7" fill="#f1f5f9" stroke="none" stroke-width="1.2"/>
+<text x="279.6" y="159.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">public</text>
+<text x="319.6" y="160.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">ไม่ต้องล็อกอิน</text>
+<rect x="405.9" y="149.0" width="33.9" height="14.0" rx="7" fill="#dbeafe" stroke="none" stroke-width="1.2"/>
+<text x="410.9" y="159.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#1e40af" text-anchor="start" style="white-space:pre" font-weight="700">login</text>
+<text x="445.9" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">get_current_user</text>
+<rect x="578.2" y="149.0" width="31.9" height="14.0" rx="7" fill="#fef3c7" stroke="none" stroke-width="1.2"/>
+<text x="583.2" y="159.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#92400e" text-anchor="start" style="white-space:pre" font-weight="700">staff</text>
+<text x="616.2" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">require_admin</text>
+<rect x="727.9" y="149.0" width="66.9" height="14.0" rx="7" fill="#fee2e2" stroke="none" stroke-width="1.2"/>
+<text x="732.9" y="159.5" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="9.5" fill="#991b1b" text-anchor="start" style="white-space:pre" font-weight="700">superadmin</text>
+<text x="800.8" y="160.0" font-family="'Noto Sans Mono','Noto Sans Thai',monospace" font-size="11.5" fill="#334155" text-anchor="start" style="white-space:pre">require_superadmin</text>
+<text x="957.0" y="160.0" font-family="'Noto Sans','Noto Sans Thai',sans-serif" font-size="11.5" fill="#64748b" text-anchor="start" style="white-space:pre">→ ชื่อฟังก์ชัน = ฟังก์ชันใน service หลักของ router (ถ้าข้าม service จะมีชื่อ service นำหน้า)</text>
+</svg>

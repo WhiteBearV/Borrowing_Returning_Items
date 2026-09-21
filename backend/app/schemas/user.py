@@ -26,6 +26,17 @@ class UserResponse(BaseModel):
     approval_note: str | None = None
     created_at: datetime
 
+    # ชั้นปี (เฟส 10) — enrollment_year/study_years/is_transfer เป็นคอลัมน์จริง ส่วน year_level/is_retained/
+    # remaining_study_years/study_year_label เป็นค่าคำนวณสด (users_service.attach_study_year เติมให้ก่อน
+    # แปลงเป็น response — pattern เดียวกับ equipment_service.attach_book_values) ห้ามคำนวณซ้ำฝั่ง frontend
+    enrollment_year: int | None = None
+    study_years: int = 4
+    is_transfer: bool = False
+    year_level: int | None = None
+    is_retained: bool = False
+    remaining_study_years: int | None = None
+    study_year_label: str = "บุคลากร"
+
     model_config = {"from_attributes": True}
 
 
@@ -61,6 +72,29 @@ class UserRoleUpdateRequest(BaseModel):
     """เปลี่ยนระดับสิทธิ์ผู้ใช้ — เฉพาะผู้ดูแลระบบสูงสุด (ดู app/utils/roles.py)"""
     role: str
     reason: str | None = None  # เหตุผลที่บันทึกลง audit — ใครเลื่อนสิทธิ์ให้ใครเพราะอะไร
+
+
+class UserStudyUpdateRequest(BaseModel):
+    """แอดมินแก้ปีที่เข้าศึกษา/จำนวนปี/เทียบโอนรายคน (เฟส 10) — เคสพิเศษที่สูตรอัตโนมัติไม่ตรง
+    (ย้ายสาขา/รหัสไม่ตรงรูปแบบ/เทียบโอนที่ยังไม่ได้ตั้งค่า) บังคับเหตุผลเสมอเพราะแก้ข้อมูลที่กระทบกฎจ่ายของ
+    """
+    enrollment_year: int | None = Field(None, ge=2500, le=2700)
+    # ช่วงเดียวกับตอนสมัคร (RegisterRequest.study_years — 2/3/4 ตามแผน) — ไม่เปิดกว้างกว่านั้นให้แอดมิน
+    # เพราะแผนไม่มีเหตุผลทางธุรกิจสำหรับค่านอกช่วงนี้ (แก้ตามรีวิวรอบ 3, MINOR-12) ข้อมูลเก่า/นำเข้าที่ยัง
+    # ค้างค่านอกช่วงนี้อยู่ (ก่อนแก้) ยังอ่าน/แสดงผลได้ปกติ — dashboard_service กันไม่ให้ตกหล่นไว้แล้ว (MINOR-2)
+    # แค่แก้ผ่านฟอร์มนี้ซ้ำเป็นค่านอกช่วงไม่ได้อีกต่อไป
+    study_years: int | None = Field(None, ge=2, le=4)
+    is_transfer: bool | None = None
+    reason: str = Field(..., min_length=1)
+
+    # min_length=1 เฉยๆ ยอมรับ " " (ช่องว่างล้วน) ผ่านได้ — บังคับ strip แล้วต้องไม่ว่างจริง (พบตอนรีวิวรอบ 2)
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("กรุณาระบุเหตุผลที่แก้ไขข้อมูลชั้นปี")
+        return v
 
 
 class PaginatedUsers(BaseModel):

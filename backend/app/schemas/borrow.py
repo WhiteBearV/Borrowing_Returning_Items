@@ -89,6 +89,9 @@ class BorrowRequestResponse(BaseModel):
     borrower_identifier: str | None = None  # รหัส นศ. หรือรหัสอาจารย์ แล้วแต่ว่าใครยืม
     borrower_is_student: bool = True
     student_major: str | None = None
+    # ชั้นปีผู้ยืม (เฟส 10) — "ปีที่ 2" / "ตกค้าง (ปีที่ 5)" / "บุคลากร" — ดู BorrowRequest.student_year_label
+    # (คำนวณผ่าน app.utils.study_year จุดเดียว ไม่ทำสูตรซ้ำฝั่ง frontend)
+    student_year_label: str | None = None
     purpose: str | None
     status: str
     requested_at: datetime
@@ -162,6 +165,9 @@ class ReturnItemRequest(BaseModel):
     # (เช่น เจรจาลดหย่อน หรือของเสียหายแค่บางส่วนไม่เต็มมูลค่า) ไม่ส่ง = ใช้ยอดที่คำนวณได้
     fine_late_amount_override: float | None = Field(None, ge=0)
     fine_damage_amount_override: float | None = Field(None, ge=0)
+    # ประเมินคุณภาพใหม่ (ไม่บังคับ) — จังหวะที่ 4 ของ 4 จังหวะให้ประเมิน (ดู CLAUDE.md) มีผลเฉพาะตอนคืนแบบ
+    # ชำรุด (condition_on_return == "damaged") และเครื่องเปิดติดตามคุณภาพอยู่เท่านั้น
+    quality_after: float | None = Field(None, ge=0, le=100)
 
 
 class FineEditRequest(BaseModel):

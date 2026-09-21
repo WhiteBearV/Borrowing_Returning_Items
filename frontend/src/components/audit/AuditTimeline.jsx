@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { auditApi } from '../../api/auditApi.js'
 import EmptyState from '../common/EmptyState.jsx'
 import { actionLabel, detailLines } from './auditLabels.js'
-
-const fmtWhen = (iso) => new Date(iso).toLocaleString('th-TH', {
-  day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-})
+import { formatDateTime } from '../../utils/formatDate.js'
 
 /**
  * ไทม์ไลน์ประวัติของ target เดียว (อุปกรณ์ 1 ชิ้น) — ตอบคำถาม "ถูกย้าย/แก้อะไร เมื่อไร โดยใคร"
@@ -47,7 +44,7 @@ export default function AuditTimeline({ targetId, limit = 50 }) {
               </ul>
             )}
             <p className="mt-0.5 text-xs text-gray-400">
-              {fmtWhen(log.created_at)} · โดย {log.actor_name ?? 'ไม่ทราบ'}
+              {formatDateTime(log.created_at)} · โดย {log.actor_name ?? 'ไม่ทราบ'}
               {log.actor_identifier ? ` (${log.actor_identifier})` : ''}
             </p>
           </li>

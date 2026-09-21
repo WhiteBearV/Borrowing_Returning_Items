@@ -9,11 +9,12 @@
 import csv
 import io
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.audit_log import AuditLog
@@ -46,19 +47,40 @@ def _csv_bytes(students: list[tuple[str, str]]) -> bytes:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def clean_eligible():
-    """รหัสทดสอบขึ้นต้น 99 — เก็บกวาดทั้งรายชื่อและบัญชีที่เทสสมัครไว้"""
-    yield
+    """คืน list ว่างให้เทสเติม student_id ที่ตัวเองสร้าง/นำเข้าเข้ามาเอง — ลบเฉพาะรหัสที่อยู่ใน list นี้เป๊ะ
+    ตอน teardown (แก้ตามรีวิวรอบ 4, M-i: เดิมใช้ `LIKE '99%'` กวาดทั้งช่วงรหัส เสี่ยงชน/ลบข้อมูลจริงหรือของ
+    เทสไฟล์อื่นที่บังเอิญใช้ prefix เดียวกันพร้อมกัน — ตอนนี้ลบด้วย `.in_(student_ids)` ที่เทสระบุเองเป๊ะแทน)
+
+    started ถ่ายก่อนตัวเทสเริ่มทำงานจริง (fixture setup ก่อน yield) — ใช้ scope การลบแจ้งเตือนที่ปกติไม่ผูก
+    กับ user_id/target_id ของบัญชีทดสอบเลย (ตามกฎ CLAUDE.md ห้ามลบ log ด้วย target_id/actor_id ของแอดมิน
+    จริงเพียว ๆ เพราะจะลบ log จริงของคนอื่นที่ใช้แอดมินคนเดียวกันไปด้วย):
+    - "registration_pending" ที่ /auth/register ส่งไปหา staff จริงทุกคน (ข้อความมีรหัสนักศึกษาฝังอยู่
+      ไม่ได้อยู่ใต้ user_id ของผู้สมัคร) — กรองเฉพาะข้อความที่มี student_id ที่เทสนี้สร้างจริงเป๊ะ (exact
+      match ต่อรหัส ไม่ใช่ LIKE prefix กว้าง ๆ)
+    audit "import_eligible_students" ไม่ต้องตามลบที่นี่ — actor คือแอดมินทดสอบ (`admin_token`) ซึ่ง
+    `conftest._delete_user_cascade` ลบ log ของมันตอนจบ session อยู่แล้ว (กรองด้วย action+เวลาเสี่ยงลบ log จริง)
+    """
+    started = datetime.now(timezone.utc)
+    student_ids: list[str] = []
+    yield student_ids
+    if not student_ids:
+        return
     async with AsyncSessionLocal() as db:
         ids = (await db.execute(
-            select(User.id).where(User.student_id.like("99%")))).scalars().all()
+            select(User.id).where(User.student_id.in_(student_ids)))).scalars().all()
         for uid in ids:
             await db.execute(delete(Notification).where(Notification.user_id == uid))
             # token ยืนยันอีเมลที่สร้างตอนสมัคร ชี้กลับมาที่ user — ต้องลบก่อน ไม่งั้นชน FK
             await db.execute(delete(AuthToken).where(AuthToken.user_id == uid))
             await db.execute(delete(AuditLog).where(AuditLog.actor_id == uid))
             await db.execute(delete(AuditLog).where(AuditLog.target_id == uid))
-        await db.execute(delete(User).where(User.student_id.like("99%")))
-        await db.execute(delete(EligibleStudent).where(EligibleStudent.student_id.like("99%")))
+        await db.execute(delete(User).where(User.student_id.in_(student_ids)))
+        await db.execute(delete(EligibleStudent).where(EligibleStudent.student_id.in_(student_ids)))
+        await db.execute(delete(Notification).where(
+            Notification.type == "registration_pending",
+            Notification.sent_at >= started,
+            or_(*[Notification.message.like(f"%({sid})%") for sid in student_ids]),
+        ))
         await db.commit()
 
 
@@ -114,6 +136,7 @@ async def test_import_is_additive_and_updates_by_student_id(
     client: AsyncClient, admin_token: str, clean_eligible,
 ):
     """นำเข้าไฟล์ของอาจารย์คนที่สองต้องไม่ลบรายชื่อของคนแรก และชื่อที่แก้แล้วต้องอัปเดตทับ"""
+    clean_eligible.extend(["9910301001", "9910301002"])
     first = await client.post("/eligible-students/import", headers=auth(admin_token),
                               files={"file": ("a.csv", _csv_bytes([("9910301001", "ทดสอบ ระบบหนึ่ง")]),
                                               "text/csv")})
@@ -140,6 +163,7 @@ async def test_register_uses_list_as_source_of_truth(
     client: AsyncClient, admin_token: str, clean_eligible,
 ):
     """อยู่ในรายชื่อ + ชื่อตรง → ผ่านทันที และสาขาถูกทับด้วยค่าจากรายชื่อแม้ผู้สมัครเลือกมาผิด"""
+    clean_eligible.append("9910301003")
     await client.post("/eligible-students/import", headers=auth(admin_token),
                       files={"file": ("a.csv", _csv_bytes([("9910301003", "ทดสอบ ระบบสาม")]), "text/csv")})
 
@@ -163,6 +187,7 @@ async def test_unknown_student_goes_to_approval_queue(
     client: AsyncClient, admin_token: str, clean_eligible,
 ):
     """ไม่อยู่ในรายชื่อ → สมัครได้แต่ล็อกอินไม่ได้จนกว่าแอดมินจะอนุมัติ (ไม่ปิดตาย)"""
+    clean_eligible.append("9910309999")
     email = f"stu{uuid.uuid4().hex[:6]}@student.cdti.ac.th"
     r = await client.post("/auth/register", json={
         "full_name": "ทดสอบ ไม่อยู่ในรายชื่อ", "student_id": "9910309999",
@@ -198,6 +223,7 @@ async def test_unknown_student_goes_to_approval_queue(
 @pytest.mark.asyncio(loop_scope="session")
 async def test_name_mismatch_also_queues(client: AsyncClient, admin_token: str, clean_eligible):
     """รหัสตรงแต่ชื่อคนละคน = สัญญาณของการสวมรหัส → ต้องเข้าคิวให้คนตรวจ ไม่ผ่านอัตโนมัติ"""
+    clean_eligible.append("9910301004")
     await client.post("/eligible-students/import", headers=auth(admin_token),
                       files={"file": ("a.csv", _csv_bytes([("9910301004", "ทดสอบ ระบบสี่")]), "text/csv")})
     r = await client.post("/auth/register", json={
@@ -224,3 +250,19 @@ async def test_import_requires_staff_and_rejects_junk_file(
     empty = await client.post("/eligible-students/import", headers=auth(admin_token),
                               files={"file": ("empty.csv", b"a,b,c\n1,2,3\n", "text/csv")})
     assert empty.status_code == 400
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_filter_by_cohort(client: AsyncClient, admin_token: str, clean_eligible):
+    """กรองตามรุ่น (2 หลักแรกของรหัส) + นับจำนวนต่อรุ่นของทั้งตาราง ให้หน้าเว็บทำปุ่มกรองจากรุ่นที่มีจริง"""
+    clean_eligible.extend(["9810301001", "9910301003"])
+    h = auth(admin_token)
+    r = await client.post("/eligible-students/import", headers=h, files={"file": ("c.csv", _csv_bytes([
+        ("9810301001", "ทดสอบ รุ่นเก้าแปด"), ("9910301003", "ทดสอบ รุ่นเก้าเก้า")]), "text/csv")})
+    assert r.status_code == 200, r.text
+
+    listed = (await client.get("/eligible-students", params={"cohort": "98", "search": "ทดสอบ รุ่นเก้า"},
+                               headers=h)).json()
+    assert [row["student_id"] for row in listed["items"]] == ["9810301001"]
+    assert listed["cohorts"]["98"] >= 1 and listed["cohorts"]["99"] >= 1  # นับทั้งตาราง ไม่สนตัวกรอง
+    assert (await client.get("/eligible-students", params={"cohort": "9"}, headers=h)).status_code == 422

@@ -9,7 +9,7 @@ import { formatAge, formatDate, formatMoney } from '../../utils/formatDate.js'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 
-const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
+const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 

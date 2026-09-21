@@ -20,3 +20,11 @@ def effective_due_date(item: object, req: object = None) -> date | None:
         or getattr(item, "due_date", None)
         or getattr(req, "due_date", None)
     )
+
+
+def fmt_date(d: date | None) -> str:
+    """วันที่ในข้อความแจ้งเตือน/อีเมล เป็น วว/ดด/ปปปป ให้ตรงกับหน้าเว็บ (formatDate)
+
+    ใส่ date ลง f-string ตรง ๆ จะได้ 2026-09-21 ซึ่งผู้ใช้อ่านสลับวัน/เดือนได้
+    """
+    return f"{d:%d/%m/%Y}" if d else "-"

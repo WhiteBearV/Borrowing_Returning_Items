@@ -12,6 +12,7 @@ from app.schemas.user import (
     UserResponse,
     UserRoleUpdateRequest,
     UserStatusUpdateRequest,
+    UserStudyUpdateRequest,
     UserUpdateRequest,
 )
 from app.services import users_service
@@ -20,7 +21,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)) -> User:
+async def get_me(
+    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+) -> User:
+    await users_service.attach_study_year(db, [current_user])
     return current_user
 
 
@@ -50,10 +54,13 @@ async def list_users(
     role: str | None = Query(None),
     major: str | None = Query(None),
     approval_status: str | None = Query(None, pattern="^(approved|pending|rejected)$"),
+    # ชั้นปี (เฟส 10) — "1".."4" / "retained" (ตกค้าง) / "staff" (บุคลากร) / "unknown" (ไม่ทราบชั้นปี)
+    # คำนวณสด ไม่ใช่คอลัมน์ตรง (แก้ตามรีวิวรอบ 4, M-j — คอมเมนต์เดิมค้าง "1".."10" จากก่อนจำกัดช่วง study_years)
+    year_group: str | None = Query(None),
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedUsers:
-    return await users_service.list_users(db, page, page_size, role, major, approval_status)
+    return await users_service.list_users(db, page, page_size, role, major, approval_status, year_group)
 
 
 @router.post("", response_model=UserResponse, status_code=201)
@@ -85,6 +92,20 @@ async def update_user_approval(
 ) -> User:
     """อนุมัติ/ปฏิเสธผู้สมัครที่ไม่ตรงรายชื่อของสาขา (เฟส 9) — เจ้าหน้าที่ทำได้"""
     return await users_service.update_approval(db, admin, user_id, body.approve, body.note)
+
+
+@router.patch("/{user_id}/study", response_model=UserResponse)
+async def update_user_study(
+    user_id: uuid.UUID,
+    body: UserStudyUpdateRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """แอดมินแก้ปีที่เข้าศึกษา/จำนวนปี/เทียบโอนรายคน (เฟส 10) — เจ้าหน้าที่ทำได้ (ไม่ต้อง superadmin)"""
+    return await users_service.update_study(
+        db, admin, user_id, body.enrollment_year, body.study_years, body.is_transfer, body.reason,
+        enrollment_year_set="enrollment_year" in body.model_fields_set,
+    )
 
 
 @router.patch("/{user_id}/role", response_model=UserResponse)

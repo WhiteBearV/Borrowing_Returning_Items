@@ -4,21 +4,26 @@ import EmptyState from '../../components/common/EmptyState.jsx'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { isSuperadmin } from '../../utils/role.js'
 
-// ค่าที่ผู้ดูแลคลังแก้เองได้ (ตกลงกับผู้ใช้ 8 ก.ย. 69) — ต้องตรงกับ ADMIN_EDITABLE_KEYS ฝั่ง backend
-// ที่เหลือ (ค่าปรับ/ค่าเสื่อม/มูลค่าที่พิมพ์ในใบยืม) เป็นของผู้ดูแลระบบสูงสุดเพราะกระทบเงินและเอกสารย้อนหลัง
+// ค่าที่ผู้ดูแลคลังแก้เองได้ (ตกลงกับผู้ใช้ 8 ก.ย. 69 + เฟส 10 15 ก.ย. 69) — ต้องตรงกับ ADMIN_EDITABLE_KEYS ฝั่ง backend
+// ที่เหลือ (ค่าปรับ/ค่าเสื่อม/มูลค่าที่พิมพ์ในใบยืม/น้ำหนักคำนวณคุณภาพ) เป็นของผู้ดูแลระบบสูงสุดเพราะกระทบเงิน
+// เอกสารย้อนหลัง หรือสูตรคำนวณย้อนหลังทุกเครื่อง
 const ADMIN_EDITABLE_KEYS = new Set([
   'default_pickup_location', 'default_pickup_time', 'due_soon_notify_days_before',
   'low_stock_threshold_default', 'max_items_per_request', 'max_active_requests_per_student',
   'max_renew_count', 'max_renew_days',
+  'quality_repair_default_drop', 'quality_low_threshold', 'academic_year_start',
 ])
 
 // จัดกลุ่มให้อ่านง่ายแทนที่จะเรียงตามตัวอักษรของ key
 const GROUPS = [
   { title: 'งานประจำวัน (นัดรับ · แจ้งเตือน · สต็อก)', keys: [
-    'default_pickup_location', 'default_pickup_time', 'due_soon_notify_days_before',
+    'default_pickup_location', 'default_pickup_time', 'due_soon_notify_days_before', 'notify_time',
     'low_stock_threshold_default'] },
   { title: 'โควต้าการยืม', keys: [
     'max_items_per_request', 'max_active_requests_per_student', 'max_renew_count', 'max_renew_days'] },
+  { title: 'ค่าคุณภาพ · ชั้นปี', keys: [
+    'quality_repair_default_drop', 'quality_low_threshold', 'academic_year_start',
+    'quality_age_weight', 'quality_life_years_default'] },
   { title: 'ค่าปรับ · ค่าเสื่อม · เอกสาร (ผู้ดูแลระบบสูงสุด)', keys: [
     'fine_per_day_per_item', 'fine_grace_days', 'fine_max_per_item',
     'depreciation_years_default', 'depreciation_salvage_value', 'pdf_value_source'] },
@@ -76,6 +81,7 @@ export default function SettingsPage() {
     const isDirty = editing[s.key] !== undefined && editing[s.key] !== s.value
     // settings.value เป็น String ทุกแถว (ไม่มีคอลัมน์บอกชนิด) — เดาจากค่าปัจจุบันแทน
     const isNumeric = /^-?\d+(\.\d+)?$/.test(s.value)
+    const isTime = /^\d{2}:\d{2}$/.test(s.value)  // เวลา HH:MM (นัดรับ/ส่งแจ้งเตือน) — กล่องแคบพอ ๆ กับตัวเลข
     const choices = CHOICES[s.key]
     const locked = !canEditAll && !ADMIN_EDITABLE_KEYS.has(s.key)
     return (
@@ -100,11 +106,12 @@ export default function SettingsPage() {
             <input
               type={isNumeric ? 'number' : 'text'}
               {...(isNumeric ? { min: 0 } : {})}
+              placeholder={isTime ? 'HH:MM' : undefined}
               disabled={locked}
               value={editing[s.key] ?? s.value}
               onChange={(e) => setEditing({ ...editing, [s.key]: e.target.value })}
               className={`rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2
-                focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400 ${isNumeric ? 'w-24 text-center' : 'w-64'}`}
+                focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400 ${isNumeric || isTime ? 'w-24 text-center' : 'w-64'}`}
             />
           )}
           {isDirty && (

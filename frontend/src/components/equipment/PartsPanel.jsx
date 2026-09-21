@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react'
 import { equipmentApi } from '../../api/equipmentApi.js'
-import { formatAge, formatDate, formatMoney } from '../../utils/formatDate.js'
+import { settingsApi } from '../../api/settingsApi.js'
+import { formatAge, formatDate, formatMoney, todayTH } from '../../utils/formatDate.js'
+import QualityAssessField from './QualityAssessField.jsx'
+import DateInput from '../common/DateInput.jsx'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => todayTH()
 const EMPTY = { name: '', serial_number: '', unit_value: '', acquired_at: today(), useful_life_years: '', note: '', replaces_part_id: '' }
 
 /**
  * ชิ้นส่วน/การอัพเกรดของอุปกรณ์ชิ้นหนึ่ง (เช่น RAM 8→16GB บนครุภัณฑ์เลขเดิม)
  * อายุของแต่ละชิ้นส่วนนับจากวันที่ติดตั้งของตัวเอง แยกจากอายุเครื่องหลักโดยสิ้นเชิง
  */
-export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookValue }) {
+export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookValue, qualityTracked, currentQuality, onQualityChanged }) {
   const [parts, setParts] = useState([])
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState(EMPTY)
@@ -18,6 +21,17 @@ export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookV
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removeReason, setRemoveReason] = useState('')
   const [showRemoved, setShowRemoved] = useState(false)
+  // ค่าคุณภาพที่จะส่งไปพร้อมการติดตั้งชิ้นส่วน (เฟส 10) — null = ไม่ประเมิน
+  const [qualityAfter, setQualityAfter] = useState(null)
+  const [defaultDrop, setDefaultDrop] = useState(2)
+
+  useEffect(() => {
+    if (!qualityTracked) return
+    settingsApi.list().then((rows) => {
+      const v = Number(rows.find((s) => s.key === 'quality_repair_default_drop')?.value)
+      if (Number.isFinite(v)) setDefaultDrop(v)
+    }).catch(() => {})
+  }, [qualityTracked])
 
   const load = () => equipmentApi.listParts(equipmentId).then(setParts).catch(() => {})
   useEffect(() => { load() }, [equipmentId])
@@ -36,8 +50,11 @@ export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookV
         note: form.note || null,
         // ระบุว่ามาแทนชิ้นไหน → ได้ไทม์ไลน์ "SSD 256GB → 512GB" ต่อเนื่อง แทนกองชิ้นส่วนที่ไม่รู้ลำดับ
         replaces_part_id: form.replaces_part_id || null,
+        // ประเมินคุณภาพเครื่องหลักใหม่พร้อมกัน (เฟส 10, ไม่บังคับ) — มีผลเฉพาะเครื่องที่เปิดติดตามคุณภาพ
+        ...(qualityTracked ? { quality_after: qualityAfter } : {}),
       })
-      setForm(EMPTY); setAdding(false); await load()
+      if (qualityTracked && qualityAfter != null) onQualityChanged?.()
+      setForm(EMPTY); setQualityAfter(null); setAdding(false); await load()
     } catch (err) {
       setError(err?.response?.data?.detail ?? 'เพิ่มชิ้นส่วนไม่สำเร็จ')
     } finally { setBusy(false) }
@@ -102,7 +119,7 @@ export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookV
         <div className="mt-2 rounded-lg border border-gray-200 p-3 space-y-2">
           <input className={input} placeholder="ชื่อชิ้นส่วน เช่น RAM DDR4 16GB" value={form.name} onChange={set('name')} />
           <div className="grid grid-cols-2 gap-2">
-            <input className={input} type="date" value={form.acquired_at} onChange={set('acquired_at')} />
+            <DateInput className={input} type="date" value={form.acquired_at} onChange={set('acquired_at')} />
             <input className={input} type="number" min={0} step="0.01" placeholder="ราคา (บาท)"
               value={form.unit_value} onChange={set('unit_value')} />
             <input className={input} placeholder="SN (ถ้ามี)" value={form.serial_number} onChange={set('serial_number')} />
@@ -110,6 +127,12 @@ export default function PartsPanel({ equipmentId, equipmentValue, equipmentBookV
               value={form.useful_life_years} onChange={set('useful_life_years')} />
           </div>
           <input className={input} placeholder="หมายเหตุ (ถ้ามี)" value={form.note} onChange={set('note')} />
+          {qualityTracked && (
+            <QualityAssessField
+              currentQuality={currentQuality} defaultDrop={defaultDrop}
+              value={qualityAfter} onChange={setQualityAfter}
+            />
+          )}
           {parts.length > 0 && (
             <select className={input} value={form.replaces_part_id} onChange={set('replaces_part_id')}>
               <option value="">ชิ้นนี้ไม่ได้มาแทนชิ้นไหน (ของเพิ่มใหม่)</option>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { changeRequestApi } from '../../api/changeRequestApi.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import { formatDateTime } from '../../utils/formatDate.js'
 
 /** หน้าตรวจสุขภาพข้อมูลสำหรับผู้ดูแลระบบสูงสุด — อ่านอย่างเดียว
  *  ทุกตัวเลขมาจาก query ที่เขียนไว้ล่วงหน้าใน backend (system_check_service) ไม่มีช่องพิมพ์ SQL
@@ -28,7 +29,7 @@ export default function SystemCheckPage() {
         <div>
           <h1 className="text-2xl font-light text-gray-800">ตรวจสอบระบบ</h1>
           <p className="text-xs text-gray-500 mt-1">
-            ตรวจล่าสุด {new Date(data.checked_at).toLocaleString('th-TH')} · อ่านอย่างเดียว ไม่มีการแก้ไขข้อมูลจากหน้านี้
+            ตรวจล่าสุด {formatDateTime(data.checked_at)} · อ่านอย่างเดียว ไม่มีการแก้ไขข้อมูลจากหน้านี้
           </p>
         </div>
         <button onClick={load}
@@ -95,7 +96,7 @@ export default function SystemCheckPage() {
 
       {data.audit_log_since && (
         <p className="text-xs text-gray-400 mt-6">
-          ประวัติการใช้งานเก็บย้อนหลังตั้งแต่ {new Date(data.audit_log_since).toLocaleString('th-TH')}
+          ประวัติการใช้งานเก็บย้อนหลังตั้งแต่ {formatDateTime(data.audit_log_since)}
         </p>
       )}
     </div>

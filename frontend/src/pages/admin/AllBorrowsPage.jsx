@@ -157,7 +157,7 @@ export default function AllBorrowsPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
                             <span className="text-gray-400">×{item.quantity}</span>
-                            {isConsumable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">วัสดุ</span>}
+                            {isConsumable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">วัสดุสิ้นเปลือง</span>}
                             {item.returned ? (
                               <span className={`text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
                                 {CONDITION_LABEL[item.condition_on_return] ?? 'สรุปแล้ว'}

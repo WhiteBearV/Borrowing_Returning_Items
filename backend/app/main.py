@@ -42,7 +42,7 @@ def _warn_unsafe_config() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _warn_unsafe_config()
-    start_scheduler()
+    await start_scheduler()
     yield
 
 

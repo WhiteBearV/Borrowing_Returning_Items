@@ -6,21 +6,14 @@ import EmptyState from '../../components/common/EmptyState.jsx'
 import { ReturnModal } from '../../components/borrow/ReturnModal.jsx'
 import ReasonModal, { REJECT_REASONS } from '../../components/common/ReasonModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
-import { formatDate, formatDateTime } from '../../utils/formatDate.js'
+import { formatDate, formatDateTime, todayTH } from '../../utils/formatDate.js'
 import UnitPickerModal from '../../components/borrow/UnitPickerModal.jsx'
 import { settingsApi } from '../../api/settingsApi.js'
 import { apiErrorMessage } from '../../utils/apiError.js'
+import DateInput from '../../components/common/DateInput.jsx'
 
-// ค่าเริ่มต้นช่อง datetime-local = พรุ่งนี้ตามเวลาใน settings — ประกอบสตริงเอง ไม่ผ่าน toISOString
-// เพราะ toISOString แปลงเป็น UTC แล้วช่องจะขึ้นเวลาเพี้ยนไป 7 ชั่วโมง
-const tomorrowAt = (hhmm = '13:00') => {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  const [h, m] = hhmm.split(':')
-  d.setHours(Number(h) || 13, Number(m) || 0, 0, 0)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// ค่าเริ่มต้นช่อง datetime-local = พรุ่งนี้ (ปฏิทินไทย) ตามเวลาใน settings
+const tomorrowAt = (hhmm = '13:00') => `${todayTH(1)}T${/^\d{2}:\d{2}$/.test(hhmm) ? hhmm : '13:00'}`
 
 // คำขอต้อง "ทำอะไรสักอย่าง" ถ้ายัง pending (รออนุมัติ) หรือ approved ที่มี item แจ้งขอคืนแล้ว/ขอต่อเวลาแล้ว
 const needsAttentionCheck = (req) =>
@@ -212,8 +205,12 @@ export default function BorrowRequestsPage() {
                       <div>
                         <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
                         <span className="ml-3 text-sm text-gray-500">{req.items.length} รายการ</span>
+                        <span className="ml-3 text-xs text-gray-500">
+                          ผู้ยืม: {req.student_name ?? '—'}
+                          {req.student_year_label && <span className="text-gray-400"> ({req.student_year_label})</span>}
+                        </span>
                       </div>
-                      <span className="text-xs text-gray-400">{new Date(req.requested_at).toLocaleDateString('th-TH')} {expanded === req.id ? '▲' : '▼'}</span>
+                      <span className="text-xs text-gray-400">{formatDate(req.requested_at)} {expanded === req.id ? '▲' : '▼'}</span>
                     </button>
 
                     {expanded === req.id && (
@@ -270,7 +267,10 @@ export default function BorrowRequestsPage() {
                                   )}
                                   {/* ปกติระบบเลือกหน่วยที่ถูกใช้น้อยสุดให้ — ปุ่มนี้ไว้เลือกทับตอนต้องจ่ายเครื่องที่อยู่ตรงหน้า */}
                                   {ok && item.equipment_id && (
-                                    <button type="button" onClick={() => setUnitPicker({ ...item, requestId: req.id })}
+                                    <button type="button" onClick={() => setUnitPicker({
+                                      ...item, requestId: req.id,
+                                      studentId: req.student_id, studentYearLabel: req.student_year_label,
+                                    })}
                                       className="text-primary-600 hover:underline">
                                       {d?.equipment_id ? `จ่ายหน่วย ${pickedCodes[item.id] ?? ''} (เปลี่ยน)` : 'เลือกหน่วยเอง'}
                                     </button>
@@ -327,7 +327,10 @@ export default function BorrowRequestsPage() {
                       <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
-                          <span className="text-xs text-gray-500">ผู้ยืม: {req.student_name ?? '—'}</span>
+                          <span className="text-xs text-gray-500">
+                            ผู้ยืม: {req.student_name ?? '—'}
+                            {req.student_year_label && <span className="text-gray-400"> ({req.student_year_label})</span>}
+                          </span>
                         </div>
                         {/* เวลานัดคืนที่เร็วที่สุดของใบ — แอดมินกวาดตาดูคิวได้โดยไม่ต้องกางทุกใบ */}
                         {Number.isFinite(nextAppoint(req)) && (
@@ -396,7 +399,10 @@ export default function BorrowRequestsPage() {
                       <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-sm font-semibold text-gray-700">{req.request_code}</span>
-                          <span className="text-xs text-gray-500">ผู้ยืม: {req.student_name ?? '—'}</span>
+                          <span className="text-xs text-gray-500">
+                            ผู้ยืม: {req.student_name ?? '—'}
+                            {req.student_year_label && <span className="text-gray-400"> ({req.student_year_label})</span>}
+                          </span>
                         </div>
                       </div>
                       <span className="text-xs text-gray-400">{expanded === req.id ? '▲' : '▼'}</span>
@@ -452,6 +458,8 @@ export default function BorrowRequestsPage() {
         <UnitPickerModal
           item={unitPicker}
           selectedId={decisions[unitPicker.id]?.equipment_id ?? null}
+          studentId={unitPicker.studentId}
+          studentYearLabel={unitPicker.studentYearLabel}
           onPick={(equipmentId, code) => {
             setDecision(unitPicker.id, { equipment_id: equipmentId })
             setPickedCodes((c) => ({ ...c, [unitPicker.id]: code }))
@@ -471,7 +479,7 @@ export default function BorrowRequestsPage() {
             </p>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">วัน-เวลาที่ให้มารับ</label>
-              <input type="datetime-local" value={pickup.at}
+              <DateInput type="datetime-local" value={pickup.at}
                 onChange={(e) => setPickup({ ...pickup, at: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
             </div>

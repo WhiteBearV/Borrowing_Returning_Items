@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
+import DateInput from '../common/DateInput.jsx'
+import { todayTH } from '../../utils/formatDate.js'
 
-const tomorrow = () => {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
-}
+const tomorrow = () => todayTH(1)
 
 // นักศึกษายื่นคำขอต่อเวลา (เลือกวันที่+เหตุผลเอง) — ยังไม่ใช่การต่อเวลาจริง แค่แจ้ง admin ให้มาอนุมัติ
 export function RenewModal({ item, requestId, onClose, onDone }) {
@@ -35,7 +33,7 @@ export function RenewModal({ item, requestId, onClose, onDone }) {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">วันที่ต้องการคืนใหม่</label>
-          <input type="date" min={tomorrow()} value={requestedDate}
+          <DateInput type="date" min={tomorrow()} value={requestedDate}
             onChange={(e) => setRequestedDate(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>

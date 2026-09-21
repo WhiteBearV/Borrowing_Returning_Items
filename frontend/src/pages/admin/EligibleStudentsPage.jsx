@@ -11,9 +11,10 @@ const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเ�
  *  นำเข้าจากไฟล์ "รายชื่อนักศึกษาในที่ปรึกษา" ของสำนักทะเบียน ทีละไฟล์ (1 ไฟล์ = 1 อาจารย์ที่ปรึกษา)
  *  นำเข้าซ้ำได้เรื่อย ๆ — อัปเดตทับด้วยรหัสนักศึกษา ไม่ล้างของเดิมทิ้ง */
 export default function EligibleStudentsPage() {
-  const [data, setData] = useState({ items: [], total: 0 })
+  const [data, setData] = useState({ items: [], total: 0, cohorts: {} })
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [cohort, setCohort] = useState('')  // รุ่น = 2 หลักแรกของรหัส ('' = ทุกรุ่น)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState(null)
@@ -22,11 +23,11 @@ export default function EligibleStudentsPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    eligibleStudentsApi.list({ page, page_size: 20, search: search.trim() || undefined })
+    eligibleStudentsApi.list({ page, page_size: 20, search: search.trim() || undefined, cohort: cohort || undefined })
       .then(setData)
       .catch((e) => setError(e.response?.data?.detail ?? 'โหลดรายชื่อไม่สำเร็จ'))
       .finally(() => setLoading(false))
-  }, [page, search])
+  }, [page, search, cohort])
 
   // หน่วงการค้นหาเล็กน้อย — พิมพ์ทีละตัวอักษรแล้วยิง API ทุกครั้งไม่คุ้ม
   useEffect(() => {
@@ -63,6 +64,8 @@ export default function EligibleStudentsPage() {
       load()
     },
   })
+
+  const allCount = Object.values(data.cohorts ?? {}).reduce((a, b) => a + b, 0)
 
   return (
     <div className="px-6 py-8">
@@ -112,6 +115,15 @@ export default function EligibleStudentsPage() {
         <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           placeholder="ค้นหารหัสนักศึกษา / ชื่อ / อาจารย์ที่ปรึกษา"
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm w-72" />
+        {/* กรองตามรุ่น — ตัวเลือกมาจากรหัสที่มีอยู่จริงในตาราง (backend นับให้) ไม่ hardcode ปี */}
+        <select value={cohort} onChange={(e) => { setCohort(e.target.value); setPage(1) }}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
+          {/* ยังโหลดไม่เสร็จ = ไม่โชว์ตัวเลข (ไม่งั้นแวบขึ้น "0 คน" ก่อนข้อมูลมา) */}
+          <option value="">ทุกรุ่น{allCount ? ` (${allCount} คน)` : ''}</option>
+          {Object.entries(data.cohorts ?? {}).map(([c, n]) => (
+            <option key={c} value={c}>รุ่น {c} ({n} คน)</option>
+          ))}
+        </select>
         <span className="text-xs text-gray-500">{data.total.toLocaleString('th-TH')} รายชื่อ</span>
       </div>
 

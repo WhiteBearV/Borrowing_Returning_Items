@@ -37,6 +37,12 @@ class User(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     line_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     borrow_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")  # เลขรันคำขอยืมต่อผู้ใช้
+    # ชั้นปีนักศึกษา (เฟส 10, 15 ก.ย. 69) — enrollment_year เป็น พ.ศ. (เช่น 2569) มาจากรหัสนักศึกษา
+    # (backfill = 2500 + 2 หลักแรกของรหัส) หรือแอดมินแก้เอง · None = บุคลากร (อาจารย์/เจ้าหน้าที่)
+    # สูตรคำนวณชั้นปีมีจุดเดียวที่ app/utils/study_year.py — ห้ามคำนวณซ้ำที่อื่น
+    enrollment_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    study_years: Mapped[int] = mapped_column(Integer, nullable=False, default=4, server_default="4")
+    is_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

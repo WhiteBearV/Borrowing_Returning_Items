@@ -88,3 +88,6 @@ backend/private_uploads/
 
 # Obsidian wiki (personal knowledge base, ไม่ใช่ deliverable ของโปรเจค)
 /TermPJ_Vault/
+
+# รายชื่อนักศึกษาในที่ปรึกษาจากสำนักทะเบียน (รหัส+ชื่อจริง) — ข้อมูลส่วนบุคคล ห้ามขึ้น repo สาธารณะ (PDPA)
+docs/repofficeradvisor*.xls

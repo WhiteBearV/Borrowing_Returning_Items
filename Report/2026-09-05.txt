@@ -1,0 +1,154 @@
+# รายงานความคืบหน้า — วันที่ 5 กันยายน 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สรุปสั้น
+
+รับ feedback อาจารย์ที่ปรึกษารอบใหม่ 17 หัวข้อ → วิเคราะห์ทั้งหมด จัดทำแผน 9 เฟส
+(เก็บที่ `Plans/2026-09-05-feedback-อาจารย์-17-ข้อ.md`) แล้วลงมือทำจนจบ **เฟส 0, 1 และ 2**
+เทสอัตโนมัติ 345 ตัวผ่านทั้งหมด · frontend build ผ่าน · migration 0029 และ 0030 รันบน DB dev แล้ว
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**เฟส 0 — งานเล็ก**
+- `app/schemas/borrow.py` : `BorrowRequestCreate.purpose` เปลี่ยนจาก optional เป็น **บังคับกรอก**
+  (`min_length=1` + `field_validator` ตัดช่องว่างหัวท้าย) — บังคับที่ชั้น schema ไม่ใช่แค่หน้าเว็บ
+  ตาม CLAUDE.md ข้อ 5 (business rule ต้องอยู่ฝั่ง service/schema)
+- `app/services/borrow_service.py::list_requests` : เพิ่มพารามิเตอร์ `item_type` / `category_id`
+  กรองด้วย EXISTS บน `borrow_items` (ใช้ `item_type_snapshot` ไม่ join equipment เพื่อให้ของที่ถูกลบถาวร
+  ยังกรองได้) + `app/routers/borrow.py` รับ query param ใหม่
+
+**เฟส 1 — Transaction Log ครบทุกการกระทำ**
+- `alembic/versions/0029_audit_log_actor_role.py` : เพิ่มคอลัมน์ `audit_logs.actor_role` (snapshot สิทธิ์
+  ณ ตอนทำ เพราะ role เปลี่ยนภายหลังได้)
+- `app/services/audit_service.py` : `log_action()` บันทึก `actor_role` เพิ่ม + แยกฟังก์ชัน `_filtered_query()`
+  ให้ list และ export ใช้ตัวกรองชุดเดียวกัน + รองรับกรอง `actor` (ชื่อ/รหัส) และ `actor_role`
+- เพิ่มจุดบันทึกที่หายไปทั้งหมด 11 action:
+  - `borrow_service.py` : `create_request`, `cancel_request`, `request_renew`, `request_return`, `delete_request`
+  - `users_service.py` : `create_user`, `update_user_status`, `delete_user` (ส่ง actor เข้ามาผ่าน router)
+  - `settings_service.py` : `update_setting` (เก็บ diff เดิม→ใหม่ + `setting_label` ภาษาไทย,
+    ใช้ `uuid5` จาก key เป็น target_id เพราะตาราง settings ไม่มี UUID)
+  - `auth_service.py` : `register`, `verify_email`
+- **ไม่บันทึก login/logout** โดยตั้งใจ — ปริมาณสูงจนกลบ log ที่มีความหมาย
+
+**เฟส 2 — 3 ระดับสิทธิ์ + คิวคำขอแก้ไข**
+- `app/utils/roles.py` (ไฟล์ใหม่) : นิยาม `student` / `admin` / `superadmin`, `STAFF_ROLES`,
+  `is_staff()`, `is_superadmin()`, `ROLE_LABEL_TH`
+- `app/dependencies.py` : `require_admin` ปล่อย superadmin ผ่านด้วย (จุดเดียวคุม 48 endpoint) +
+  เพิ่ม `require_superadmin()`
+- แก้จุดที่เทียบ `role == "admin"` ตรง ๆ ทั้งหมด 11 จุด (`borrow_service`, `utils/scheduler.py`,
+  `routers/bundle.py`) — สำคัญมาก ไม่งั้น superadmin จะไม่ได้รับแจ้งเตือนคำขอใหม่
+- ย้าย endpoint ต่อไปนี้ไปเป็นสิทธิ์ SuperAdmin เท่านั้น: `PATCH /settings/{key}`,
+  `DELETE /users/{id}`, `PATCH /users/{id}/role` (ใหม่), `DELETE /equipment/{id}/permanent`,
+  `POST /equipment/bulk-delete`, `DELETE /borrow-requests/{id}`
+- `users_service.update_role()` : เปลี่ยนระดับสิทธิ์ + กันไม่ให้เหลือ superadmin น้อยกว่า 1 บัญชี + ลง audit
+- `alembic/versions/0030_change_requests.py` + `models/change_request.py` +
+  `schemas/change_request.py` + `services/change_request_service.py` + `routers/change_request.py` :
+  คิวคำขอแก้ไขข้อมูล (AdminStore ยื่นพร้อมเหตุผล → SuperAdmin ปิดงาน) **ระบบไม่รัน mutation
+  จาก payload เอง** เพราะเท่ากับมีช่องรัน SQL ทางอ้อม
+- `services/system_check_service.py` (ใหม่) : หน้าตรวจสุขภาพข้อมูล — นับแถวทุกตาราง + ตรวจ 6 เงื่อนไข
+  ผิดปกติ (สต็อกเกิน, รายการยืมค้างที่ของถูกลบ, คำขอ approved ไม่มี item, บัญชีไม่ยืนยันเกิน 30 วัน,
+  ของไม่มีราคา, ของไม่มีวันที่ได้มา) — **query ตายตัวทั้งหมด ไม่รับ SQL จากผู้ใช้**
+- `scripts/create_admin.py` : เพิ่ม flag `--superadmin` (บัญชีระดับสูงสุดคนแรกสร้างได้ทางนี้เท่านั้น)
+
+### Frontend
+
+**เฟส 0**
+- `utils/role.js` (ใหม่) : `ROLE_LABEL` / `ROLE_BADGE_CLASS` / `isStaff()` / `isSuperadmin()`
+  รวมป้ายสิทธิ์ไว้ที่เดียว (เดิมคำว่า "Admin" hardcode อยู่ 2 ที่)
+- `components/layout/ProtectedRoute.jsx` : แถบบนแสดง **ชื่อผู้ใช้ + ป้ายระดับสิทธิ์** ทุกหน้า
+- `pages/student/BorrowRequestPage.jsx` : **dropdown วัตถุประสงค์สำเร็จรูป 5 แบบ**
+  (โปรเจกต์จบ 60 วัน / รายวิชา 14 / วิจัย 90 / กิจกรรม 7 / อื่น ๆ) เลือกแล้วเติมวันคืนให้อัตโนมัติ
+  แต่ผู้ใช้ยังแก้วันเองได้ + จัดหน้าเป็น 2 คอลัมน์เต็มจอ
+- `pages/student/MyBorrowsPage.jsx` : เพิ่ม filter สถานะ/หมวดหมู่/ประเภท (เดิมไม่มี filter เลย)
+  + แสดง `extended_due_date` ("กำหนดคืนใหม่") ที่ backend ส่งมาแต่ไม่เคยถูกแสดง
+- `pages/admin/AllBorrowsPage.jsx` : เพิ่ม filter หมวดหมู่/ประเภท + แสดงกำหนดคืนใหม่รายชิ้น
+- `pages/admin/SettingsPage.jsx` : เลือกชนิด input ตามค่าจริง (เดิม hardcode `type="number"`
+  ทำให้ setting ที่เป็นข้อความอย่าง `pdf_value_source` แก้ไม่ได้)
+
+**เฟส 1**
+- `components/audit/auditLabels.js` : เพิ่ม `logSentence()` แปลง log 1 แถวเป็น **ประโยคภาษาไทย
+  บรรทัดเดียว** + ป้าย action ใหม่ 11 ตัว + แปลงค่าดิบเป็นไทย (สภาพเมื่อคืน, วันที่ ISO → วว/ดด/ปปปป)
+- `pages/admin/AuditLogPage.jsx` : เขียนใหม่ — คอลัมน์ "เหตุการณ์" เป็นประโยค, ป้ายสิทธิ์ผู้ทำ,
+  filter ชื่อ/รหัสผู้ทำ + สิทธิ์, ปุ่มดาวน์โหลด CSV (มี BOM ให้ Excel ไทยไม่เพี้ยน, เพดาน 5,000 แถว)
+
+**เฟส 2**
+- `pages/admin/ChangeRequestsPage.jsx` (ใหม่) : ยื่น/ดู/ตัดสินคำขอแก้ไขข้อมูล
+- `pages/admin/SystemCheckPage.jsx` (ใหม่) : หน้าตรวจสอบระบบสำหรับ SuperAdmin
+- `api/changeRequestApi.js` (ใหม่), `api/usersApi.js` : เพิ่ม `updateRole()`
+- `App.jsx` : route ใหม่ 2 หน้า + แยกกลุ่ม `ProtectedRoute role="superadmin"` (กันเข้าตรงด้วย URL)
+- `Sidebar.jsx` : เมนูตามสิทธิ์ + ซ่อนเมนู superadmin-only จากผู้ดูแลคลัง
+- `pages/admin/UsersPage.jsx` : dropdown เปลี่ยนระดับสิทธิ์ (เฉพาะ SuperAdmin) + ป้ายสิทธิ์ไทย
+
+**ปรับหน้าตาตามที่สั่ง**
+- ขยายเต็มความกว้างจอเหมือนหน้าจัดการอุปกรณ์: ประวัติการยืม · จัดการผู้ใช้ · Audit · หน้ายืม
+
+### เทส / เอกสาร / ข้อมูล
+- ไฟล์เทสใหม่ 3 ไฟล์: `test_borrow_history_filters.py`, `test_audit_student_actions.py`,
+  `test_roles_and_change_requests.py` (รวม 11 เทสใหม่)
+- แก้เทสเดิม 20+ จุดให้ส่ง `purpose` และใช้ `superadmin_token` กับ endpoint ที่ย้ายสิทธิ์
+- `conftest.py` : เพิ่ม fixture `test_superadmin` / `superadmin_token`
+- **แก้ปัญหาเทสทิ้งขยะใน DB dev** : `test_user_delete.py` และ `test_equipment_multiple_holders.py`
+  ไม่เคยลบ `audit_logs` ของบัญชี throwaway (ลบ user ผ่าน API แล้ว `actor_id` กลาย NULL ตามเก็บไม่ได้)
+  → เพิ่ม cleanup แล้ว และล้างขยะเก่าที่ค้างอยู่ 176 แถว + บัญชีทดสอบค้าง 2 บัญชี
+- `CLAUDE.md` : อัปเดตตาราง Role/Permission เป็น 3 ระดับ, กฎ audit log ใหม่, กฎ purpose บังคับกรอก
+- สร้างบัญชี SuperAdmin จริง: `superadmin@cdti.ac.th` (username `SUAdmin`)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| `/uploads` ถูก mount แบบสาธารณะไม่มี auth (`main.py:62`) | ตั้งแต่แรกทำเป็น static file ธรรมดา | **ต้องแก้ก่อนทำเฟส 7** (อัปโหลดใบยืมที่เซ็นชื่อ) ไม่งั้นเอกสารมีลายเซ็น+รหัส นศ. เปิดได้ด้วย URL เปล่า = ผิด PDPA |
+| แจ้งเตือนล่วงหน้าก่อนครบกำหนดข้ามรายการที่ต่อเวลาแล้ว | `scheduler._check_due_soon` เทียบเฉพาะ `due_date` ระดับคำขอ ไม่ดู `extended_due_date` | แก้พร้อมเฟส 3 (ทำ `effective_due_date()` ที่เดียวแล้วใช้ทุกจุด) |
+| อุปกรณ์ 1,620 จาก 1,621 แถวไม่มี `acquired_at` และ 906 แถวไม่มีราคา | ข้อมูลนำเข้าจากไฟล์ทะเบียนยังไม่ได้ backfill | ต้องเติมก่อนถึงเฟส 6 ไม่งั้นคำนวณค่าเสื่อม/ค่าเสียหายไม่ได้ (หน้าตรวจสอบระบบใหม่ชี้ให้เห็นแล้ว) |
+| รหัสผ่านบัญชี SuperAdmin ถูกพิมพ์ผ่านแชท | ตกลงค่าเริ่มต้นกันตอนสร้างบัญชี | เปลี่ยนรหัสผ่านผ่านหน้าเว็บก่อนใช้งานจริง |
+| งานทั้งหมดยัง uncommitted (117 ไฟล์เปลี่ยน) | สะสมมาหลายวัน ยังไม่ได้สั่ง commit | รอผู้ใช้สั่ง commit — ควรแยก commit ตามเฟสเพื่อให้ย้อนดูได้ |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] **เฟส 3 — วันคืนรายชิ้น + อนุมัติ/ปฏิเสธบางชิ้น** (migration 0031):
+       เพิ่ม `borrow_items.requested_due_date` / `due_date` / `item_status` / `rejection_reason`
+2. [ ] ทำ `effective_due_date(item)` ที่เดียว แล้วแทนที่ `coalesce(...)` ทุกจุด
+       (`borrow_service.py`, `utils/scheduler.py`) — แก้บั๊กแจ้งเตือนล่วงหน้าไปพร้อมกัน
+3. [ ] `approve_request` รับ body รายชิ้น (อนุมัติ/ไม่อนุมัติ + วันคืนของชิ้นนั้น) และ
+       ปิดคำขอโดยข้ามชิ้นที่ถูกปฏิเสธ
+4. [ ] **ใบยืม PDF เพิ่มคอลัมน์ "กำหนดคืน" รายบรรทัด** (`utils/pdf.py`) — ห้ามพิมพ์วันเดียวคลุมทั้งใบ
+       เมื่อวันไม่ตรงกัน + ใบคืนแสดง "กำหนด / คืนจริง (ช้า N วัน)"
+5. [ ] UI: ตะกร้าติ๊ก "กำหนดวันคืนแยกรายชิ้น" + หน้าอนุมัติของแอดมินติ๊กรายชิ้น
+6. [ ] เทสเฟส 3 + เปิดไฟล์ PDF ดูด้วยตาจริง (ความกว้างตารางเช็คด้วยเทสไม่ได้)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% ของขอบเขตเดิม + เฟสใหม่ 3 ใน 9 เฟสเสร็จ — เหลือเฟส 3–9 ตามแผน
+(รายชิ้น/นัดรับ-คืน/สถิติ/ค่าปรับ/ใบเซ็น/ฟอร์ม/predefine)
+**Frontend:** ~98% ของขอบเขตเดิม + หน้าใหม่ 2 หน้า (คำขอแก้ไขข้อมูล, ตรวจสอบระบบ)
+**ระยะรวม:** แผนใหม่ประเมิน 17–19 วันทำงาน ทำไปแล้ว ~3 วันทำงานเทียบเท่า (เฟส 0–2)
+เทสอัตโนมัติ 345 ตัวผ่านทั้งหมด
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Pending Items จาก CLAUDE.md ข้อ 10 ที่ยังค้าง:**
+  - ไฟล์รายชื่อนักศึกษาจากสาขา — **จำเป็นสำหรับเฟส 9** (predefine ผู้สมัคร ป้องกันการสมัครปลอม
+    ที่อาจารย์ยกมา) ยังไม่ได้รับ ถ้าไม่ได้จะทำเป็นคิวอนุมัติผู้สมัครแทน
+  - `ALLOWED_EMAIL_DOMAINS` ยังต้องยืนยันกับอาจารย์ก่อน deploy จริง
+  - LINE OA ยังไม่เริ่ม (stretch goal)
+- **ค่าปรับ (เฟส 6) ขัดกับ CLAUDE.md ข้อ 11 เดิม** ที่เขียนว่าอยู่นอกขอบเขต — อาจารย์สั่งให้ทำแล้ว
+  ผู้ใช้ยืนยันขอบเขต: คิดและเก็บประวัติอย่างเดียวก่อน ยังไม่บล็อกการยืม ต้องแก้เอกสารตอนทำเฟสนั้น
+- **กฎการจ่ายของเปลี่ยนจาก FIFO (เก่าสุดก่อน) เป็น "ถูกใช้น้อยสุดก่อน"** ในเฟส 5 —
+  ขัดกับการตัดสินใจของแผนรอบ 3 ก.ย. โดยตั้งใจ ต้องอัปเดต CLAUDE.md ตอนทำ ไม่งั้นรอบหน้าจะแก้กลับไปกลับมา
+- เฟส 3 เป็นเฟสที่เสี่ยงที่สุดในแผน (แตะ approve/return/scheduler/PDF พร้อมกัน)
+  ต้องตรวจยอดสต็อกรวมก่อน-หลัง migration ให้เท่ากัน

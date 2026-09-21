@@ -79,6 +79,18 @@ class EquipmentResponse(BaseModel):
     # (ดู get_holders_map) ส่งมาเสมอทุก response ไม่ใช่แค่ตอน detail เพื่อให้ตารางจัดการอุปกรณ์โชว์ได้ตรง ๆ
     holders: list[HolderInfo] = []
 
+    # ค่าคุณภาพ (เฟส 10) — **เฉพาะเจ้าหน้าที่เห็น** (equipment_service.attach_quality_info เติมให้เฉพาะ
+    # viewer ที่ is_staff เท่านั้น) นักศึกษาได้ None ทุกฟิลด์เสมอ ไม่มีข้อยกเว้น
+    quality_tracked: bool | None = None
+    quality_life_years: int | None = None
+    quality_baseline: float | None = None       # ว่าง = ยังไม่เคยประเมิน (ห้ามตีความเป็น 0)
+    quality_baseline_at: datetime | None = None
+    current_quality: float | None = None        # คำนวณสดจาก equipment_service.current_quality()
+    quality_age_drop: float | None = None        # ส่วนที่หักจากอายุ (จุดเปอร์เซ็นต์) — ใช้โชว์ที่มาของตัวเลข
+    quality_usage_drop: float | None = None      # ส่วนที่หักจากการถูกยืม (จุดเปอร์เซ็นต์)
+    quality_needs_inspection: bool | None = None  # ต่ำกว่าเกณฑ์ quality_low_threshold — ยังยืมได้ตามปกติ
+    quality_remaining_life_years: float | None = None  # อายุที่เหลือ (ปี) = คุณภาพ% × อายุการใช้งาน
+
     model_config = {"from_attributes": True}
 
 
@@ -149,6 +161,17 @@ class EquipmentUnitSummary(BaseModel):
     # แอดมินเห็นตัวเลขนี้ตอนอนุมัติ จะได้รู้ว่าทำไมระบบเลือกชิ้นนี้ และตัดสินใจเลือกทับเองได้
     days_borrowed: int = 0
 
+    # ค่าคุณภาพ (เฟส 10) — เฉพาะเจ้าหน้าที่เห็น (เหมือน EquipmentResponse ดู attach_quality_info)
+    quality_tracked: bool | None = None
+    quality_life_years: int | None = None
+    quality_baseline: float | None = None
+    quality_baseline_at: datetime | None = None
+    current_quality: float | None = None
+    quality_age_drop: float | None = None
+    quality_usage_drop: float | None = None
+    quality_needs_inspection: bool | None = None
+    quality_remaining_life_years: float | None = None
+
     model_config = {"from_attributes": True}
 
 
@@ -183,6 +206,9 @@ class PartCreate(BaseModel):
     note: str | None = None
     # ชิ้นเดิมที่ถูกแทนที่ (ต้องอยู่กับอุปกรณ์ตัวเดียวกัน — ตรวจใน equipment_part_service.install_part)
     replaces_part_id: uuid.UUID | None = None
+    # ประเมินคุณภาพเครื่องหลักใหม่ (ไม่บังคับ) — มีผลก็ต่อเมื่อเครื่องหลักเปิดติดตามคุณภาพอยู่ (quality_tracked)
+    # หน้าเว็บเสนอ "ปัจจุบัน −2" (quality_repair_default_drop) เป็นค่าเริ่มต้นให้แก้ก่อนส่ง
+    quality_after: float | None = Field(None, ge=0, le=100)
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
 
@@ -207,6 +233,24 @@ class PartRemove(BaseModel):
 class EquipmentGroupDetailResponse(EquipmentGroupResponse):
     holders: list[HolderInfo]
     members: list[EquipmentUnitSummary] = []
+    # หน่วยที่ dispatch_order() แนะนำให้จ่ายกับผู้ยืมที่ระบุผ่าน query param recommend_for (เฉพาะเจ้าหน้าที่)
+    # None = ไม่ได้ขอคำแนะนำ หรือไม่มีหน่วยว่างให้เลือกเลย — UnitPickerModal ใช้ขึ้นป้าย "แนะนำสำหรับผู้ยืมนี้"
+    recommended_unit_id: uuid.UUID | None = None
+
+
+class EquipmentQualityAssessRequest(BaseModel):
+    """ปุ่ม "ประเมินคุณภาพ" ในหน้าอุปกรณ์ — บังคับเหตุผลเสมอ (ต่างจาก 3 จังหวะอัตโนมัติอื่นที่ไม่บังคับ)"""
+    quality_after: float = Field(..., ge=0, le=100)
+    reason: str = Field(..., min_length=1)
+
+    # min_length=1 เฉยๆ ยอมรับ " " (ช่องว่างล้วน) ผ่านได้ — บังคับ strip แล้วต้องไม่ว่างจริง (พบตอนรีวิวรอบ 2)
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("กรุณาระบุเหตุผลที่ประเมินคุณภาพ")
+        return v
 
 
 class EquipmentCreate(BaseModel):
@@ -276,9 +320,31 @@ class EquipmentUpdate(BaseModel):
     # เปลี่ยนสถานะเป็น action ที่ต้องอธิบายได้ (เฟส 8) — บังคับเฉพาะเมื่อ status เปลี่ยนจริง
     # ("ทำไมเครื่องนี้ถึงกลายเป็นซ่อมอยู่" ต้องตอบได้จาก audit ไม่ใช่เดาจากวันที่)
     status_reason: str | None = None
+    # ค่าคุณภาพ (เฟส 10) — เปิด/ปิดติดตามและอายุการใช้งานที่ใช้คิด ใช้กับทั้งรุ่นเสมอ (ดู
+    # equipment_service.update_equipment ที่ propagate ให้หน่วยอื่นในรุ่นเดียวกันด้วย find_group_members)
+    quality_tracked: bool | None = None
+    quality_life_years: int | None = Field(None, gt=0)
+    # ประเมินคุณภาพใหม่ (ไม่บังคับ) เฉพาะตอนสถานะเปลี่ยนกลับเป็น available (ซ่อมเสร็จ) — เหตุผลไม่บังคับ
+    # ต่างจากปุ่ม "ประเมินคุณภาพ" เดี่ยว ๆ ที่บังคับเหตุผลเสมอ
+    quality_after: float | None = Field(None, ge=0, le=100)
+    quality_reason: str | None = None
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
+
+    # quality_tracked ลง Equipment.quality_tracked ซึ่งเป็นคอลัมน์ NOT NULL — ส่ง `null` มาตรง ๆ จะหลุด
+    # exclude_unset (นับว่า "ส่งมา") แล้วไปตั้งค่า None ทับคอลัมน์นี้ตอน setattr กลายเป็น 500 IntegrityError
+    # แทนที่จะเป็น 422 ที่อ่านเข้าใจ — "ไม่ต้องการแก้ค่านี้" ต้องไม่ส่ง field มาเลย (ค่า default None ของฟิลด์
+    # นี้จึงไม่ถูกกระทบ เพราะ validator ทำงานเฉพาะตอน field ถูกส่งมาจริงเท่านั้น ไม่ทำงานตอนใช้ default)
+    # แก้ตามรีวิวรอบ 4, M-g
+    @field_validator("quality_tracked")
+    @classmethod
+    def _quality_tracked_not_null(cls, v: bool | None) -> bool:
+        if v is None:
+            raise ValueError(
+                "quality_tracked ต้องเป็น true หรือ false เท่านั้น (ไม่ต้องการแก้ค่านี้ ไม่ต้องส่ง field นี้มา)"
+            )
+        return v
 
 
 class ImportRowIn(BaseModel):
@@ -359,10 +425,21 @@ class EquipmentBulkUpdate(BaseModel):
     description: str | None = None
     image_urls: list[str] | None = None
     unit: str | None = None
-    unit_value: float | None = None
+    # ทะเบียน/การเงิน — superadmin เท่านั้น (bulk_update_equipment เช็ค FINANCE_FIELDS) · validator เดียวกับ
+    # EquipmentUpdate · 21 ก.ย. 69 เพิ่ม 3 ฟิลด์หลัง: หน้าเว็บส่งมาตลอดแต่ schema ไม่มี pydantic เลยทิ้งเงียบ ๆ
+    # (แก้วันที่ได้มา/อายุการใช้งานหลายรายการแล้ว "บันทึกสำเร็จ" ทั้งที่ไม่มีอะไรเปลี่ยน)
+    unit_value: float | None = Field(None, gt=0)
+    acquired_at: date | None = None
+    useful_life_years: int | None = Field(None, gt=0)
+    book_value_override: float | None = Field(None, ge=0)
     low_stock_threshold: int | None = None
     status: str | None = None
     is_borrowable: bool | None = None
+    # ค่าคุณภาพ (เฟส 10) — เปิด/ปิดติดตามคุณภาพหรือแก้อายุการใช้งานพร้อมกันหลายหน่วยได้ ปลอดภัยเหมือนฟิลด์อื่น
+    # ด้านบน (ไม่มี unique constraint) การประเมินค่าจริง (quality_baseline) แยกไปอยู่ใน BulkUpdateRequest
+    # เพราะต้องบังคับเหตุผลคู่กัน (เหมือน status_reason) ไม่ใช่ฟิลด์ "แก้แล้วจบ" ธรรมดา
+    quality_tracked: bool | None = None
+    quality_life_years: int | None = Field(None, gt=0)
 
 
 class BulkUpdateRequest(BaseModel):
@@ -370,6 +447,10 @@ class BulkUpdateRequest(BaseModel):
     update: EquipmentBulkUpdate
     # บังคับเมื่อ update.status ถูกส่งมา (เฟส 8) — เหตุผลเดียวใช้กับทุกแถวที่เลือก เหมือน bulk_retire
     status_reason: str | None = None
+    # ประเมินคุณภาพทั้งชุดพร้อมกัน (ไม่บังคับ) — ข้ามแถวที่ไม่ได้เปิด quality_tracked อย่างเงียบ ๆ
+    # quality_reason บังคับก็ต่อเมื่อส่ง quality_baseline มา (ดู equipment_service.bulk_update_equipment)
+    quality_baseline: float | None = Field(None, ge=0, le=100)
+    quality_reason: str | None = None
 
 
 class BulkUpdateResult(BaseModel):

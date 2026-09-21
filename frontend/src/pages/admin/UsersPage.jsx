@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
@@ -10,6 +11,15 @@ const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเ�
 // ดร. เพิ่มจาก RegisterPage.jsx เพราะ admin สร้างบัญชีอาจารย์ได้ด้วย ไม่ใช่แค่นักศึกษา
 const TITLES = ['นาย', 'นาง', 'นางสาว', 'ดร.']
 
+// FastAPI 422 คืน detail เป็น array ของ object — เซ็ตตรง ๆ ลง error state แล้ว render {error} จะ crash
+// (pattern เดียวกับ EquipmentManagePage.jsx errMsg — แก้ตามรีวิวรอบ 3, MINOR-4)
+const errMsg = (err, fallback) => {
+  const d = err.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) return d.map((e) => e.msg).join(', ')
+  return fallback
+}
+
 export default function UsersPage() {
   const { user: me } = useAuthContext()
   // เปลี่ยนสิทธิ์/ลบบัญชีเป็นของผู้ดูแลระบบสูงสุด (backend กันด้วย require_superadmin อยู่แล้ว)
@@ -18,16 +28,24 @@ export default function UsersPage() {
   const [data, setData] = useState({ items: [], total: 0 })
   const [page, setPage] = useState(1)
   const [roleFilter, setRoleFilter] = useState('')
+  // ชั้นปี (เฟส 10) — "1".."4" / "retained" (ตกค้าง) / "staff" (บุคลากร) คำนวณสดฝั่ง backend
+  // (แก้ตามรีวิวรอบ 4, M-j — คอมเมนต์เดิมค้าง "1".."10" จากก่อนจำกัดช่วง study_years)
+  // อ่านค่าเริ่มต้นจาก URL (?year_group=) ตอน mount — Dashboard การ์ดชั้นปีลิงก์มาที่นี่พร้อมตัวกรองแล้ว
+  // เดิมไม่อ่านเลย ทำให้ลิงก์จาก Dashboard พาเข้ามาหน้านี้แล้วตัวกรองไม่ติดมาด้วย (พบตอนรีวิวรอบ 2)
+  const [searchParams] = useSearchParams()
+  const [yearFilter, setYearFilter] = useState(searchParams.get('year_group') || '')
   // คิวผู้สมัครที่ระบบตรวจแล้วไม่ตรงรายชื่อของสาขา (เฟส 9) — โหลดแยกจากตารางหลัก
   // เพื่อให้ขึ้นเด่นด้านบนเสมอ ไม่ว่าแอดมินจะกรองอะไรอยู่หรือหน้าไหน
   const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirm, setConfirm] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [studyTarget, setStudyTarget] = useState(null)  // ผู้ใช้ที่กำลังแก้ชั้นปี
 
   const load = () => {
     setLoading(true)
-    usersApi.list({ role: roleFilter || undefined, page, page_size: 20 }).then(setData).finally(() => setLoading(false))
+    usersApi.list({ role: roleFilter || undefined, year_group: yearFilter || undefined, page, page_size: 20 })
+      .then(setData).finally(() => setLoading(false))
     usersApi.list({ approval_status: 'pending', page: 1, page_size: 50 })
       .then((d) => setPending(d.items)).catch(() => setPending([]))
   }
@@ -48,7 +66,7 @@ export default function UsersPage() {
     },
   })
 
-  useEffect(() => { load() }, [roleFilter, page])
+  useEffect(() => { load() }, [roleFilter, yearFilter, page])
 
   const toggleStatus = (user) => {
     const label = user.is_active ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'
@@ -105,6 +123,18 @@ export default function UsersPage() {
             <option value="admin">ผู้ดูแลคลัง</option>
             <option value="superadmin">ผู้ดูแลระบบสูงสุด</option>
           </select>
+          {/* ชั้นปี (เฟส 10) — คำนวณสดจากรหัสนักศึกษา ไม่ใช่คอลัมน์ตรง ให้ backend กรองให้ */}
+          <select value={yearFilter} onChange={(e) => { setYearFilter(e.target.value); setPage(1) }}
+            className="flex-1 sm:flex-none rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+            <option value="">ทุกชั้นปี</option>
+            {[1, 2, 3, 4].map((y) => <option key={y} value={y}>ปี {y}</option>)}
+            <option value="retained">ตกค้าง</option>
+            <option value="staff">บุคลากร</option>
+            {/* Dashboard การ์ดชั้นปีลิงก์มาด้วย ?year_group=unknown ได้ (นักศึกษาที่ enrollment_year เป็น
+                None — รหัสไม่ตรงรูปแบบ/ข้อมูลเก่า) เดิม select นี้ไม่มีตัวเลือกนี้ ทำให้โชว์ "ทุกชั้นปี"
+                หลอก ๆ ทั้งที่ตัวกรองยังติดอยู่จริง (แก้ตามรีวิวรอบ 3, MINOR-3) */}
+            <option value="unknown">ไม่ทราบชั้นปี</option>
+          </select>
           <button onClick={() => setShowAdd(true)}
             className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
             + เพิ่มผู้ใช้
@@ -142,7 +172,7 @@ export default function UsersPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['ชื่อ', 'อีเมล', 'รหัสประจำตัว', 'สาขา', 'สถานะ', ''].map((h) => (
+                {['ชื่อ', 'อีเมล', 'รหัสประจำตัว', 'สาขา', 'ชั้นปี', 'สถานะ', ''].map((h) => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -160,6 +190,14 @@ export default function UsersPage() {
                   <td className="px-4 py-2.5 text-gray-500">{u.email}</td>
                   <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{u.student_id ?? u.username ?? '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500 text-xs">{MAJOR_LABEL[u.major] ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    <span className={u.is_retained ? 'text-amber-600 font-medium' : 'text-gray-500'}>
+                      {u.study_year_label}
+                    </span>
+                    {u.student_id && (
+                      <button onClick={() => setStudyTarget(u)} className="ml-1.5 text-primary-600 hover:underline">แก้</button>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     {u.approval_status === 'pending'
                       ? <span className="text-xs text-amber-600">รออนุมัติ</span>
@@ -216,6 +254,98 @@ export default function UsersPage() {
           onCreated={() => { setShowAdd(false); setPage(1); load() }}
         />
       )}
+
+      {studyTarget && (
+        <StudyEditModal
+          user={studyTarget}
+          onClose={() => setStudyTarget(null)}
+          onSaved={() => { setStudyTarget(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// แก้ปีที่เข้าศึกษา/จำนวนปี/เทียบโอนรายคน (เฟส 10) — เคสพิเศษที่สูตรอัตโนมัติไม่ตรง (ย้ายสาขา/รหัสผิด/
+// เทียบโอนที่ยังไม่ได้ตั้งค่า) บังคับเหตุผลเสมอเพราะกระทบกฎจ่ายของ
+function StudyEditModal({ user, onClose, onSaved }) {
+  const [enrollmentYear, setEnrollmentYear] = useState(user.enrollment_year ?? '')
+  const [studyYears, setStudyYears] = useState(user.study_years ?? 4)
+  const [isTransfer, setIsTransfer] = useState(!!user.is_transfer)
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!reason.trim()) { setError('กรุณาระบุเหตุผลที่แก้ไข'); return }
+    const payload = {
+      enrollment_year: enrollmentYear === '' ? null : Number(enrollmentYear),
+      is_transfer: isTransfer,
+      reason: reason.trim(),
+    }
+    // ส่ง study_years เฉพาะตอนแก้ค่าจริงเท่านั้น (ไม่ใช่ส่งค่าเดิมซ้ำทุกครั้งเหมือนเดิม) — ผู้ใช้เก่า/นำเข้า
+    // ที่ study_years ค้างนอกช่วง 2-4 (ก่อนแผนจำกัดช่วง — ดู CLAUDE.md) ต้องแก้ enrollment_year/is_transfer
+    // ได้โดยไม่ต้องแก้ study_years ก่อนเสมอไป ไม่งั้น backend ปฏิเสธ 422 (ge=2,le=4) จากค่าเดิมที่ส่งซ้ำมาเอง
+    // ทั้งที่ผู้ใช้ไม่ได้ตั้งใจแก้ฟิลด์นี้เลย (แก้ตามรีวิวรอบ 4, M-c) — เช็คช่วง 2-4 เฉพาะตอนจะส่งจริงเท่านั้น
+    // (เคลียร์ช่อง "จำนวนปี" ทั้งหมดแล้วส่งไปตรง ๆ จะได้ study_years: 0 → backend 422 ด้วย detail เป็น array
+    // ของ object ซึ่ง setError(array) เดิมเอาไป render ตรง ๆ แล้ว React crash — ตรวจก่อนส่งเลย รีวิวรอบ 3, MINOR-4)
+    if (Number(studyYears) !== Number(user.study_years ?? 4)) {
+      const years = Number(studyYears)
+      if (studyYears === '' || !Number.isInteger(years) || years < 2 || years > 4) {
+        setError('จำนวนปีที่ควรเรียนจบต้องเป็นจำนวนเต็ม 2-4 ปี')
+        return
+      }
+      payload.study_years = years
+    }
+    setSaving(true); setError('')
+    try {
+      await usersApi.updateStudy(user.id, payload)
+      onSaved()
+    } catch (err) {
+      setError(errMsg(err, 'บันทึกไม่สำเร็จ'))
+      setSaving(false)
+    }
+  }
+
+  const input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500'
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center px-4 z-50">
+      <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6 space-y-3">
+        <h2 className="text-lg font-bold text-gray-800">แก้ไขชั้นปี</h2>
+        <p className="text-sm text-gray-500">{user.full_name} ({user.student_id})</p>
+        {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+        <label className="block text-xs font-medium text-gray-600">ปีที่เข้าศึกษา (พ.ศ.)</label>
+        <input className={input} type="number" min={2500} max={2700} value={enrollmentYear}
+          onChange={(e) => setEnrollmentYear(e.target.value)} placeholder="เช่น 2569" />
+
+        <label className="block text-xs font-medium text-gray-600">จำนวนปีที่ควรเรียนจบ</label>
+        <input className={input} type="number" min={2} max={4} value={studyYears}
+          onChange={(e) => setStudyYears(e.target.value)} />
+
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={isTransfer} onChange={(e) => setIsTransfer(e.target.checked)}
+            className="rounded border-gray-300" />
+          นักศึกษาเทียบโอน
+        </label>
+
+        <label className="block text-xs font-medium text-gray-600">เหตุผล *</label>
+        <input className={input} value={reason} onChange={(e) => setReason(e.target.value)}
+          placeholder="เช่น ย้ายสาขามาเทียบโอน / รหัสไม่ตรงรูปแบบเดิม" />
+
+        <div className="flex gap-2 pt-2">
+          <button type="button" onClick={onClose}
+            className="flex-1 rounded-full border border-gray-300 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            ยกเลิก
+          </button>
+          <button type="submit" disabled={saving}
+            className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
+            {saving ? 'กำลังบันทึก…' : 'บันทึก'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

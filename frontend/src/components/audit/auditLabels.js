@@ -1,6 +1,6 @@
 // ป้ายภาษาไทยของ audit log — ใช้ร่วมกันระหว่างหน้า Audit Log รวม และไทม์ไลน์ประวัติรายอุปกรณ์
 // (เดิมนิยามอยู่ในหน้า AuditLogPage ที่เดียว ทำให้ไทม์ไลน์ที่อื่นต้องคัดลอกไปซ้ำ)
-import { formatDate } from '../../utils/formatDate.js'
+import { formatDate, formatDateTime } from '../../utils/formatDate.js'
 
 export const ACTION_LABEL = {
   // ฝั่งผู้ยืม (บันทึกตั้งแต่ 5 ก.ย. 69) — เดิม log มีแต่ฝั่งแอดมิน เลยตอบไม่ได้ว่าเรื่องเริ่มจากใคร
@@ -50,6 +50,9 @@ export const ACTION_LABEL = {
   install_part: 'ติดตั้งชิ้นส่วน',
   update_part: 'แก้ไขชิ้นส่วน',
   remove_part: 'ถอดชิ้นส่วน',
+  // ค่าคุณภาพ + ชั้นปี (เฟส 10, 15 ก.ย. 69)
+  assess_quality: 'ประเมินคุณภาพ',
+  update_user_study: 'แก้ไขข้อมูลชั้นปี',
 }
 
 // ชื่อฟิลด์ในภาษาคน — ที่ผ่านมา modal โชว์ชื่อคอลัมน์ดิบ (`location: 15310 → 15399`) ซึ่งอ่านไม่รู้เรื่อง
@@ -94,6 +97,7 @@ export const FIELD_LABEL = {
   generation: 'รุ่น / หมู่เรียน',
   advisor: 'อาจารย์ที่ปรึกษา',
   set: 'ค่าที่ตั้ง',
+  pickup: 'นัดรับของ',
   equipment_ids: 'รายการที่แก้',
   request_code: 'เลขคำขอ',
   due_date: 'กำหนดคืน',
@@ -107,6 +111,7 @@ export const FIELD_LABEL = {
   new_due_date: 'กำหนดคืนใหม่',
   purpose: 'วัตถุประสงค์',
   requested_due_date: 'วันคืนที่ขอ',
+  notify_time: 'เวลาส่งแจ้งเตือนรายวัน',
   items: 'รายการ',
   role: 'สิทธิ์',
   email: 'อีเมล',
@@ -123,6 +128,26 @@ export const FIELD_LABEL = {
   // อนุมัติบางชิ้น (เฟส 3) — ต้องอ่านออกว่าอนุมัติอะไรไป ไม่อนุมัติอะไรเพราะอะไร
   approved_items: 'รายการที่อนุมัติ',
   rejected_items: 'รายการที่ไม่อนุมัติ',
+  // ค่าคุณภาพ + ชั้นปี (เฟส 10)
+  event: 'เหตุการณ์',
+  before: 'ก่อนประเมิน (%)',
+  after: 'หลังประเมิน (%)',
+  quality_tracked: 'ติดตามค่าคุณภาพ',
+  quality_life_years: 'อายุการใช้งานที่ใช้คิดคุณภาพ (ปี)',
+  affected_codes: 'รหัสหน่วยอื่นในรุ่นที่ได้รับผลด้วย',
+  // แก้หลายรายการพร้อมกัน (bulk_update_equipment) แล้วเปลี่ยนชื่อ/ประเภทเข้ารุ่นที่ (ไม่) ติดตามคุณภาพอยู่
+  // แล้ว — ผลข้างเคียงอัตโนมัติ 2 แบบที่เคยไม่โผล่ใน audit เลย (แก้ตามรีวิวรอบ 4, M-e)
+  quality_inherited: 'สืบทอดค่าคุณภาพอัตโนมัติ (ย้ายเข้ารุ่นที่ติดตามอยู่แล้ว)',
+  quality_auto_untracked: 'ปิดติดตามคุณภาพอัตโนมัติ (แปลงเป็นวัสดุสิ้นเปลือง)',
+  enrollment_year: 'ปีที่เข้าศึกษา (พ.ศ.)',
+  study_years: 'จำนวนปีที่ควรเรียนจบ',
+  is_transfer: 'นักศึกษาเทียบโอน',
+}
+
+// เหตุการณ์การประเมินคุณภาพ (assess_quality.detail.event) — ค่าดิบอ่านไม่รู้เรื่อง
+const QUALITY_EVENT_TH = {
+  manual: 'ประเมินเอง', install_part: 'ติดตั้งชิ้นส่วน',
+  repair_complete: 'ซ่อมเสร็จ', return_damaged: 'รับคืนแบบชำรุด', bulk: 'ประเมินทั้งรุ่น',
 }
 
 const STATUS_TH = {
@@ -147,8 +172,16 @@ export function fmtVal(v, field) {
   if (field === 'status') return STATUS_TH[v] ?? String(v)
   if (field === 'item_type') return TYPE_TH[v] ?? String(v)
   if (field === 'condition') return CONDITION_TH[v] ?? String(v)
+  if (field === 'event') return QUALITY_EVENT_TH[v] ?? String(v)
   // วันที่ใน detail ถูกเก็บเป็น ISO (str(date)) — แสดงเป็น วว/ดด/ปปปป ให้ตรงกับที่อื่นทั้งระบบ
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return formatDate(v)
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return formatDateTime(v)  // timestamp (removed_at ฯลฯ)
+  // ผลกระทบรายแถวใน bulk (set.quality_inherited ฯลฯ): {code, ฟิลด์: [เดิม, ใหม่]} → "EQ-1 (ฟิลด์ เดิม → ใหม่)"
+  if (typeof v === 'object' && v.code) {
+    const diffs = Object.entries(v).filter(([k, d]) => k !== 'code' && Array.isArray(d))
+      .map(([k, [a, b]]) => `${fieldLabel(k)} ${fmtVal(a, k)} → ${fmtVal(b, k)}`)
+    return `${v.code} (${diffs.join(', ')})`
+  }
   if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
 }
@@ -208,6 +241,24 @@ export function detailLines(detail) {
     return Object.entries(detail.changes).map(([field, [from, to]]) => ({
       field, label: fieldLabel(field), from: fmtVal(from, field), to: fmtVal(to, field),
     }))
+  }
+  // "ผลกับทั้งรุ่น" ตอนแก้ quality_tracked/quality_life_years (update_equipment/bulk_update_equipment) —
+  // เก็บ diff แบบเดียวกับ changes แต่คนละคีย์ (แยกจาก entry ปกติที่เป็นของหน่วยเดียวที่แอดมินแก้ตรง ๆ)
+  // ต่อท้ายด้วย affected_codes (flat) ให้เห็นว่ากระทบหน่วยไหนบ้าง
+  if (detail.quality_group_change) {
+    const diffLines = Object.entries(detail.quality_group_change).map(([field, [from, to]]) => ({
+      field, label: fieldLabel(field), from: fmtVal(from, field), to: fmtVal(to, field),
+    }))
+    const restLines = Object.entries(detail)
+      .filter(([k]) => !['code', 'name', 'quality_group_change'].includes(k))
+      .map(([field, v]) => ({ field, label: fieldLabel(field), to: fmtVal(v, field) }))
+    return [...diffLines, ...restLines]
+  }
+  // bulk_update_equipment: ค่าที่ตั้งอยู่ใน detail.set — แตกเป็นทีละฟิลด์ ไม่งั้นขึ้นเป็น JSON ดิบก้อนเดียว
+  if (detail.set) {
+    const { set, ...rest } = detail
+    return [...detailLines(rest),
+      ...Object.entries(set).map(([field, v]) => ({ field, label: fieldLabel(field), to: fmtVal(v, field) }))]
   }
   // action แบบ flat (เพิ่ม/ปลดระวาง/ปรับยอด ฯลฯ) — ข้าม code/name เพราะหัวรายการบอกอยู่แล้ว
   return Object.entries(detail)

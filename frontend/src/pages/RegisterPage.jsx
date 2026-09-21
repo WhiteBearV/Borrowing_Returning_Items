@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { authApi } from '../api/authApi.js'
 
@@ -8,6 +8,10 @@ const MAJORS = [
 ]
 
 const TITLES = ['นาย', 'นาง', 'นางสาว']
+
+// หลักสูตร (เฟส 10) — แสดงให้ทุกคนเลือกได้ตั้งแต่ตอนสมัคร (ไม่ใช่แค่คนที่ระบบรู้ว่าเป็นรุ่นเทียบโอน) กัน
+// ต้องมี endpoint ที่บอกได้ว่ารหัสนี้อยู่ในรายชื่อหรือไม่ (ข้อมูลส่วนบุคคล) — backend ตรวจกับรายชื่อจริงอีกที
+const TRANSFER_YEARS = [2, 3, 4]
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -21,14 +25,26 @@ export default function RegisterPage() {
     confirm_password: '',
     major: '',
     pdpa_consent: false,
+    is_transfer: false,
+    study_years: 4,
   })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  // พรีวิวปีการศึกษา/ชั้นปีใต้ช่องรหัสนักศึกษา (เฟส 10) — คำนวณจากรหัสอย่างเดียว ไม่ค้นรายชื่อ
+  const [yearPreview, setYearPreview] = useState(null)
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
+
+  useEffect(() => {
+    const sid = form.student_id.trim()
+    if (!/^\d{10}$/.test(sid)) { setYearPreview(null); return }
+    let cancelled = false
+    authApi.studyYearPreview(sid).then((p) => { if (!cancelled) setYearPreview(p) }).catch(() => { if (!cancelled) setYearPreview(null) })
+    return () => { cancelled = true }
+  }, [form.student_id])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -47,6 +63,8 @@ export default function RegisterPage() {
         password: form.password,
         pdpa_consent: form.pdpa_consent,
         major: form.major,
+        is_transfer: form.is_transfer,
+        study_years: form.is_transfer ? Number(form.study_years) : 4,
       })
       setSuccess(true)
     } catch (err) {
@@ -148,6 +166,33 @@ export default function RegisterPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="65XXXXXXXX"
             />
+            {/* พรีวิวปีการศึกษา/ชั้นปีจากรหัส (เฟส 10) — คำนวณอย่างเดียว ไม่ได้ยืนยันว่าอยู่ในรายชื่อจริง */}
+            {yearPreview && (
+              <p className="mt-1 text-xs text-gray-500">
+                ปีการศึกษา {yearPreview.academic_year} · ชั้นปีที่ {yearPreview.year_level}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">หลักสูตร</label>
+            <div className="flex gap-2">
+              {[{ v: false, label: 'ปกติ 4 ปี' }, { v: true, label: 'เทียบโอน' }].map((opt) => (
+                <button type="button" key={String(opt.v)}
+                  onClick={() => setForm({ ...form, is_transfer: opt.v, study_years: opt.v ? form.study_years : 4 })}
+                  className={`flex-1 rounded-lg py-2 text-sm font-medium border ${
+                    form.is_transfer === opt.v ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'
+                  }`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {form.is_transfer && (
+              <select value={form.study_years} onChange={set('study_years')}
+                className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                {TRANSFER_YEARS.map((y) => <option key={y} value={y}>เทียบโอน {y} ปี</option>)}
+              </select>
+            )}
           </div>
 
           <div>

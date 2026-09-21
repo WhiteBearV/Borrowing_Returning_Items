@@ -743,7 +743,7 @@ def generate_stock_document_pdf(
               _h("จำนวน", 1), _h("ผู้ทำ"), _h(last_col)]
     table_rows = [header]
     for i, r in enumerate(rows, 1):
-        type_th = {"durable": "ครุภัณฑ์", "material": "วัสดุ", "consumable": "วัสดุสิ้นเปลือง"}.get(
+        type_th = _ITEM_TYPE_TH.get(
             r.get("item_type") or "", "-")
         last_val = (r.get("reason") or "-") if is_disposal else _fmt_date(r.get("date"))
         table_rows.append([

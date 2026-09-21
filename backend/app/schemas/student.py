@@ -27,6 +27,8 @@ class PaginatedEligibleStudents(BaseModel):
     total: int
     page: int
     page_size: int
+    # รุ่น (2 หลักแรกของรหัส) → จำนวนคน ของทั้งตาราง ไม่ขึ้นกับตัวกรอง — ใช้ทำปุ่มกรองตามรุ่นที่มีอยู่จริง
+    cohorts: dict[str, int] = {}
 
 
 class StudentImportResult(BaseModel):

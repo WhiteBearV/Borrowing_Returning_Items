@@ -17,6 +17,15 @@ class MajorUserCount(BaseModel):
     count: int
 
 
+class YearLevelCount(BaseModel):
+    """จำนวนผู้ใช้แยกตามชั้นปี (เฟส 10) — ป้ายภาษาไทยจาก app.utils.study_year (จุดเดียว)"""
+    # คีย์แบบเครื่องอ่าน — "1".."4" / "retained" (ตกค้าง) / "staff" (บุคลากร) / "unknown" (นักศึกษาที่
+    # enrollment_year เป็น None) หน้าเว็บใช้ค่านี้ต่อ URL query (?year_group=) แทนการแกะป้ายภาษาไทยเอง
+    group: str
+    label: str          # "ปีที่ 1" / "ตกค้าง" / "บุคลากร" / "ไม่ทราบชั้นปี"
+    count: int
+
+
 class DashboardSummaryResponse(BaseModel):
     pending_requests: int
     overdue_requests: int
@@ -24,8 +33,9 @@ class DashboardSummaryResponse(BaseModel):
     active_borrows: int
     equipment_borrowed_out: int
     equipment_counts: EquipmentCounts
-    consumed_value_this_month: float
-    consumed_value_this_year: float
+    # มูลค่าอุปกรณ์ทุกประเภทที่ถูกยืมออก (ตามวันที่อนุมัติ, ราคา ณ วันอนุมัติ) — ไม่ใช่ต้นทุนที่เสียไป
+    borrowed_value_this_month: float
+    borrowed_value_this_year: float
     # ของที่ยังกรอกข้อมูลทะเบียนไม่ครบ — ใช้เป็นทางเข้าไล่เติมให้ครบ (ของทุกชิ้นต้องมีราคา/วันที่ได้มา)
     missing_price_items: int = 0
     missing_acquired_at_items: int = 0
@@ -35,6 +45,11 @@ class DashboardSummaryResponse(BaseModel):
     users_staff: int = 0
     users_pending_approval: int = 0
     users_by_major: list[MajorUserCount] = []
+    # ภาพรวมชั้นปี (เฟส 10) — รวมกลุ่มตกค้างแยกจากปี 1-4
+    users_by_year: list[YearLevelCount] = []
+    # การ์ดคุณภาพอุปกรณ์ (เฟส 10) — เฉพาะรุ่นที่เปิดติดตาม (quality_tracked) เท่านั้น
+    quality_low_count: int = 0          # ประเมินแล้วและต่ำกว่า quality_low_threshold
+    quality_unassessed_count: int = 0   # เปิดติดตามแล้วแต่ยังไม่เคยประเมิน
 
 
 class UtilizationRow(BaseModel):
@@ -46,12 +61,25 @@ class UtilizationRow(BaseModel):
     status: str
     unit_value: float | None = None
     acquired_at: date | None = None
-    borrow_count: int = 0
+    borrow_count: int = 0             # สะสม = ยืมทั้งหมด · เลือกช่วง = ยืมใหม่ในช่วงนั้น
     days_borrowed: int = 0            # วันรวมที่ออกจากคลัง (นับขั้นต่ำ 1 วันต่อการยืม 1 ครั้ง)
-    owned_days: int | None = None     # วันที่ครอบครองตั้งแต่ acquired_at (None = ยังไม่กรอกวันที่ได้มา)
-    utilization_rate: float | None = None  # days_borrowed ÷ owned_days (0–1) — None เมื่อไม่รู้วันที่ได้มา
-    cost_per_day: float | None = None      # unit_value ÷ days_borrowed — None เมื่อไม่เคยยืม/ไม่มีราคา
-    rating: str                            # good / fair / idle
+    tracked_days: int = 1             # ช่วงที่วัดผล: ตั้งแต่ของเข้าระบบ (หรือวันที่ได้มาถ้าช้ากว่า) ถึงวันนี้
+    utilization_rate: float | None = None  # days_borrowed ÷ tracked_days (0–1)
+    # ค่าเสื่อมต่อวัน (ราคา − ซาก) ÷ อายุการใช้งาน = ต้นทุนจริงต่อวันถ้าถูกใช้ทุกวัน · None = ไม่มีราคา
+    daily_depreciation: float | None = None
+    # ค่าเสื่อมที่เกิดในช่วงวัด ÷ วันที่ถูกยืมจริง = ต้นทุนต่อวันใช้งาน (รวมต้นทุนวันที่จอดเฉย ๆ ด้วย)
+    # เดิมเป็น "ราคาซื้อทั้งก้อน ÷ วันที่ยืม" (เครื่อง 3.8 แสนยืม 2 วัน = 190,888 บ./วัน) ผิดหลักเพราะเอามูลค่า
+    # ตลอดอายุมาหารการใช้แค่ไม่กี่วัน — None เมื่อไม่เคยยืม/ไม่มีราคา
+    cost_per_use_day: float | None = None
+    rating: str                            # good / fair / low (เคยยืมแต่ใช้น้อย) / idle (ไม่เคยถูกยืม)
+
+
+class UtilizationMonth(BaseModel):
+    """สรุป 1 เดือนปฏิทิน — ใช้เทียบว่าเดือนไหนใช้ของเยอะ/น้อย"""
+    month: str                  # "YYYY-MM"
+    new_borrows: int = 0        # ยืมใหม่ (อนุมัติ) ในเดือนนั้น
+    days_borrowed: int = 0      # วันที่ของออกจากคลังรวม ตัดเฉพาะส่วนที่อยู่ในเดือนนั้น
+    borrowed_value: float = 0   # มูลค่าที่ถูกยืมออก — นิยามเดียวกับการ์ด Dashboard
 
 
 class UtilizationResponse(BaseModel):
@@ -59,6 +87,14 @@ class UtilizationResponse(BaseModel):
     never_borrowed_count: int = 0
     never_borrowed_value: float = 0     # มูลค่ารวมของที่ซื้อมาแล้วไม่เคยถูกยืมเลย — ตัวเลขที่ใช้ต่อรองงบ
     total_days_borrowed: int = 0
+    # ฐานที่ใช้คำนวณ — ส่งให้หน้าเว็บเขียนคำอธิบายสูตรจากค่าจริง (settings/เกณฑ์เปลี่ยนแล้วข้อความไม่ค้าง)
+    depreciation_years_default: int = 5
+    salvage_value: float = 1
+    good_threshold: float = 0.30
+    fair_threshold: float = 0.05
+    date_from: date | None = None      # ช่วงที่เลือก (None = สะสมตั้งแต่เข้าระบบ)
+    date_to: date | None = None
+    monthly: list[UtilizationMonth] = []   # ทุกเดือนตั้งแต่มีการยืม ไม่ขึ้นกับช่วงที่เลือก
 
 
 class FineRow(BaseModel):

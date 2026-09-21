@@ -58,6 +58,15 @@ class Equipment(Base):
     is_borrowable: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # ค่าคุณภาพ (เฟส 10, 15 ก.ย. 69) — เปิดติดตามได้ทีละรุ่น (ครุภัณฑ์/วัสดุใช้ซ้ำเท่านั้นตามธุรกิจ แต่ไม่บังคับที่ DB)
+    # quality_baseline ว่าง = "ยังไม่ประเมิน" (ห้ามใช้ 0 แทนความหมายนี้) — สูตร/การประเมินมีจุดเดียวที่
+    # equipment_service.current_quality() / assess_quality() เท่านั้น (ดู CLAUDE.md)
+    quality_tracked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # อายุการใช้งานที่ใช้คิดคุณภาพ — แยกจาก useful_life_years (อายุทางบัญชี) โดยตั้งใจ ว่าง = ใช้ค่ากลาง
+    # quality_life_years_default จาก settings
+    quality_life_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_baseline: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    quality_baseline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

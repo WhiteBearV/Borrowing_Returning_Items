@@ -3,6 +3,7 @@
 // ที่นี่มีไว้ "พรีวิว" ในโมดัลรับคืนเท่านั้น สูตรต้องตรงกับฝั่ง backend เป๊ะ ไม่งั้นแอดมินเห็นยอดหนึ่ง
 // แล้วระบบบันทึกอีกยอดหนึ่ง (คู่แฝดแบบเดียวกับ utils/dueDate.js ↔ backend/app/utils/duedate.py)
 import { itemDueDate } from './dueDate.js'
+import { daysSinceTH } from './formatDate.js'
 
 export const FINE_STATUS = {
   none: { label: 'ไม่มีค่าปรับ', cls: 'bg-gray-100 text-gray-500' },
@@ -28,12 +29,10 @@ export function previewFine(item, req, condition, settings) {
   const cap = num('fine_max_per_item', 0)
 
   const due = itemDueDate(item, req)
-  const today = new Date()
   let daysLate = 0
   if (due) {
-    // เทียบเป็นวัน (ตัดเวลาทิ้ง) แบบเดียวกับฝั่ง backend ที่เทียบ date กับ date
-    const diff = Math.floor((today.setHours(0, 0, 0, 0) - new Date(due).setHours(0, 0, 0, 0)) / 86400000)
-    daysLate = Math.max(0, diff - grace)
+    // เทียบเป็นวันตามปฏิทินไทย แบบเดียวกับฝั่ง backend ที่เทียบ date กับ date (container ตั้ง TZ=Asia/Bangkok)
+    daysLate = Math.max(0, daysSinceTH(due) - grace)
   }
   let lateAmount = Math.round(daysLate * rate * 100) / 100
   if (cap > 0) lateAmount = Math.min(lateAmount, cap)

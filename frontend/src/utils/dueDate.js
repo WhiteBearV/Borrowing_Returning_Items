@@ -1,5 +1,7 @@
 // วันครบกำหนดคืน "ที่ใช้จริง" ของอุปกรณ์ 1 ชิ้น — คู่แฝดของ backend/app/utils/duedate.py
 // ลำดับความสำคัญต้องตรงกันเป๊ะ ไม่งั้นหน้าเว็บโชว์คนละวันกับที่ระบบทวงและที่พิมพ์ลงใบยืม
+import { daysSinceTH } from './formatDate.js'
+
 export const itemDueDate = (item, req) =>
   item.extended_due_date ?? item.due_date ?? req?.due_date ?? null
 
@@ -16,7 +18,7 @@ export const overdueDays = (item, req) => {
   if (item.returned || item.item_status === 'rejected') return 0
   const due = itemDueDate(item, req)
   if (!due) return 0
-  const diff = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(due).setHours(0, 0, 0, 0)) / 86400000)
+  const diff = daysSinceTH(due)
   return Math.max(0, diff)
 }
 

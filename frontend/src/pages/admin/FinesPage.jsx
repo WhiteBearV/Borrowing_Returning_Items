@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { borrowApi } from '../../api/borrowApi.js'
 import { dashboardApi } from '../../api/dashboardApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
-import { formatDate } from '../../utils/formatDate.js'
+import { formatDate, todayTH } from '../../utils/formatDate.js'
 import { FINE_STATUS, fineMoney } from '../../utils/fine.js'
 import { isSuperadmin } from '../../utils/role.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
@@ -78,7 +78,7 @@ export default function FinesPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ค่าปรับ-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `ค่าปรับ-${todayTH()}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

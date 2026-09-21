@@ -1,7 +1,8 @@
 import csv
 import io
+from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,12 +25,17 @@ async def get_summary(
 
 @router.get("/utilization", response_model=UtilizationResponse)
 async def get_utilization(
-    item_type: str | None = Query(None, pattern="^(durable|material|consumable)$"),
+    item_type: str | None = Query(None, pattern="^(durable|material|consumable|all)$"),
+    date_from: date | None = Query(None, description="ไม่ส่งทั้งคู่ = สะสมตั้งแต่เข้าระบบ"),
+    date_to: date | None = Query(None),
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> UtilizationResponse:
-    """สถิติความคุ้มค่ารายหน่วย (ประกอบการตัดสินใจจัดซื้อ ไม่ใช่ฐานคิดค่าปรับ)"""
-    return await dashboard_service.get_utilization(db, item_type)
+    """สถิติความคุ้มค่ารายหน่วย + สรุปรายเดือน (ประกอบการตัดสินใจจัดซื้อ ไม่ใช่ฐานคิดค่าปรับ)"""
+    if (date_from is None) != (date_to is None) or (date_from and date_from > date_to):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="ระบุช่วงวันที่ให้ครบทั้งเริ่มต้นและสิ้นสุด และวันเริ่มต้องไม่หลังวันสิ้นสุด")
+    return await dashboard_service.get_utilization(db, item_type, date_from, date_to)
 
 
 @router.get("/fines", response_model=FineSummaryResponse)

@@ -9,5 +9,7 @@ export const usersApi = {
   // อนุมัติ/ปฏิเสธผู้สมัครที่ไม่ตรงรายชื่อของสาขา (เฟส 9)
   updateApproval: (id, approve, note) =>
     api.patch(`/users/${id}/approval`, { approve, note }).then((r) => r.data),
+  // แก้ปีที่เข้าศึกษา/จำนวนปี/เทียบโอนรายคน (เฟส 10) — บังคับเหตุผลเสมอ
+  updateStudy: (id, body) => api.patch(`/users/${id}/study`, body).then((r) => r.data),
   deleteUser: (id) => api.delete(`/users/${id}`),
 }

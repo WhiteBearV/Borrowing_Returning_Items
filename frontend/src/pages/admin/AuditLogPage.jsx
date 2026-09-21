@@ -4,13 +4,15 @@ import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { ACTION_LABEL, actionLabel, detailLines, logDetailChips, logHeadline, logSentence } from '../../components/audit/auditLabels.js'
 import { ALL_ROLES, roleBadgeClass, roleLabel } from '../../utils/role.js'
+import DateInput from '../../components/common/DateInput.jsx'
+import { formatDateTime, todayTH } from '../../utils/formatDate.js'
 
 function DetailModal({ log, onClose }) {
   const rows = [
     ['ผู้ทำ', `${log.actor_name ?? '—'}${log.actor_identifier ? ` (${log.actor_identifier})` : ''}`],
     ['สิทธิ์ขณะทำ', log.actor_role ? roleLabel(log.actor_role) : '— (ก่อนระบบเริ่มเก็บ)'],
     ['การกระทำ', actionLabel(log.action)],
-    ['เวลา', new Date(log.created_at).toLocaleString('th-TH')],
+    ['เวลา', formatDateTime(log.created_at)],
     ['ตาราง', log.target_table],
     ['Target ID', log.target_id],
   ]
@@ -94,7 +96,7 @@ export default function AuditLogPage() {
       }
       const header = ['เวลา', 'ผู้ทำ', 'รหัสประจำตัว', 'สิทธิ์ขณะทำ', 'การกระทำ', 'เหตุการณ์', 'ตาราง', 'Target ID']
       const body = rows.map((l) => [
-        new Date(l.created_at).toLocaleString('th-TH'), l.actor_name, l.actor_identifier,
+        formatDateTime(l.created_at), l.actor_name, l.actor_identifier,
         l.actor_role ? roleLabel(l.actor_role) : '', actionLabel(l.action), logSentence(l),
         l.target_table, l.target_id,
       ])
@@ -103,7 +105,7 @@ export default function AuditLogPage() {
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
       const a = document.createElement('a')
       a.href = url
-      a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+      a.download = `audit-log-${todayTH()}.csv`
       a.click()
       setTimeout(() => URL.revokeObjectURL(url), 10000)
     } finally {
@@ -136,8 +138,8 @@ export default function AuditLogPage() {
           <option value="">ทุกการกระทำ</option>
           {Object.entries(ACTION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className={inputClass} />
-        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className={inputClass} />
+        <DateInput type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className={inputClass} />
+        <DateInput type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className={inputClass} />
       </div>
 
       {loading ? (
@@ -156,7 +158,7 @@ export default function AuditLogPage() {
               {data.items.map((log) => (
                 <tr key={log.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelected(log)}>
                   <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap align-top">
-                    {new Date(log.created_at).toLocaleString('th-TH')}
+                    {formatDateTime(log.created_at)}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-gray-700 whitespace-nowrap align-top">
                     {log.actor_name ?? '—'}

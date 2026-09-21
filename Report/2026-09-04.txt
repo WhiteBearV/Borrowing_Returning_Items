@@ -1,0 +1,113 @@
+# รายงานความคืบหน้า — วันที่ 2026-09-04
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้เป็นวัน **QA ทั้งระบบก่อน commit งาน 5 เฟสจาก feedback อาจารย์** (implement เสร็จเมื่อวาน 3 ก.ย. แต่ยัง
+uncommitted) — QA ครอบคลุมตั้งแต่การใช้งานพื้นฐานไปจนถึง 5 เฟสใหม่ พบบั๊ก 4 ข้อ แก้ครบทั้งหมดแล้ว
+พร้อมตอบคำถามเรื่อง Dashboard/การคิดค่าใช้จ่ายที่ผู้ใช้สงสัย
+
+### QA (รันผ่าน fork agent — pytest + browser จริง)
+- **Baseline อัตโนมัติ:** pytest 333 ผ่านหมด, node --test 8 ผ่าน, `npm run build` ผ่าน (ก่อนและหลัง QA)
+- **QA พื้นฐาน:** สมัคร/login (3 รูปแบบ identifier), quota คำขอ/รายการ, บล็อกยืมของหมด/ไม่พร้อม,
+  อนุมัติ/ปฏิเสธ, คืนของแยกตาม `item_type` ครบ 3 แบบ (durable/material/consumable), บังคับรูปตอนความเสียหาย,
+  ต่อเวลา (เพดานวัน/จำนวนครั้ง), audit log, users management — **ผ่านหมด ไม่มี regression**
+- **QA 5 เฟส:** สูตรค่าเสื่อม/override/บังคับราคา (เฟส 1), FIFO ตามอายุจริง (เฟส 2), timeline ภาษาไทย
+  (เฟส 3), เพิ่ม/ถอดชิ้นส่วน+มูลค่ารวม (เฟส 4), username ไม่ชน request_code (เฟส 5) — **ผ่านหมด**
+
+### Backend
+- **`backend/alembic/versions/0028_remove_max_loan_days_setting.py`** (ใหม่) — ลบ setting
+  `max_loan_days_durable` ออกจาก DB จริง เพราะไม่มีผลมาตั้งแต่ migration `0017` (17 ส.ค.) แล้ว
+  แต่แถวยังค้างอยู่ทำให้หน้า Settings หลอกว่าแก้ค่านี้มีผลจริง — apply เข้า dev DB แล้ว
+- **`backend/tests/conftest.py`** — เอา `max_loan_days_durable` ออกจาก fixture `ensure_settings`
+  ไม่ให้ pytest สร้างแถวที่เพิ่งลบกลับมา
+- **`backend/app/services/auth_service.py::register`** — เพิ่มเช็ค `student_id` ซ้ำ → คืน 409
+  พร้อมข้อความอ่านเข้าใจ (เดิมปล่อยชน unique constraint กลายเป็น 500 ดิบ)
+- **`backend/app/services/equipment_service.py::update_equipment`** (~บรรทัด 564) — ไม่สร้าง audit log
+  entry อีกต่อไปถ้า `field_diffs` ว่างเปล่า (แก้แบบไม่มีอะไรเปลี่ยนจริง เช่นส่ง `unit_value: null` ที่ถูก
+  กรองทิ้ง) — เดิมสร้าง entry ว่างเปล่าที่โผล่เป็น noise ใน `AuditTimeline` ที่เพิ่งทำเฟส 3
+- **`backend/app/services/dashboard_service.py`** + **`schemas/dashboard.py`** — เพิ่ม
+  `consumed_value_this_year` คู่กับ `consumed_value_this_month` เดิม (ตามที่ผู้ใช้ขอให้โชว์ทั้งรอบเดือน/ปี)
+- **ลบข้อมูลขยะออกจาก dev DB จริง:** หมวดหมู่ `cat_a_1e1ae3`/`cat_b_1e1ae3`/`cat_old_3a579a` (ยืนยันไม่มี
+  อุปกรณ์ผูกก่อนลบ) + user ทดสอบ `holder2_cae800@cdti.ac.th` (ยืนยันไม่มีคำขอยืมผูกก่อนลบ)
+- **แก้ต้นตอที่ทำให้ขยะเกิด:** `tests/test_api_integration.py::test_equipment_multiple_categories` และ
+  `tests/test_equipment_bulk_update.py::test_bulk_update_category_ids_replaces_existing` เดิมสร้าง
+  หมวดหมู่ทดสอบ**นอก** `try/finally` — ถ้า assertion กลางเทสล้มเหลว cleanup จะไม่ถูกเรียก ครอบให้ปลอดภัย
+  ทั้งคู่แล้ว (pattern เดียวกับเทส SN ซ้ำในไฟล์เดียวกันที่ทำถูกอยู่แล้ว)
+- **`backend/tests/test_auth_register.py`** — เพิ่มเทส
+  `test_register_endpoint_rejects_duplicate_student_id_with_409` คลุมบั๊กที่เพิ่งแก้
+
+### Frontend
+- **`frontend/src/pages/student/EquipmentDetailPage.jsx`** — เพิ่ม role check (`useAuthContext`)
+  ให้แอดมินเห็นมูลค่าแท้จริง/ตามบัญชีในหน้ารายละเอียดอุปกรณ์ (เดิม component ใช้ร่วมกับนักศึกษาและซ่อน
+  ราคาไว้ทุก role ทำให้ผลลัพธ์ที่แผนเฟส 1 ตั้งไว้ "เปิดอุปกรณ์ชิ้นใดก็เห็นมูลค่า" ไม่เกิดจริงสำหรับแอดมิน)
+  ตรวจผ่านเบราว์เซอร์จริงแล้ว: `มูลค่า แท้จริง 1,690.00 / ตามบัญชี — บ.`
+- **`frontend/src/pages/admin/DashboardPage.jsx`** — เพิ่มการ์ด "มูลค่าวัสดุที่ใช้ไปปีนี้" คู่กับ
+  การ์ดรายเดือนเดิม
+
+### เอกสาร
+- **`CLAUDE.md`** — แก้หัวข้อ "การยืมอุปกรณ์"/"การอนุมัติ" ให้ตรงพฤติกรรมจริง: `due_date` มาจาก
+  `requested_due_date` ที่นักศึกษาเลือกเอง (แคป `MAX_REQUESTED_DUE_DATE_YEARS`=3 ปีในโค้ด) **ไม่ใช่**
+  คำนวณจาก setting อีกต่อไป พร้อมโน้ตห้ามเพิ่ม `max_loan_days_durable` กลับมาโดยไม่ถามผู้ใช้ก่อน
+- **`docs/02-system-design.md`** — แก้ 3 จุดที่ยังอ้างอิง `max_loan_days_durable` ให้ตรงกับ CLAUDE.md
+
+### ตอบคำถามผู้ใช้ (บันทึกไว้เพื่ออ้างอิง)
+- **Dashboard คิวรีสดทุกครั้งจริง** — ยืนยันจากโค้ด `dashboard_service.get_summary()` ไม่มี cache layer
+  ใดๆ เลย ทุก request คือ `SELECT` ใหม่หมด
+- **สูตรคิดค่าใช้จ่าย** อธิบายว่ามี 2 ตัวเลขคนละความหมาย: (1) "มูลค่าที่ใช้ไป" บน Dashboard =
+  `Σ(จำนวน × ราคา ณ วันอนุมัติ)` เฉพาะรายการที่สรุปเป็น `used_up`/`discarded` เท่านั้น (ของคืนครบไม่นับ)
+  (2) "มูลค่าตามบัญชี" (เฟส 1) = ค่าเสื่อมเส้นตรงของครุภัณฑ์ ไม่ใช่ค่าใช้จ่าย
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| สมัคร `student_id` ซ้ำ = 500 | `auth_service.register` เช็คซ้ำแค่ email | แก้แล้ว — เช็คก่อน insert คืน 409 |
+| แก้อุปกรณ์แบบไม่มีอะไรเปลี่ยนสร้าง audit log ว่างเปล่า | `update_equipment` เรียก `log_action` เสมอไม่เช็คว่า `field_diffs` ว่างไหม | แก้แล้ว — log เฉพาะเมื่อมี diff จริง |
+| หน้ารายละเอียดอุปกรณ์ไม่โชว์มูลค่าให้แอดมิน | component ใช้ร่วมกับนักศึกษา ซ่อนราคาไว้ทุก role | แก้แล้ว — เพิ่ม role check |
+| `max_loan_days_durable` setting ค้างใน DB ทั้งที่ไม่มีผลจริง | migration 0017 เลิกใช้แล้วแต่ไม่เคยลบแถว setting | แก้แล้ว — migration 0028 ลบออก + อัปเดตเอกสาร |
+| ขยะข้อมูลทดสอบค้างใน dev DB จริง (3 หมวดหมู่ + 1 user) | 2 เทสสร้างข้อมูลนอก try/finally | ลบข้อมูลแล้ว + แก้เทสให้ cleanup ปลอดภัย |
+| **ยังไม่มี backup นอก VM เลย** (ค้างจากเมื่อวาน) | เฟส 6 ยังไม่เริ่ม | รอคิวหลัง commit งานวันนี้ |
+
+**จุดที่ QA รอบนี้ยังไม่ได้ตรวจ** (บอกไว้ตรงๆ ไม่ปิดบัง): bundle/trigger equipment regression,
+notification bell UI, QR code รูปจริง, unverified-email 403 (dev เปิด auto-verify ทดสอบไม่ได้),
+import Excel เต็มรูปแบบ (เสี่ยงกับข้อมูลจริงเกินไป อาศัย pytest coverage แทน)
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ตัดสินใจ commit — รวมงาน 5 เฟส (3 ก.ย.) + บั๊กฟิกซ์วันนี้เป็นชุดเดียว หรือแยก commit
+2. [ ] ตรวจจุดที่ QA วันนี้ยังไม่ครอบคลุม (bundle regression, notification bell, QR, import Excel เต็มไฟล์)
+3. [ ] deploy ขึ้น prod หลัง commit — ต้อง `backup_db.sh` ก่อน `alembic upgrade head` เสมอ (migration ใหม่ 4 ตัว: 0025-0028)
+4. [ ] เริ่มเฟส 6 (backup off-site) ตามแผนเดิมที่ค้างจากเมื่อวาน
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — ฟีเจอร์ครบ + บั๊กจาก QA แก้หมดแล้ว เหลือ backup off-site (เฟส 6, งาน infra)
+**Frontend:** ~99% — ครบทุกหน้า + จุดที่ QA เจอ (โชว์มูลค่าให้แอดมิน) แก้แล้ว
+**ระยะรวม:** งาน 5 เฟสจาก feedback อาจารย์ผ่าน QA เต็มรูปแบบแล้ว พร้อม commit — เหลือแค่ตัดสินใจจังหวะ commit/deploy และเฟส 6
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **งานทั้งหมดยัง uncommitted** (เฟส 1-5 จากเมื่อวาน + บั๊กฟิกซ์วันนี้) — ยิ่งค้างนานความเสี่ยงยิ่งสูง
+  ถ้าเครื่องมีปัญหาก่อน commit
+- **ยังไม่มีสำเนาข้อมูลนอก VM แม้แต่ชุดเดียว** — ความเสี่ยงสูงสุดของโปรเจคที่ยังไม่ได้แก้ (เฟส 6 ค้าง)
+- **migration ใหม่ 4 ตัว (0025-0028) apply ลง dev DB แล้ว** — ห้ามแก้ไฟล์เหล่านี้อีก ถ้าต้องเปลี่ยนให้เขียน
+  migration ใหม่มาแก้แทน (บทเรียนจาก 0021→0023)
+- **เทสยิงใส่ DB dev จริง** (`PYTEST_ALLOW_DB=1`) — เทสใหม่/แก้วันนี้ cleanup ครบใน finally แล้ว ยืนยันแล้วว่า
+  DB กลับสู่ baseline หลัง QA (ไม่แตะบัญชีจริงของ `admin@cdti.ac.th`/`6610301006@cdti.ac.th`)
+- **Pending Items ตาม CLAUDE.md ข้อ 10 ที่ยังค้าง:** ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน
+  deploy จริง และ LINE OA Channel Access Token (stretch goal ยังไม่เริ่ม)
+
+---
+บันทึกไฟล์ที่: Report/2026-09-04.txt

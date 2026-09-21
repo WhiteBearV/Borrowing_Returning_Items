@@ -115,6 +115,25 @@ async def test_bulk_update_equipment_logs_set_shape(client: AsyncClient, admin_t
         await _cleanup(*ids)
 
 
+async def test_bulk_update_finance_fields_persist_and_need_superadmin(
+    client: AsyncClient, admin_token: str, superadmin_token: str,
+):
+    """วันที่ได้มา/อายุการใช้งาน/มูลค่าตามบัญชี แก้หลายรายการได้จริง (เดิม schema ไม่มี → ทิ้งเงียบ ๆ)"""
+    ids = [await _make_equipment(client, auth(admin_token)) for _ in range(2)]
+    finance = {"acquired_at": "2021-10-01", "useful_life_years": 3, "book_value_override": 500}
+    try:
+        r = await client.patch("/equipment/bulk-update", json={"equipment_ids": ids, "update": finance},
+                               headers=auth(admin_token))
+        assert r.status_code == 403, r.text
+        r = await client.patch("/equipment/bulk-update", json={"equipment_ids": ids, "update": finance},
+                               headers=auth(superadmin_token))
+        assert r.status_code == 200, r.text
+        for row in r.json()["updated"]:
+            assert (row["acquired_at"], row["useful_life_years"], row["book_value_override"]) == ("2021-10-01", 3, 500)
+    finally:
+        await _cleanup(*ids)
+
+
 def _register_file(tmp_path, code, name, broken=False):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -164,6 +183,43 @@ async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, a
             assert changes["status"] == ["available", "damaged"]
     finally:
         await _cleanup(eq_id)
+
+
+async def test_import_update_into_tracked_group_inherits_and_logs(
+    client: AsyncClient, admin_token: str, tmp_path,
+):
+    """นำเข้าทะเบียนแล้วชื่อเปลี่ยนจนย้ายเข้ารุ่นที่ติดตามคุณภาพทั้งรุ่น → ได้สวิตช์ตามรุ่น + โผล่ใน audit
+    (เดิมเส้นทาง update ของ import ข้าม inherit — รีวิวรอบ 4 MINOR ข้อ 5)"""
+    h = auth(admin_token)
+    tracked_name = f"ทดสอบ นำเข้า กลุ่มติดตาม {uuid.uuid4().hex[:6]}"
+    code = f"{uuid.uuid4().int % 10**15:015d}"
+    g = await _make_equipment(client, h, name=tracked_name)
+    eq_id = await _make_equipment(client, h, code=code)
+    try:
+        r = await client.patch(f"/equipment/{g}", headers=h, json={"quality_tracked": True, "quality_life_years": 5})
+        assert r.status_code == 200, r.text
+        with open(_register_file(tmp_path, code, tracked_name), "rb") as f:
+            res = await client.post(
+                "/equipment/import/preview",
+                files={"file": ("register.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                headers=h,
+            )
+        assert res.status_code == 200, res.text
+        draft = res.json()
+        row = next(r for r in draft["rows"] if r["code"] == code)
+        res = await client.post(f"/equipment/import/{draft['import_id']}/commit",
+                                json={"filename": "register.xlsx", "rows": [row]}, headers=h)
+        assert res.status_code == 200, res.text
+
+        async with AsyncSessionLocal() as db:
+            eq = await db.get(Equipment, uuid.UUID(eq_id))
+            assert (eq.quality_tracked, eq.quality_life_years) == (True, 5)
+            log = (await db.execute(
+                select(AuditLog).where(AuditLog.target_id == uuid.UUID(eq_id), AuditLog.action == "update_equipment")
+            )).scalars().first()
+            assert log.detail["changes"]["quality_tracked"] == [False, True]
+    finally:
+        await _cleanup(eq_id, g)
 
 
 async def test_update_bundle_logs_diff(client: AsyncClient, admin_token: str):

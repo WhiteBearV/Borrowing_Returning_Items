@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dashboardApi } from '../../api/dashboardApi.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
+import { todayTH } from '../../utils/formatDate.js'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 
@@ -11,8 +12,10 @@ export default function DashboardPage() {
     missing_price_items: 0, missing_acquired_at_items: 0,
     equipment_counts: { durable: 0, material: 0, consumable: 0, total: 0 },
     users_total: 0, users_students: 0, users_staff: 0, users_pending_approval: 0, users_by_major: [],
-    consumed_value_this_month: 0,
-    consumed_value_this_year: 0,
+    users_by_year: [],
+    quality_low_count: 0, quality_unassessed_count: 0,
+    borrowed_value_this_month: 0,
+    borrowed_value_this_year: 0,
   })
 
   useEffect(() => {
@@ -21,7 +24,7 @@ export default function DashboardPage() {
 
   const equipmentCounts = [
     { label: 'ครุภัณฑ์', value: summary.equipment_counts.durable, itemType: 'durable' },
-    { label: 'วัสดุ', value: summary.equipment_counts.material, itemType: 'material' },
+    { label: 'วัสดุใช้ซ้ำ', value: summary.equipment_counts.material, itemType: 'material' },
     { label: 'วัสดุสิ้นเปลือง', value: summary.equipment_counts.consumable, itemType: 'consumable' },
   ]
 
@@ -81,18 +84,37 @@ export default function DashboardPage() {
             <p className="text-3xl font-bold">{summary.missing_acquired_at_items}</p>
           </Link>
         )}
-        <div className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-emerald-50 text-emerald-700">
-          <p className="text-sm font-medium">มูลค่าวัสดุที่ใช้ไปเดือนนี้ (บาท)</p>
+        {/* การ์ดคุณภาพ (เฟส 10) — เฉพาะรุ่นที่เปิดติดตามคุณภาพ ยืมได้ตามปกติ แค่ขึ้นป้ายเตือนให้ไปตรวจสภาพ */}
+        {summary.quality_low_count > 0 && (
+          <Link to="/admin/equipment"
+            className="rounded-2xl p-5 flex flex-col justify-between bg-rose-50 text-rose-700 hover:opacity-80 transition-opacity">
+            <p className="text-sm font-medium">คุณภาพต่ำ ควรตรวจสภาพ</p>
+            <p className="text-3xl font-bold">{summary.quality_low_count}</p>
+          </Link>
+        )}
+        {summary.quality_unassessed_count > 0 && (
+          <Link to="/admin/equipment"
+            className="rounded-2xl p-5 flex flex-col justify-between bg-amber-50 text-amber-700 hover:opacity-80 transition-opacity">
+            <p className="text-sm font-medium">เปิดติดตามแล้วแต่ยังไม่ประเมิน</p>
+            <p className="text-3xl font-bold">{summary.quality_unassessed_count}</p>
+          </Link>
+        )}
+        {/* กดแล้วไปหน้าความคุ้มค่าช่วงเดียวกัน ทุกประเภท — ยอดรายเดือนในหน้านั้นตรงกับการ์ดนี้ */}
+        <Link to={`/admin/utilization?type=all&from=${todayTH().slice(0, 8) + '01'}&to=${todayTH()}`}
+          className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-emerald-50 text-emerald-700 hover:opacity-80 transition-opacity">
+          <p className="text-sm font-medium">มูลค่าอุปกรณ์ที่ถูกยืมออกเดือนนี้ (บาท)</p>
           <p className="text-3xl font-bold">
-            {summary.consumed_value_this_month.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {summary.borrowed_value_this_month.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-        </div>
-        <div className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-teal-50 text-teal-700">
-          <p className="text-sm font-medium">มูลค่าวัสดุที่ใช้ไปปีนี้ (บาท)</p>
+        </Link>
+        {/* กดแล้วไปหน้าความคุ้มค่าช่วงเดียวกัน ทุกประเภท — ยอดรายเดือนในหน้านั้นตรงกับการ์ดนี้ */}
+        <Link to={`/admin/utilization?type=all&from=${todayTH().slice(0, 5) + '01-01'}&to=${todayTH()}`}
+          className="col-span-2 rounded-2xl p-5 flex items-center justify-between bg-teal-50 text-teal-700 hover:opacity-80 transition-opacity">
+          <p className="text-sm font-medium">มูลค่าอุปกรณ์ที่ถูกยืมออกปีนี้ (บาท)</p>
           <p className="text-3xl font-bold">
-            {summary.consumed_value_this_year.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {summary.borrowed_value_this_year.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-        </div>
+        </Link>
       </div>
 
       {/* ภาพรวมคลังอุปกรณ์ — สีกลาง แยกจาก tile แจ้งเตือนด้านบน */}
@@ -135,6 +157,27 @@ export default function DashboardPage() {
           </Link>
         )}
       </div>
+
+      {/* ภาพรวมชั้นปี (เฟส 10) — รวมกลุ่มตกค้างแยกจากปี 1-4 คำนวณสดจากรหัสนักศึกษา */}
+      {summary.users_by_year?.length > 0 && (
+        <>
+          <p className="text-sm font-semibold text-gray-500 mb-3">ภาพรวมชั้นปี</p>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+            {summary.users_by_year.map((y) => (
+              // ลิงก์ด้วยคีย์แบบเครื่องอ่านจาก backend (y.group) ตรง ๆ ไม่ใช่แกะป้ายภาษาไทยด้วย regex เอง
+              // (เดิม parse "ตกค้าง"/"บุคลากร" จาก label ซึ่งพังง่ายและไม่ตรงกับ backend เสมอไป — รีวิวรอบ 2)
+              <Link key={y.group}
+                to={`/admin/users?year_group=${y.group}`}
+                className={`rounded-xl p-5 text-center hover:opacity-80 transition-opacity ${
+                  y.group === 'retained' ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-700'
+                }`}>
+                <p className="text-3xl font-bold">{y.count}</p>
+                <p className="text-sm mt-1">{y.label}</p>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         {shortcuts.map((s) => (

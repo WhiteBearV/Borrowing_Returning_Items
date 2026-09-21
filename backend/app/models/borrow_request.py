@@ -93,6 +93,33 @@ class BorrowRequest(Base):
         return self.student.major if self.student else None
 
     @property
+    def student_year_label(self) -> str | None:
+        """ป้ายชั้นปีผู้ยืมสำหรับหน้าอนุมัติคำขอ เช่น "ปีที่ 2" / "ตกค้าง (ปีที่ 5)" / "บุคลากร"
+
+        คำนวณผ่าน app.utils.study_year (จุดเดียว) — property นี้เป็น sync ไม่มี DB session ให้อ่าน setting
+        `academic_year_start` ที่แอดมินปรับได้เอง จึง**ต้องมีคนเติมค่าที่ผ่าน setting จริงมาก่อน** ผ่าน setter
+        ด้านล่าง (ดู borrow_service.list_requests/get_request ที่เรียก users_service.attach_study_year() แล้ว
+        เซ็ตกลับมาที่นี่) — ถ้าไม่มีใครเติม fallback ไปใช้ค่าเริ่มต้น (1 มิ.ย.) เหมือนเดิม เพื่อไม่ให้ response
+        เก่าที่ยังไม่ได้แก้ (หรือเทสที่สร้าง BorrowRequest ตรง ๆ ไม่ผ่าน service) พังไปเลย
+        (แก้ตามรีวิวรอบ 2 — เดิมใช้ค่าเริ่มต้นเสมอ ไม่เคยสะท้อน setting จริงเลยสักครั้ง)
+        """
+        override = getattr(self, "_student_year_label_override", None)
+        if override is not None:
+            return override
+        if not self.student:
+            return None
+        from app.utils.study_year import compute_study_year
+        # role != "student" ถือเป็นบุคลากรเสมอ (กฎเดียวกับ users_service.attach_study_year — ดูที่นั่น)
+        # แม้ enrollment_year จะยังค้างอยู่จากตอนเป็นนักศึกษาก่อนถูกเลื่อนสิทธิ์เป็น admin/superadmin
+        # (แก้ตามรีวิวรอบ 3, MINOR-1 — เดิม fallback นี้ไม่เช็ค role เลย โชว์ "ปีที่ 4" ผิดๆ ให้แอดมิน)
+        enrollment_year = self.student.enrollment_year if self.student.role == "student" else None
+        return compute_study_year(enrollment_year, self.student.study_years or 4).label
+
+    @student_year_label.setter
+    def student_year_label(self, value: str | None) -> None:
+        self._student_year_label_override = value
+
+    @property
     def approver_name(self) -> str | None:
         return self.approver.full_name if self.approver else None
 

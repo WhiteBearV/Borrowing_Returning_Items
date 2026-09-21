@@ -86,6 +86,8 @@ def _jsonable(v):
         return str(v)
     if isinstance(v, (list, tuple)):
         return [_jsonable(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _jsonable(x) for k, x in v.items()}
     return v
 
 
@@ -129,5 +131,6 @@ async def log_action(
         actor_name=actor.full_name,
         actor_identifier=user_identifier(actor),
         actor_role=actor.role,
-        action=action, target_table=target_table, target_id=target_id, detail=detail,
+        # ผ่าน _jsonable ทุกครั้ง — detail ที่มี date/Decimal ปนมา (เช่น bulk แก้วันที่ได้มา) เคยทำ commit ล้มเป็น 500
+        action=action, target_table=target_table, target_id=target_id, detail=_jsonable(detail),
     ))

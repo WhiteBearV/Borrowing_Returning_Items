@@ -1,0 +1,184 @@
+# รายงานความคืบหน้า — วันที่ 2026-09-03
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+วันนี้รับ feedback จากอาจารย์ที่ปรึกษา 8 ข้อ → สำรวจโค้ดจริงเทียบกับข้อเสนอ → ถามยืนยัน 10 คำถามกับผู้ใช้
+→ วางแผน 6 เฟส → **implement เฟส 1–5 จบครบ** เหลือเฟส 6 (backup) ที่ต้องรอข้อมูล/สิทธิ์จากภายนอก
+ยังไม่ commit (64 ไฟล์แก้ + 20 ไฟล์ใหม่)
+
+**ข้อค้นพบสำคัญที่กระทบแผนตั้งแต่ต้น:** ไฟล์ทะเบียนคุมทรัพย์สินจริง (`docs/รายงานทะเบียนคุมทรัพย์สิน….xlsx`)
+ชีต "คณะเทคโนฯดิจิทัล" **มีคอลัมน์ "ราคา" (idx 3) และ "ว/ด/ป ที่รับ" (idx 4) ครบทั้ง 543 แถว 100%**
+เป็น `datetime` object จริง ไม่ใช่ string — แต่ `import_service.parse_workbook` อ่านข้ามไปทั้งคู่มาตลอด
+(สคริปต์ seed ครั้งแรก `scripts/import_register.py:110` อ่านราคา แต่ตัวที่ใช้จริงตอนนี้ไม่อ่าน)
+
+---
+
+### Backend
+
+**เฟส 1 — อายุอุปกรณ์ + มูลค่า 2 แบบ (`0026_equipment_age_and_value.py`)**
+- `models/equipment.py` — เพิ่ม `acquired_at` (Date), `useful_life_years` (Integer),
+  `book_value_override` (Numeric 12,2) · `models/borrow_item.py` — เพิ่ม `book_value_snapshot`
+  + property `book_value`
+- `services/equipment_service.py` — เพิ่ม `book_value()` (ค่าเสื่อมเส้นตรง pro-rata รายวัน หยุดที่มูลค่าซาก
+  ไม่เป็น 0/ติดลบ, override ชนะสูตรเสมอ, ของราคาต่ำกว่าซากไม่ถูกดันขึ้น), `_depreciation_settings()`,
+  `attach_book_values()` — คำนวณสดตอนอ่าน ไม่เก็บคอลัมน์เพราะค่าเดินทุกวัน
+- **`unit_value` เดิมไม่ rename** — มันคือ "มูลค่าแท้จริง" อยู่แล้ว rename จะแตะ 13 จุดโดยไม่ได้อะไร
+- 3 setting ใหม่ seed ใน migration: `depreciation_years_default=5`, `depreciation_salvage_value=1`,
+  `pdf_value_source=acquisition` (`SettingsPage.jsx` render เองอัตโนมัติ ไม่ต้องแตะ frontend)
+- `services/import_service.py` — เพิ่ม `_money()` / `_as_date()`, `add()` รับราคา+วันที่, ชีตคณะอ่าน
+  `r[3]`/`r[4]` ชีตพระราชทานอ่าน `r[5]`, `_load_existing` คืน 2 ฟิลด์นี้ด้วย (**จุดที่ลืมแล้วพังเงียบ**
+  — ไม่งั้น import ซ้ำจะเสนอเติมราคาซ้ำไม่รู้จบ), `diff_rows` เสนอ**เฉพาะช่องที่ยังว่าง** (fill-only
+  ตาม pattern COALESCE ที่ seed ครั้งแรกใช้), `commit_import` เขียนทั้ง new และ update แบบเดียวกัน
+- `split_equipment_into_units` copy `acquired_at`/`useful_life_years`/`book_value_override`
+  (แยกรายชิ้น = ของชิ้นเดิม) แต่ `restock_equipment` ตั้ง `acquired_at = date.today()`
+  (ซื้อเพิ่ม = ของใหม่) — **นี่คือจุดที่ทำให้ `created_at` ใช้แทนอายุไม่ได้ตั้งแต่แรก**
+- `_apply_status_filter` เพิ่ม `no_price` / `no_acquired_at` และ `list_equipment_grouped` กรอง
+  ที่**ระดับกลุ่ม** เหมือน `borrowed` (กรองที่แถวจะทำให้ยอดคงเหลือบนการ์ดผิดแบบบั๊กเดิม)
+- `schemas/equipment.py` — `EquipmentCreate.unit_value` เป็น `Field(..., gt=0)` และ `acquired_at`
+  บังคับกรอก, `EquipmentUpdate` ยัง optional (ของเดิม 128 แถวต้องแก้ฟิลด์อื่นได้) แต่ส่ง null
+  = "ไม่แก้ราคา" ไม่ใช่ "ล้างราคา"
+- `utils/pdf.py` — `_build_form(..., value_source)` + `_item_value()` เลือกโชว์มูลค่าแท้จริง/ตามบัญชี
+  ตาม setting (หัวคอลัมน์เปลี่ยนตามด้วย), ใบรับเข้าคลัง (`:490-510`) เติมช่อง "ราคาต่อหน่วย"/"จำนวนเงิน"
+  จาก audit detail แทนที่จะเว้นให้กรอกมือ
+- `dashboard_service` + `schemas/dashboard.py` — เพิ่ม `missing_price_items` / `missing_acquired_at_items`
+
+**เฟส 2 — จ่ายของ FIFO ตามอายุ**
+- `equipment_service.fifo_key()` — เรียง `(acquired_at is None, acquired_at, code)` = เก่าสุดก่อน
+  ของที่ไม่รู้วันที่ไปท้ายแถว
+- **ไม่แตะ `ORDER BY Equipment.code` ของ query ที่ `with_for_update()` เลย** — แยก "ลำดับล็อก"
+  (คงเดิม กัน deadlock) ออกจาก "ลำดับจ่ายของ" (เรียงใหม่ใน memory หลังล็อกเสร็จ) แก้แค่ 2 จุดใน
+  `borrow_service.py` (`create_request:184`, `approve_request:416`) แทนที่จะต้องแก้ 3 จุด 2 ไฟล์
+  ให้ตรงกันเป๊ะ — และรหัสตัวแทนการ์ด/QR/deep link ไม่ขยับ
+- ผลข้างเคียงที่ดี: ถ้ายังไม่มีใครกรอกวันที่เลย พฤติกรรมเหมือนเดิมเป๊ะ (tie-break ด้วย code)
+
+**เฟส 3 — ประวัติการเปลี่ยนแปลงรายอุปกรณ์**
+- `audit_service.list_logs` + `routers/audit.py` — เพิ่ม param `target_id` / `target_table`
+- `target_id` ครอบ `bulk_update_equipment` ที่เขียน log แถวเดียวต่อ batch ด้วย JSONB
+  `detail["equipment_ids"].contains([...])` — ไม่งั้นประวัติของหน่วยที่ 2 เป็นต้นไปจะหายเงียบ ๆ
+
+**เฟส 4 — ชิ้นส่วน/การอัพเกรด (`0027_equipment_parts.py`)**
+- `models/equipment_part.py` (ใหม่) — `equipment_parts`: name/serial_number/unit_value/acquired_at/
+  useful_life_years/removed_at/removed_reason/note · ถอดออก = ตั้ง `removed_at` ไม่ลบแถว
+- ตั้งชื่อ 3 ฟิลด์ให้ตรงกับ `Equipment` โดยตั้งใจ → `book_value()` ใช้กับทั้งสองตารางได้ด้วย
+  duck-typing ไม่ต้องเขียนสูตรซ้ำ (แก้ให้อ่าน `book_value_override` ผ่าน `getattr` แล้ว)
+- `services/equipment_part_service.py` (ใหม่, ~140 บรรทัด) — `list_parts` / `install_part` /
+  `update_part` / `remove_part` / `parts_summary` · **ไม่แตะ `equipment.acquired_at` และ
+  `equipment.unit_value` ของเครื่องหลักเด็ดขาด** · ไม่ตัด/คืนสต็อกในคลัง (ระบบไม่รู้ว่าของที่ถอด
+  ออกถูกเก็บ/ทิ้ง/ใส่เครื่องอื่น — ให้คนตัดสินใจ)
+- `routers/equipment.py` — 4 endpoint nest ใต้ `/equipment/{id}/parts` (ไม่ทำ `/equipment/parts/{id}`
+  เพราะจะชนกับ `/equipment/{equipment_id}`) · audit log ใช้ `target_id` = **เครื่องหลัก** ไม่ใช่ part.id
+  ไม่งั้นจะไม่โผล่ในไทม์ไลน์ของเครื่อง
+
+**เฟส 5 — รหัสประจำตัวอาจารย์/นักศึกษา**
+- `utils/identity.py` (ใหม่) — `user_identifier()` / `is_student_identifier()` รวมตรรกะที่เดิมกระจาย
+  อยู่ 2 ที่และ fallback ไม่ตรงกัน (`borrow_service._ident` → "USER", `audit_service` → email)
+- `schemas/user.py` — `UserResponse` เพิ่ม `username` + normalize strip
+- `users_service.create_user` — เช็ค username ซ้ำ → 400, ปฏิเสธ username ที่เป็นเลข 10 หลัก
+- `models/borrow_request.py` — property `borrower_identifier` / `borrower_is_student` ·
+  `utils/pdf.py::_position_th` เปลี่ยนไปเช็ค role แทน "มี student_id ไหม" (มี fallback ให้ object เก่า)
+- `borrow_service.list_requests` — search ค้นด้วย `username` ได้แล้ว
+- `scripts/create_admin.py` — ถามรหัสประจำตัวตอนสร้างแอดมิน
+
+### Frontend
+
+- `utils/formatDate.js` — เพิ่ม `formatAge()` ("5 ปี 3 เดือน", ลงวันที่อนาคตไม่โชว์อายุติดลบ)
+  และ `formatMoney()`
+- `pages/admin/EquipmentManagePage.jsx` — ฟอร์มเพิ่ม 4 ช่อง (มูลค่าแท้จริง*, วันที่ได้มา*,
+  อายุการใช้งาน, มูลค่าตามบัญชี) · ตารางเพิ่มคอลัมน์ "อายุ" + "มูลค่า (ทุน/บัญชี)" ทั้งแถวหลัก
+  และแถวรายหน่วยที่กาง · dropdown สถานะเพิ่ม "⚠ ยังไม่มีราคา"/"⚠ ยังไม่มีวันที่ได้มา" ·
+  bulk edit เพิ่ม `acquired_at` (renderer type `date` ใหม่) + `useful_life_years` ·
+  ปุ่ม **"ประวัติ"** + `HistoryModal` · ต่อ `PartsPanel` เข้า modal แก้ไข
+- `components/audit/auditLabels.js` (ใหม่) — ย้าย `ACTION_LABEL`/`fmtVal` ออกจาก AuditLogPage
+  + เพิ่ม **`FIELD_LABEL` ภาษาไทย** และ `detailLines()` ที่ครอบ detail ทั้ง 2 ตระกูล
+  (มี `changes` / flat) — หน้า Audit Log เลิก dump JSON ดิบแล้ว
+- `components/audit/AuditTimeline.jsx` (ใหม่) — ไทม์ไลน์ "ย้ายสถานที่เก็บ: 15310 → 15399 ·
+  3 ก.ย. 2569 14:22 · โดย สมชาย (01MNK01)"
+- `components/equipment/PartsPanel.jsx` (ใหม่) — เพิ่ม/ถอดชิ้นส่วน โชว์อายุแยกรายชิ้น +
+  มูลค่ารวมทั้งเครื่อง + รายการที่ถอดออกแล้ว (พับได้)
+- `pages/admin/DashboardPage.jsx` — การ์ด "ยังไม่มีราคา"/"ยังไม่มีวันที่ได้มา" ลิงก์เข้าตัวกรอง
+  (ซ่อนเองเมื่อเติมครบ)
+- `pages/student/EquipmentDetailPage.jsx` — แถว "อายุการใช้งาน" (นักศึกษาเห็นอายุ ไม่เห็นราคา)
+- `pages/admin/UsersPage.jsx` — คอลัมน์ "รหัสนักศึกษา" → "รหัสประจำตัว" แสดง
+  `student_id ?? username` · placeholder ช่อง username บอกตัวอย่าง 01MNK01
+- `api/equipmentApi.js` — 4 method ของชิ้นส่วน
+
+### เทส
+
+- ไฟล์ใหม่ 6 ไฟล์: `test_equipment_book_value.py` (10 เคส — สูตรค่าเสื่อม/override/มูลค่าซาก/
+  บังคับราคา), `test_equipment_acquired_at.py`, `test_equipment_fifo_allocation.py`,
+  `test_import_price_date.py` (รวม idempotency), `test_audit_target_filter.py`,
+  `test_equipment_parts.py`, `test_user_username.py`
+- แก้เทสเดิม: 22 ไฟล์ที่ `POST /equipment` (37 จุด) เพิ่ม `unit_value`/`acquired_at`,
+  `test_import_excel.py` เพิ่ม assert กฎ fill-only, `test_pdf.py` เพิ่ม 5 เคสเรื่องมูลค่าใน PDF,
+  `test_api_integration.py` assert field dashboard ใหม่
+- **รวม 333 pytest ผ่านหมด** + 8 node test (cartRules) + `vite build` ผ่าน
+
+### อื่น ๆ (Config, Docs)
+
+- แก้ `backend/.env`: `ENABLE_EMAIL=flase` → `false` (พิมพ์ผิด ทำให้ backend dev สตาร์ทไม่ขึ้นเลย)
+- apply migration `0026`, `0027` เข้า dev DB แล้ว
+- แผนเต็มเก็บที่ `~/.claude/plans/sunny-strolling-panda.md` (ไม่ commit ตามที่ตกลงไว้)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| **แก้ราคาอุปกรณ์ที่มีราคาอยู่แล้ว = 500** (บั๊กเดิม ไม่มีเทสจับ) | `audit_service.diff_fields` อ่านค่าเดิมจากคอลัมน์ `Numeric` ได้ `Decimal` ซึ่ง `json.dumps` ลง JSONB ไม่ได้ — คอลัมน์ `Date` ที่เพิ่งเพิ่มก็จะพังแบบเดียวกัน | แก้แล้ว — เพิ่ม `_jsonable()` แปลง Decimal/date/UUID ก่อนเทียบและก่อนเก็บ ที่จุดเดียว |
+| **สร้างผู้ใช้ที่ username ซ้ำ = 500** (บั๊กเดิม) | `users_service.create_user` ไม่เช็ค username ซ้ำ ปล่อยชน unique constraint ของ DB | แก้แล้ว — เช็คก่อน คืน 400 พร้อมข้อความอ่านเข้าใจ |
+| **แอดมิน 2 คนจาก `create_admin.py` ยืมของไม่ได้** (บั๊กเดิม) | ไม่มีทั้ง `student_id`/`username` → `_ident` คืน "USER" เหมือนกัน → `request_code` ชน unique | แก้แล้ว — fallback เป็น 8 ตัวแรกของ uuid + `create_admin.py` ถามรหัสประจำตัวตอนสร้าง |
+| หัวคอลัมน์ "มูลค่าตามบัญชี/ชิ้น" ใน PDF ถูกตัดเหลือ "มูลค่าตามบัญ" | ReportLab ตัดคำไทยที่ไม่มีช่องว่างเองไม่ได้ ข้อความยาวเกินคอลัมน์ 26mm จะหายไปเลย ไม่ใช่ขึ้นบรรทัดใหม่ | แก้แล้ว — ใส่ `<br/>` เอง แยกเป็น 2 บรรทัด |
+| `backend/.env` มี `ENABLE_EMAIL=flase` | พิมพ์ผิด — pydantic-settings parse bool ไม่ได้ backend สตาร์ทไม่ขึ้นเลย | แก้เป็น `false` แล้ว |
+| `test_renew_request_rejects_too_far_ahead` fail | เทส hardcode ว่า `max_renew_days` = 7 (ค่า seed) แต่ใน dev DB ถูกแก้เป็น 30 ผ่านหน้า Settings | แก้เทสให้อ่าน setting จริงจาก API แทนการเดา (เทสยิงใส่ DB dev ที่ใช้งานจริงอยู่) |
+| **ยังไม่มี backup นอก VM เลย** | เฟส 6 ยังไม่ได้ทำ ตามที่ผู้ใช้เลือก "ทำฟีเจอร์ก่อน" | ตั้ง Proxmox scheduled backup จาก UI ไว้ก่อน (10 นาที ไม่แตะโค้ด) แล้วค่อยทำเฟส 6 เต็ม |
+| ราคา 128 แถว + วันที่ 161 แถวยังว่างใน prod | ทะเบียนพระราชทานไม่มีคอลัมน์วันที่ และมีราคาแค่ 33/161 | อัปโหลดไฟล์ทะเบียนผ่านหน้านำเข้า (ได้ 543 แถวทันที) ที่เหลือกรอกผ่านตัวกรอง "ยังไม่มีราคา" |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] **QA ผ่านเบราว์เซอร์จริงทั้ง 5 เฟส** ก่อน commit — โดยเฉพาะ ฟอร์มเพิ่มอุปกรณ์ (2 ช่องบังคับใหม่),
+       ปุ่มประวัติ, PartsPanel, และตรวจว่าใบยืม PDF ยังออกได้ปกติทั้ง 2 โหมดของ `pdf_value_source`
+2. [ ] **นำเข้าไฟล์ทะเบียนจริง** ผ่านหน้า "นำเข้าจากไฟล์ทะเบียน" บน dev ก่อน แล้วเทียบว่าราคา/วันที่
+       เข้าครบ 543 แถว และแถวที่ตรงกันแล้วขึ้น `unchanged` (ไม่เสนอทับซ้ำ)
+3. [ ] commit + push งานทั้งหมด (64 ไฟล์แก้ + 20 ไฟล์ใหม่) แยก commit ตามเฟสให้อ่านย้อนหลังง่าย
+4. [ ] deploy ขึ้น prod — **ต้อง `backup_db.sh` ก่อน `alembic upgrade head` เสมอ** (มี migration ใหม่ 2 ตัว)
+5. [ ] เริ่มเฟส 6 — แก้ `backend/scripts/backup_db.sh` (เพิ่ม `.env`+`certs/` แบบเข้ารหัส gpg,
+       rclone ขึ้น Google Drive, verify ด้วย `pg_restore -l`), เขียน `verify_restore.sh` +
+       `docs/RUNBOOK-restore.md`, แก้ส่วน "กู้คืน" ใน `README.md` ที่ยังใช้กับ prod ไม่ได้
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — ฟีเจอร์จาก feedback อาจารย์ครบ 7/8 ข้อ (เหลือ backup ที่เป็นงาน infra ไม่ใช่โค้ดแอป)
+**Frontend:** ~99% — ครบทุกหน้าที่เฟส 1–5 ต้องใช้ เหลือเก็บ UX จากการทดลองใช้จริง
+**ระยะรวม:** เข้าสู่รอบ "ตอบ feedback อาจารย์" ซึ่งเป็น feedback เชิงระบบทรัพย์สิน (อายุ/มูลค่า/
+ประวัติ/การกู้คืน) ไม่ใช่ฟีเจอร์ยืม-คืนแล้ว — โค้ดเสร็จ 5/6 เฟสในวันเดียว เหลืองาน infra + QA + deploy
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **ยังไม่มีสำเนาข้อมูลนอก VM แม้แต่ชุดเดียว** — `backup_db.sh` เขียนลงดิสก์ก้อนเดียวกับ Postgres
+  ดิสก์เสีย/VM ถูกลบ = หายทั้งคู่ และ `.env` (มี SECRET_KEY) กับ `certs/` ไม่อยู่ใน backup เลย
+  **นี่คือความเสี่ยงสูงสุดของโปรเจคตอนนี้** ระหว่างรอเฟส 6 ควรตั้ง Proxmox backup ไว้ก่อน
+- **งานทั้งหมดยัง uncommitted** — 84 ไฟล์ ถ้าเครื่องมีปัญหาก่อน commit คืองานทั้งวันหาย
+- **migration 0026/0027 apply ลง dev DB แล้ว** — ห้ามแก้ไฟล์ migration ทั้งสองอีก ถ้าต้องเปลี่ยน
+  ให้เขียน 0028 มาแก้ (บทเรียนจาก 0021 ที่ต้องเขียน 0023 มาลบทีหลัง)
+- **ราคาบังคับกรอกตอนสร้างอุปกรณ์ใหม่แล้ว** — ถ้าแอดมินเคยชินกับการเว้นว่างจะเจอ 422 ต้องแจ้งก่อนใช้จริง
+- **การจ่ายของเปลี่ยนเป็น FIFO ตามอายุ** — แต่ตราบใดที่ `acquired_at` ยังว่างทั้งคลัง พฤติกรรมจะเหมือนเดิมเป๊ะ
+  (เรียงตามรหัส) จะเห็นผลจริงหลัง backfill วันที่เท่านั้น — ต้องอธิบายให้อาจารย์เข้าใจจุดนี้
+- **Pending Items ตาม CLAUDE.md ข้อ 10 ที่ยังค้าง:** ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน
+  deploy จริง และ LINE OA Channel Access Token (stretch goal ยังไม่เริ่ม)
+- **เทสยิงใส่ DB dev จริง** (`PYTEST_ALLOW_DB=1`) — เทสใหม่ทั้ง 6 ไฟล์ cleanup ครบใน finally/fixture teardown
+- **ข้อมูลนักศึกษาจะออกไป Google Drive ตอนทำเฟส 6** (ชื่อ/อีเมล/เบอร์/รูป) = ประเด็น PDPA ตรง ๆ
+  ต้องใช้ Drive ของสถาบันและเข้ารหัสไฟล์ backup ทั้งชุด
+
+---
+บันทึกไฟล์ที่: Report/2026-09-03.txt

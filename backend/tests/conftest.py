@@ -38,6 +38,12 @@ def auth(token: str) -> dict:
 async def _delete_user_cascade(uid: uuid.UUID) -> None:
     """ลบ user พร้อม cascade ทั้งหมดด้วย SQL ตรงๆ เพื่อเลี่ยง ORM cascade issue"""
     async with AsyncSessionLocal() as db:
+        # อ่าน student_id ไว้ก่อนลบ — /auth/register ส่ง notification "registration_pending" ไปหา staff
+        # ทุกคน (ไม่ใช่แค่ผู้สมัครเอง) เมื่อบัญชีเข้าคิวรออนุมัติ ข้อความมีรหัสนักศึกษาฝังอยู่ แต่แถวนั้นอยู่ใต้
+        # user_id ของ "staff" (admin/superadmin จริง) ไม่ใช่ของผู้สมัคร — ลบแค่ user นี้ทิ้งโดยไม่ตามไปเก็บกวาด
+        # ข้อความเหล่านั้นด้วย จะเหลือเป็นขยะถาวรในกล่องแจ้งเตือนของบัญชีจริงที่อ้างถึงบัญชีทดสอบที่ไม่มีอยู่แล้ว
+        # (รหัสทดสอบสุ่ม 10 หลัก ชนกับของจริงแทบเป็นไปไม่ได้ จึงกรองด้วยรหัสนี้พอ ไม่ต้อง scope ด้วยเวลาเพิ่ม)
+        student_id = (await db.execute(select(User.student_id).where(User.id == uid))).scalar_one_or_none()
         # ลบ FK ที่ชี้มาที่ user ก่อน — ต้องลบ BorrowItem/Notification ที่ชี้มาที่คำขอก่อน ค่อยลบตัวคำขอ (FK order)
         borrow_reqs = (await db.execute(
             select(BorrowRequest.id).where(BorrowRequest.student_id == uid)
@@ -47,6 +53,11 @@ async def _delete_user_cascade(uid: uuid.UUID) -> None:
             await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == req_id))
         await db.execute(delete(BorrowRequest).where(BorrowRequest.student_id == uid))
         await db.execute(delete(Notification).where(Notification.user_id == uid))
+        if student_id:
+            await db.execute(delete(Notification).where(
+                Notification.type == "registration_pending",
+                Notification.message.like(f"%({student_id})%"),
+            ))
         # user นี้อาจเป็น admin ที่ approve/รับคืนคำขอของ student คนอื่น (ไม่ใช่แค่ของตัวเอง) — เคลียร์ FK ก่อนลบ
         await db.execute(update(BorrowRequest).where(BorrowRequest.approved_by == uid).values(approved_by=None))
         await db.execute(update(BorrowRequest).where(BorrowRequest.returned_by == uid).values(returned_by=None))

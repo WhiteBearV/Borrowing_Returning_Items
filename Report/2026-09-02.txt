@@ -1,0 +1,144 @@
+# รายงานความคืบหน้า — วันที่ 2 กันยายน 2026
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** วีรภัทร สาลีผล
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+
+**1. ฟีเจอร์ต่อเวลา (renew) — ขยายสิทธิ์ + หน้าคำขอของ admin**
+- `services/borrow_service.py::list_requests` — เพิ่มพารามิเตอร์ `own_only: bool = False`
+  บังคับกรองเฉพาะคำขอของตัวเองแม้ role เป็น admin (เดิม admin เห็นคำขอทุกคนเสมอ)
+  เงื่อนไขใหม่: `if current_user.role != "admin" or own_only`
+- `routers/borrow.py::list_borrow_requests` — ส่งผ่าน `own_only: bool = Query(False)`
+  ตาม pattern ชื่อ `_only` เดิม (`overdue_only`) ค่า default False หน้า "ประวัติการยืมทั้งหมด" ไม่กระทบ
+- ตรวจสอบแล้วว่า `request_renew_item` ไม่มีเงื่อนไข item_type อยู่แล้ว → รองรับ durable/material/consumable
+  ได้ทันทีโดยไม่ต้องแก้ backend (ข้อจำกัดอยู่ฝั่ง frontend จุดเดียว)
+
+**2. อีเมลแจ้งอนุมัติคำขอ — แนบรูป + รายละเอียดอุปกรณ์ทุกชิ้น**
+- `services/borrow_service.py` — เพิ่ม helper `_build_item_row_html(item)` สร้าง HTML card ต่ออุปกรณ์ 1 ชิ้น
+  (รูปจาก `item.equipment.image_url` ต่อกับ `settings.APP_BASE_URL`, ถ้าไม่มีรูปใช้กล่องเทา "ไม่มีรูปภาพ"
+  กัน broken image) + ตาราง ชื่อ/รหัส/จำนวน
+- `approve_request` — เปลี่ยนเนื้ออีเมลจาก `<p>` บรรทัดเดียว เป็นหัวข้อ "สวัสดี {ชื่อ}" + ข้อความอธิบาย
+  + card ของทุกชิ้นในคำขอ (subject คงเดิมเพื่อให้ค้นใน inbox ได้)
+- เพิ่ม import `from app.core.config import settings` ในไฟล์นี้ (เดิมไม่มี)
+
+**3. ใบยืม PDF — โชว์รหัสวัสดุสิ้นเปลืองเสมอถ้ามีค่า**
+- `utils/pdf.py::_build_form` — ลบ special-case `if itype == "consumable": code_display = "-"` ทิ้ง
+  ให้ใช้ logic เดียวกับ durable/material พร้อมลบ comment ที่อธิบายพฤติกรรมเก่าที่ถูกลบไปแล้ว
+
+**4. เบอร์โทรศัพท์ + ยินยอม PDPA**
+- `models/user.py` — เพิ่มคอลัมน์ `phone` (String(20), nullable) และ `pdpa_consent_at`
+  (DateTime timezone, nullable) — nullable ระดับ DB เพราะบัญชีที่ admin สร้างไม่ผ่านฟอร์มสมัคร
+- `alembic/versions/0025_user_phone_pdpa_consent.py` (ไฟล์ใหม่) — add_column 2 คอลัมน์ (apply เข้า dev DB แล้ว)
+- `schemas/auth.py::RegisterRequest` — เพิ่ม `phone` (pattern `^0\d{9}$`) reuse `_strip_student_id`
+  เป็น `_normalize_phone`, เพิ่ม `pdpa_consent: bool` + `field_validator` ปฏิเสธถ้าไม่ True
+  (บังคับฝั่ง backend จริง ไม่เชื่อแค่ frontend)
+- `services/auth_service.py::register` — บันทึก `phone` + `pdpa_consent_at = datetime.now(timezone.utc)`
+- `schemas/user.py` — `UserCreateRequest` เพิ่ม `phone` (ไม่บังคับ) + `UserResponse` เพิ่ม `phone`
+- `services/users_service.py::create_user` — บันทึก `phone` ที่ admin กรอก
+
+**5. QR Code — URL เปลี่ยนตามเครื่องอัตโนมัติ + ปิดช่องโหว่ security**
+- `services/equipment_service.py::generate_qr` — รับพารามิเตอร์ `frontend_origin: str | None = None`
+  ใช้แทน `settings.FRONTEND_URL` คงที่ถ้ามีค่า
+- `routers/equipment.py` — เพิ่ม `_is_lan_host()` + `_forwarded_frontend_origin()` อ่าน
+  `X-Forwarded-Host`/`X-Forwarded-Proto` มาสร้าง origin โดย**ยอมรับเฉพาะ address ในวง LAN/loopback**
+  (ใช้ `ipaddress.ip_address().is_private` ของ stdlib) กันการปลอม header ยัดโดเมนฟิชชิ่งลง QR
+- เพิ่ม `Cache-Control: no-store` ให้ response ของ QR (กัน browser cache รูป QR ที่ฝัง IP เก่า)
+
+### Frontend
+
+**1. หน้า "คำขอยืมของฉัน" (`pages/student/MyBorrowsPage.jsx`) — แก้ 3 จุด**
+- ปุ่ม "ต่อเวลา" เดิมขึ้นเฉพาะ `item_type_snapshot === 'durable'` → เอาเงื่อนไข item_type ออกทั้งหมด
+  ต่อเวลาได้ทุกประเภทรวมวัสดุสิ้นเปลือง (ยังเป็นการเลือกทีละชิ้นเหมือนเดิม ไม่มีปุ่ม bulk)
+- แก้ปัญหา "หาปุ่มไม่เจอ": เปลี่ยน state `expanded` จาก id เดี่ยวเป็น `Set` แล้วเปิดแถวที่ status
+  `approved` ให้อัตโนมัติตอนโหลดครั้งแรก (ใช้ ref กันไม่ให้ทับแถวที่ผู้ใช้ยุบเอง)
+- แก้จอกระพริบทุก 4 วิ: แยก `load(showLoading)` — poll พื้นหลังไม่ตั้ง loading=true และหยุด poll
+  ระหว่าง RenewModal เปิดอยู่ (mirror pattern จาก `BorrowRequestsPage.jsx` commit 06f2a09)
+
+**2. หน้า admin ใหม่**
+- `App.jsx` — เพิ่ม route `/admin/my-borrows` (reuse component `MyBorrowsPage` เดิม ไม่สร้างไฟล์ซ้ำ)
+- `components/layout/Sidebar.jsx` — เพิ่มเมนู "คำขอยืมของฉัน" ใน `ADMIN_NAV` + ลบ comment เก่าที่ล้าสมัย
+
+**3. หน้าลงทะเบียน (`pages/RegisterPage.jsx`)**
+- เพิ่มช่องเบอร์โทรศัพท์ (placeholder 08XXXXXXXX, hint "กรอกตัวเลข 10 หลัก ไม่ต้องใส่ขีด")
+- เพิ่มช่องยืนยันรหัสผ่าน + ปุ่มดู/ซ่อนรหัสผ่านทั้ง 2 ช่อง (emoji 👁️/🙈 ตาม precedent เดิมในโปรเจกต์)
+  + ข้อความเตือน "รหัสผ่านต้องตรงกัน" แบบ realtime
+- เพิ่ม checkbox ยินยอม PDPA (บังคับติ๊ก) คู่กับ `<details>` แสดงคำชี้แจงการใช้ข้อมูลส่วนบุคคล
+  + ลิงก์ https://www.cdti.ac.th/protection-of-personal-information (ใช้ native disclosure ไม่สร้าง modal ใหม่)
+
+**4. อื่น ๆ**
+- `pages/student/BorrowRequestPage.jsx` — ตะกร้าซ่อนรหัสของวัสดุสิ้นเปลืองเสมอ (เพิ่มเช็ค `item_type !== 'consumable'`)
+- `pages/admin/UsersPage.jsx` — ฟอร์ม "เพิ่มผู้ใช้ใหม่" มีช่องเบอร์โทร (ไม่บังคับ, ไม่มี PDPA checkbox
+  เพราะ admin กรอกแทนคนอื่นไม่ใช่เจ้าของข้อมูล)
+- `components/layout/ProtectedRoute.jsx` + `pages/LoginPage.jsx` — แก้บั๊กสแกน QR ตอนยังไม่ล็อกอิน
+  แล้วถูกพาไปหน้าแรกแทนหน้าอุปกรณ์: ProtectedRoute แนบ `state={{ from: location }}` ตอน redirect
+  ไป /login และ LoginPage พากลับไปหน้าเดิมหลังล็อกอินสำเร็จ
+
+### เทส
+- `tests/test_auth_register.py` — อัปเดต 3 เคสให้ส่ง `phone`/`pdpa_consent` + เพิ่มเคสใหม่ ปฏิเสธเมื่อ
+  `pdpa_consent=False`
+- `tests/test_borrow_own_only_filter.py` (ไฟล์ใหม่) — ยืนยัน `own_only=true` เห็นเฉพาะคำขอตัวเอง
+  ส่วนไม่ใส่ param admin ยังเห็นทุกคน (สร้าง student ใหม่แยกทุกครั้งเลี่ยงชนลิมิต + cleanup ครบ)
+- `tests/test_equipment_qrcode.py` — เพิ่ม 6 เคส: ใช้ LAN host ที่ส่งมา, ไม่ cache, และปฏิเสธ host
+  ที่ไม่ใช่ LAN 4 แบบ (โดเมนสาธารณะ / แอบยัด path / IP สาธารณะ / port เพี้ยน)
+- ผลรัน: qrcode 8/8 ผ่าน, auth_register 11/11 ผ่าน, own_only 1/1 ผ่าน
+  ชุด equipment/qr (123 เคส) เทียบ baseline แล้วไม่มี regression ใหม่
+
+### อื่น ๆ (Config)
+- `frontend/vite.config.js` — เพิ่ม `xfwd: true` ใน proxy `/api` ให้ส่ง `X-Forwarded-Host`/`-Proto`
+  ไปให้ backend ใช้สร้าง URL ของ QR ตาม host จริงที่เบราว์เซอร์ใช้
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| สแกน QR แล้วเข้าไม่ได้ ได้ IP เก่า 172.20.57.146 | uvicorn เปิด `--proxy-headers` เป็น default แล้วเขียนทับ `request.client` ด้วย IP ต้นทางจาก `X-Forwarded-For` ทำให้เงื่อนไข "เชื่อเฉพาะ request จาก loopback" ที่เขียนไว้รอบแรกไม่มีทางผ่านเมื่อเข้าผ่าน LAN | แก้แล้ว — เปลี่ยนไปตรวจค่า host ที่ส่งมาว่าอยู่ในวง LAN หรือไม่ (`ipaddress.is_private`) แทนการตรวจ IP ต้นทาง **รอผู้ใช้ทดสอบสแกนจริงอีกครั้ง** |
+| เปิดหน้าแอดมินด้วย localhost แล้ว QR ฝัง localhost | เป็นพฤติกรรมที่ถูกต้อง — QR สะท้อน host ที่เบราว์เซอร์ใช้จริง แต่ localhost มือถือเข้าไม่ได้ | ต้องเปิดหน้าแอดมินผ่าน IP ในวง LAN (เช่น 192.168.43.247:5173) ตอนจะสร้าง/ดู QR |
+| `FRONTEND_URL` ใน `backend/.env` = `172.20.57.146` เป็น IP เก่าที่ไม่มีบนเครื่องแล้ว | ค่าถูกตั้งไว้ตั้งแต่ตอนอยู่เครือข่ายอื่น ไม่ได้อัปเดตเมื่อ IP เปลี่ยน | **ยังไม่แก้ (รอตัดสินใจ)** — ค่านี้ยังใช้กับลิงก์ยืนยันอีเมล + รีเซ็ตรหัสผ่าน (`utils/email.py`) และ CORS `allow_origins` ถ้าจะทดสอบสมัครสมาชิก/ลืมรหัสผ่านจริงต้องแก้เป็น IP ปัจจุบันก่อน |
+| เทสชุดใหญ่มี ~63 เคสที่ fail อยู่ก่อนแล้ว | ปัญหา test isolation เดิม — fixture ระดับ session ใช้ร่วมกัน คำขอ/สต็อกค้างจากเทสที่ fail ก่อนหน้าทำให้เทสถัดไปชนลิมิต `max_active_requests_per_student` | ไม่เกี่ยวกับงานวันนี้ (ยืนยันด้วยการ diff กับ baseline ก่อนเริ่มงาน) ควรแยกเป็นงาน refactor เทสต่างหาก |
+| งานทั้งหมดวันนี้ยังไม่ commit | รอผู้ใช้สั่ง | commit เมื่อทดสอบ QR ผ่านเรียบร้อย |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบสแกน QR จากมือถือจริงอีกครั้ง (เปิดหน้าแอดมินผ่าน `http://192.168.43.247:5173`)
+       ยืนยันว่า QR ฝัง IP ปัจจุบันถูกต้องแล้ว
+2. [ ] แก้ `FRONTEND_URL` ใน `backend/.env` เป็น IP ปัจจุบัน แล้วทดสอบสมัครสมาชิก + ลืมรหัสผ่าน
+       ว่าลิงก์ในอีเมลกดเข้าได้จริง (`utils/email.py` ทั้ง verify + reset)
+3. [ ] commit งานทั้งหมดของวันนี้ (5 ฟีเจอร์/บั๊กฟิกซ์ + QR + redirect หลังล็อกอิน)
+4. [ ] ทดสอบ end-to-end ฝั่งนักศึกษา: สมัคร → ยืนยันอีเมล → ยืม → ต่อเวลา → คืน
+       (โดยเฉพาะฟิลด์ใหม่ เบอร์โทร/PDPA และปุ่มต่อเวลาของวัสดุสิ้นเปลือง)
+5. [ ] พิจารณาแก้ปัญหา test isolation (fixture session-scope) ที่ทำให้เทสชุดใหญ่ fail สะสม
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~99% — ฟีเจอร์ครบตามขอบเขต เหลือแก้ config (`FRONTEND_URL`) และ refactor เทสที่ flaky
+**Frontend:** ~99% — ครบทุกหน้าตามที่ออกแบบไว้ เหลือเก็บ UX ปลีกย่อยตาม feedback การใช้งานจริง
+**ระยะรวม:** เข้าสู่ช่วงทดสอบใช้งานจริง + เก็บบั๊กจากการใช้งานภาคสนาม (QA รอบผู้ใช้จริง)
+งานวันนี้เป็นการเก็บ feedback จากการใช้งานจริงล้วน ๆ ไม่ใช่ฟีเจอร์ใหม่ตามแผนเดิม
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **`FRONTEND_URL` ค้างเป็น IP เก่า (172.20.57.146)** — กระทบลิงก์ยืนยันอีเมล/รีเซ็ตรหัสผ่าน และ
+  CORS `allow_origins` ถ้าเทสสมัครสมาชิกจริงต้องแก้ก่อน (QR ไม่กระทบแล้วเพราะใช้ค่าจาก request แทน)
+- **QR code จะฝัง host ตามที่เปิดหน้าแอดมิน** — ถ้าเปิดด้วย localhost จะได้ QR ที่มือถือสแกนไม่ได้
+  ต้องเปิดด้วย LAN IP เสมอเวลาจะพิมพ์ QR ไปแปะของจริง
+- **การเก็บเบอร์โทรศัพท์ = ข้อมูลส่วนบุคคลตาม PDPA** — ตอนนี้มี checkbox ยินยอม + บันทึกเวลาที่ยินยอม
+  (`pdpa_consent_at`) แล้ว แต่ข้อความคำชี้แจงที่ได้มาอ้างถึง "แบบประเมิน" ซึ่งเป็นบริบทคนละอันกับระบบยืม-คืน
+  ควรปรับข้อความให้ตรงบริบทก่อนใช้งานจริง
+- **Pending Items ตาม CLAUDE.md ข้อ 10 ที่ยังค้าง:** ยืนยัน `ALLOWED_EMAIL_DOMAINS` กับอาจารย์ก่อน deploy จริง
+  และ LINE OA Channel Access Token (stretch goal ยังไม่เริ่ม)
+- เทสรันกับ DB dev จริง (`PYTEST_ALLOW_DB=1`) — เทสใหม่ทุกไฟล์ cleanup ครบใน finally แล้ว
+
+---
+บันทึกไฟล์ที่: Report/2026-09-02.txt

@@ -7,7 +7,7 @@ import Pagination from '../../components/common/Pagination.jsx'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 
-const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุ', consumable: 'วัสดุสิ้นเปลือง' }
+const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
 
 export default function EquipmentListPage() {
   const navigate = useNavigate()

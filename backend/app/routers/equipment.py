@@ -23,6 +23,7 @@ from app.schemas.equipment import (
     EquipmentCreate,
     EquipmentDetailResponse,
     EquipmentGroupDetailResponse,
+    EquipmentQualityAssessRequest,
     EquipmentResponse,
     EquipmentUpdate,
     ImportCommitRequest,
@@ -47,10 +48,11 @@ async def list_equipment(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     search: str | None = Query(None),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipment:
-    return await equipment_service.list_equipment(db, page, page_size, category_id, item_type, status, search)
+    return await equipment_service.list_equipment(
+        db, page, page_size, category_id, item_type, status, search, viewer=user)
 
 
 @router.get("/equipment/grouped", response_model=PaginatedEquipmentGroup)
@@ -61,20 +63,25 @@ async def list_equipment_grouped(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     search: str | None = Query(None),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipmentGroup:
     """เหมือน /equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้"""
-    return await equipment_service.list_equipment_grouped(db, page, page_size, category_id, item_type, status, search)
+    return await equipment_service.list_equipment_grouped(
+        db, page, page_size, category_id, item_type, status, search, viewer=user)
 
 
 @router.get("/equipment/grouped/{equipment_id}", response_model=EquipmentGroupDetailResponse)
 async def get_equipment_group_detail(
     equipment_id: uuid.UUID,
-    _user: User = Depends(get_current_user),
+    # เฉพาะเจ้าหน้าที่: user_id ของผู้ยืมที่กำลังจะจ่ายของให้ — ได้ recommended_unit_id กลับมาสำหรับ
+    # UnitPickerModal (นักศึกษาที่ส่งพารามิเตอร์นี้มาจะถูกเพิกเฉยเงียบ ๆ ที่ชั้น service)
+    recommend_for: uuid.UUID | None = Query(None),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentGroupDetailResponse:
-    return await equipment_service.get_equipment_group_detail(db, equipment_id)
+    return await equipment_service.get_equipment_group_detail(
+        db, equipment_id, viewer=user, recommend_for=recommend_for)
 
 
 @router.get("/equipment/repair-document")
@@ -148,9 +155,11 @@ async def bulk_update_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> BulkUpdateResult:
     """แก้ไขฟิลด์ปลอดภัย (location/description/status ฯลฯ) ของหลายหน่วยพร้อมกัน — all-or-nothing
-    (ยกเว้นเปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลัก ซึ่งข้ามแบบ best-effort ใส่ลง failed แทน)"""
+    (ยกเว้นเปลี่ยนเข้า durable ที่รหัสไม่ครบ 15 หลัก ซึ่งข้ามแบบ best-effort ใส่ลง failed แทน)
+    รองรับประเมินคุณภาพทั้งชุดพร้อมกัน (quality_baseline + quality_reason) ด้วย"""
     return await equipment_service.bulk_update_equipment(
-        db, admin, body.equipment_ids, body.update, body.status_reason)
+        db, admin, body.equipment_ids, body.update, body.status_reason,
+        body.quality_baseline, body.quality_reason)
 
 
 @router.patch("/equipment/bulk-adjust-stock", response_model=BulkAdjustStockResult)
@@ -168,13 +177,26 @@ async def bulk_adjust_stock_equipment(
 @router.get("/equipment/{equipment_id}", response_model=EquipmentDetailResponse)
 async def get_equipment(
     equipment_id: uuid.UUID,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentDetailResponse:
-    eq = await equipment_service.get_equipment(db, equipment_id)
+    eq = await equipment_service.get_equipment(db, equipment_id, viewer=user)
     holders = (await equipment_service.get_holders_map(db, [equipment_id])).get(equipment_id, [])
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
-    return EquipmentDetailResponse(**base.model_dump(exclude={"holders"}), holders=holders)
+    resp = EquipmentDetailResponse(**base.model_dump(exclude={"holders"}), holders=holders)
+    return equipment_service.hide_quality_for_viewer(resp, user)
+
+
+@router.post("/equipment/{equipment_id}/quality", response_model=EquipmentResponse)
+async def assess_equipment_quality(
+    equipment_id: uuid.UUID,
+    body: EquipmentQualityAssessRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> EquipmentResponse:
+    """ปุ่ม "ประเมินคุณภาพ" ในหน้าอุปกรณ์ — บังคับเหตุผลเสมอ (schema บังคับ min_length=1 อยู่แล้ว)"""
+    eq = await equipment_service.assess_quality(db, admin, equipment_id, body.quality_after, body.reason, "manual")
+    return EquipmentResponse.model_validate(eq, from_attributes=True)
 
 
 @router.post("/equipment/upload-image")
@@ -351,7 +373,7 @@ async def get_qrcode(
     # vite proxy (dev, ดู frontend/vite.config.js xfwd:true) ใส่มาให้แทน settings.FRONTEND_URL คงที่
     # (เชื่อเฉพาะตอนมาจาก loopback ดู _forwarded_frontend_origin) ไม่งั้น fallback ไปใช้ FRONTEND_URL เดิม
     frontend_origin = _forwarded_frontend_origin(request)
-    png_bytes = await equipment_service.generate_qr(db, equipment_id, frontend_origin)
+    png_bytes = await equipment_service.generate_qr(db, equipment_id, frontend_origin, viewer=_user)
     # ห้าม browser cache รูปนี้ — URL ที่ฝังใน QR เปลี่ยนได้ตาม host ที่ request เข้ามา (เครื่อง dev IP เปลี่ยนบ่อย)
     # cache ไว้จะโชว์ QR ที่ชี้ไป host เก่าซ้ำ ทั้งที่ IP เปลี่ยนไปแล้วจริง
     return Response(content=png_bytes, media_type="image/png", headers={"Cache-Control": "no-store"})

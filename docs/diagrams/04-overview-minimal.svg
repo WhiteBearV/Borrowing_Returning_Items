@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2800" height="1708" viewBox="0 0 2800 1708">
+<defs><marker id="m0f172a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/></marker><marker id="m6b7787" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7787"/></marker><marker id="m475569" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+<rect width="2800" height="1708" fill="#ffffff"/>
+<text x="60.0" y="78.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="40" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">04 · ภาพรวมระบบ (Minimal)</text>
+<rect x="586.3" y="48.0" width="127.7" height="38.0" rx="19" fill="#dcfce7" stroke="none" stroke-width="1.2"/>
+<text x="601.3" y="73.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#166534" text-anchor="start" style="white-space:pre" font-weight="700">ฉบับเข้าใจง่าย</text>
+<text x="60.0" y="124.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="22" fill="#334155" text-anchor="start" style="white-space:pre" font-weight="700">ระบบยืม-คืนอุปกรณ์ทำงานอย่างไร ตั้งแต่ยืมจนคืน</text>
+<text x="60.0" y="158.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#64748b" text-anchor="start" style="white-space:pre">ระบบเว็บของสาขาวิศวกรรมคอมพิวเตอร์และสาขาออกแบบดิจิทัล สำหรับผู้ใช้ราว 100–300 คน · ติดตั้งบนเซิร์ฟเวอร์ของคณะ</text>
+<text x="60.0" y="240.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#1e293b" text-anchor="start" style="white-space:pre">🧩</text>
+<text x="103.2" y="240.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ระบบประกอบด้วย 4 ส่วน</text>
+<rect x="916.9" y="280.0" width="1823.1" height="383.0" rx="24" fill="#f8fafc" stroke="#475569" stroke-width="2" stroke-dasharray="10 7"/>
+<text x="942.9" y="314.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="22" fill="#1e293b" text-anchor="start" style="white-space:pre">🏫</text>
+<text x="979.3" y="312.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">ติดตั้งบนเซิร์ฟเวอร์ของคณะ</text>
+<rect x="60.0" y="330.0" width="279.7" height="167.0" rx="18" fill="#eff6f9" stroke="#74accb" stroke-width="1.6"/>
+<text x="86.0" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="29" fill="#1e293b" text-anchor="start" style="white-space:pre">🙋</text>
+<text x="130.8" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="25" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ใช้</text>
+<text x="86.0" y="413.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">นักศึกษา อาจารย์ เจ้าหน้าที่</text>
+<text x="86.0" y="445.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">ใช้ผ่านคอมหรือมือถือ</text>
+<rect x="952.9" y="330.0" width="224.9" height="167.0" rx="18" fill="#f0f6f6" stroke="#7bb3af" stroke-width="1.6"/>
+<text x="978.9" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="29" fill="#1e293b" text-anchor="start" style="white-space:pre">🌐</text>
+<text x="1023.7" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="25" fill="#0f766e" text-anchor="start" style="white-space:pre" font-weight="700">หน้าเว็บ</text>
+<text x="978.9" y="413.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">สิ่งที่เห็นบนจอ</text>
+<text x="978.9" y="445.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">เมนู ปุ่ม แบบฟอร์ม</text>
+<text x="978.9" y="477.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ดูรูป 01</text>
+<rect x="1671.1" y="330.0" width="278.1" height="167.0" rx="18" fill="#faf4f0" stroke="#d5a077" stroke-width="1.6"/>
+<text x="1697.1" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="29" fill="#1e293b" text-anchor="start" style="white-space:pre">⚙️</text>
+<text x="1741.9" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="25" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">ระบบหลังบ้าน</text>
+<text x="1697.1" y="413.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">ตรวจสิทธิ์ ทำตามกติกา</text>
+<text x="1697.1" y="445.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">แจ้งเตือน ออกเอกสาร</text>
+<text x="1697.1" y="477.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ดูรูป 02</text>
+<rect x="2442.4" y="330.0" width="261.6" height="167.0" rx="18" fill="#f6f2fc" stroke="#ae88ea" stroke-width="1.6"/>
+<text x="2468.4" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="29" fill="#1e293b" text-anchor="start" style="white-space:pre">🗄️</text>
+<text x="2513.2" y="371.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="25" fill="#6d28d9" text-anchor="start" style="white-space:pre" font-weight="700">ฐานข้อมูล</text>
+<text x="2468.4" y="413.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">จดจำข้อมูลทั้งหมด</text>
+<text x="2468.4" y="445.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#334155" text-anchor="start" style="white-space:pre">ผู้ใช้ อุปกรณ์ การยืม-คืน</text>
+<text x="2468.4" y="477.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="18" fill="#64748b" text-anchor="start" style="white-space:pre" font-weight="700">ดูรูป 03</text>
+<path d="M351.7,413.5 L940.9,413.5" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linejoin="round" marker-end="url(#m0f172a)" marker-start="url(#m0f172a)"/>
+<path d="M1189.8,413.5 L1659.1,413.5" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linejoin="round" marker-end="url(#m0f172a)" marker-start="url(#m0f172a)"/>
+<path d="M1961.1,413.5 L2430.4,413.5" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linejoin="round" marker-end="url(#m0f172a)" marker-start="url(#m0f172a)"/>
+<rect x="1671.1" y="557.0" width="201.0" height="70.0" rx="14" fill="#ffffff" stroke="#9099a5" stroke-width="1.4"/>
+<text x="1687.1" y="601.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#1e293b" text-anchor="start" style="white-space:pre">📧</text>
+<text x="1721.1" y="587.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">อีเมล</text>
+<text x="1721.1" y="611.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">ส่งถึงกล่องจดหมายผู้ใช้</text>
+<path d="M1810.1,503.0 L1810.1,529.0 L1771.6,529.0 L1771.6,551.0" fill="none" stroke="#6b7787" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#m6b7787)"/>
+<rect x="1888.0" y="557.0" width="165.2" height="70.0" rx="14" fill="#ffffff" stroke="#9099a5" stroke-width="1.4"/>
+<text x="1904.0" y="601.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#1e293b" text-anchor="start" style="white-space:pre">⏰</text>
+<text x="1938.0" y="587.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ช่วยอัตโนมัติ</text>
+<text x="1938.0" y="611.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">เตือนทุกเที่ยงคืน</text>
+<path d="M1810.1,503.0 L1810.1,529.0 L1970.7,529.0 L1970.7,551.0" fill="none" stroke="#6b7787" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#m6b7787)"/>
+<rect x="2442.4" y="557.0" width="159.5" height="70.0" rx="14" fill="#ffffff" stroke="#9099a5" stroke-width="1.4"/>
+<text x="2458.4" y="601.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#1e293b" text-anchor="start" style="white-space:pre">💾</text>
+<text x="2492.4" y="587.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">สำรองข้อมูล</text>
+<text x="2492.4" y="611.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">ทุกคืน เก็บ 7 วัน</text>
+<path d="M2573.2,503.0 L2573.2,529.0 L2522.1,529.0 L2522.1,551.0" fill="none" stroke="#6b7787" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#m6b7787)"/>
+<text x="60.0" y="773.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#1e293b" text-anchor="start" style="white-space:pre">🗺️</text>
+<text x="103.2" y="773.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">เส้นทางการยืม-คืน ตั้งแต่ต้นจนจบ</text>
+<text x="489.4" y="773.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#64748b" text-anchor="start" style="white-space:pre">แต่ละแถว = ใครเป็นคนทำขั้นนั้น · อ่านตามเลข 1 → 8</text>
+<rect x="60.0" y="809.0" width="2680.0" height="191.0" rx="18" fill="#f2f7fa" stroke="#9ac3d9" stroke-width="1.4"/>
+<text x="84.0" y="906.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="30" fill="#1e293b" text-anchor="start" style="white-space:pre">🙋</text>
+<text x="132.0" y="900.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ยืม</text>
+<text x="132.0" y="926.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">นักศึกษา / อาจารย์</text>
+<rect x="60.0" y="1014.0" width="2680.0" height="191.0" rx="18" fill="#fbf6f2" stroke="#e1ba9c" stroke-width="1.4"/>
+<text x="84.0" y="1111.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="30" fill="#1e293b" text-anchor="start" style="white-space:pre">📦</text>
+<text x="132.0" y="1105.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">เจ้าหน้าที่</text>
+<text x="132.0" y="1131.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">ผู้ดูแลคลัง</text>
+<rect x="60.0" y="1219.0" width="2680.0" height="191.0" rx="18" fill="#f5f6f7" stroke="#b5bbc3" stroke-width="1.4"/>
+<text x="84.0" y="1316.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="30" fill="#1e293b" text-anchor="start" style="white-space:pre">🤖</text>
+<text x="132.0" y="1310.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">ระบบอัตโนมัติ</text>
+<text x="132.0" y="1336.5" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="14" fill="#64748b" text-anchor="start" style="white-space:pre">ทำเองไม่ต้องมีคนกด</text>
+<rect x="354.0" y="837.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#74accb" stroke-width="1.6"/>
+<text x="370.0" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🔍</text>
+<text x="405.2" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">ค้นหาอุปกรณ์</text>
+<text x="370.0" y="904.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ดูว่าเหลือกี่ชิ้น</text>
+<text x="370.0" y="928.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">หรือสแกน QR</text>
+<text x="370.0" y="952.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ที่ตัวอุปกรณ์</text>
+<circle cx="358.0" cy="841.0" r="18" fill="#0369a1" stroke="#ffffff" stroke-width="3"/>
+<text x="358.0" y="847.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">1</text>
+<rect x="655.8" y="837.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#74accb" stroke-width="1.6"/>
+<text x="671.8" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🛒</text>
+<text x="707.0" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">ส่งคำขอยืม</text>
+<text x="671.8" y="904.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">หยิบใส่ตะกร้า</text>
+<text x="671.8" y="928.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">กรอกวัตถุประสงค์</text>
+<text x="671.8" y="952.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">เลือกวันที่จะคืน</text>
+<circle cx="659.8" cy="841.0" r="18" fill="#0369a1" stroke="#ffffff" stroke-width="3"/>
+<text x="659.8" y="847.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">2</text>
+<rect x="655.8" y="1259.0" width="249.8" height="111.0" rx="18" fill="#ffffff" stroke="#99a1ac" stroke-width="1.6"/>
+<text x="671.8" y="1292.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🔔</text>
+<text x="707.0" y="1292.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">แจ้งเจ้าหน้าที่</text>
+<text x="671.8" y="1326.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">มีคำขอใหม่เข้ามา</text>
+<text x="671.8" y="1350.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">(เว็บ + อีเมล)</text>
+<rect x="957.5" y="1042.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#d5a077" stroke-width="1.6"/>
+<text x="973.5" y="1075.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">✅</text>
+<text x="1008.7" y="1075.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">พิจารณาคำขอ</text>
+<text x="973.5" y="1109.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">อนุมัติทั้งใบหรือบางชิ้น</text>
+<text x="973.5" y="1133.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">นัดวัน-เวลารับของ</text>
+<text x="973.5" y="1157.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ไม่อนุมัติต้องบอกเหตุผล</text>
+<circle cx="961.5" cy="1046.0" r="18" fill="#b45309" stroke="#ffffff" stroke-width="3"/>
+<text x="961.5" y="1052.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">3</text>
+<rect x="957.5" y="1259.0" width="249.8" height="111.0" rx="18" fill="#ffffff" stroke="#99a1ac" stroke-width="1.6"/>
+<text x="973.5" y="1292.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🔔</text>
+<text x="1008.7" y="1292.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">แจ้งผลผู้ยืม</text>
+<text x="973.5" y="1326.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ตัดจำนวนคงเหลือ</text>
+<text x="973.5" y="1350.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">(เว็บ + อีเมล)</text>
+<rect x="1259.2" y="849.0" width="249.8" height="111.0" rx="18" fill="#ffffff" stroke="#74accb" stroke-width="1.6"/>
+<text x="1275.2" y="882.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">📄</text>
+<text x="1310.5" y="882.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">รับของ</text>
+<text x="1275.2" y="916.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">พิมพ์ใบยืม เซ็นชื่อ</text>
+<text x="1275.2" y="940.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">มารับของตามนัด</text>
+<circle cx="1263.2" cy="853.0" r="18" fill="#0369a1" stroke="#ffffff" stroke-width="3"/>
+<text x="1263.2" y="859.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">4</text>
+<rect x="1561.0" y="1247.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#99a1ac" stroke-width="1.6"/>
+<text x="1577.0" y="1280.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">⏰</text>
+<text x="1612.2" y="1280.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">เตือนวันคืน</text>
+<text x="1577.0" y="1314.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ล่วงหน้า 2 วัน</text>
+<text x="1577.0" y="1338.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">เลยกำหนด</text>
+<text x="1577.0" y="1362.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">เตือนทุกฝ่าย</text>
+<circle cx="1565.0" cy="1251.0" r="18" fill="#475569" stroke="#ffffff" stroke-width="3"/>
+<text x="1565.0" y="1257.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">5</text>
+<rect x="1862.8" y="837.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#74accb" stroke-width="1.6"/>
+<text x="1878.8" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">📅</text>
+<text x="1914.0" y="870.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">แจ้งขอคืน</text>
+<text x="1878.8" y="904.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">นัดวัน-เวลาที่จะคืน</text>
+<text x="1878.8" y="928.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">หรือขอต่อเวลา</text>
+<text x="1878.8" y="952.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">(รอเจ้าหน้าที่อนุมัติ)</text>
+<circle cx="1866.8" cy="841.0" r="18" fill="#0369a1" stroke="#ffffff" stroke-width="3"/>
+<text x="1866.8" y="847.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">6</text>
+<rect x="2164.5" y="1042.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#d5a077" stroke-width="1.6"/>
+<text x="2180.5" y="1075.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🔎</text>
+<text x="2215.7" y="1075.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">ตรวจรับคืน</text>
+<text x="2180.5" y="1109.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">บันทึกสภาพของ</text>
+<text x="2180.5" y="1133.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">เสียหายต้องถ่ายรูป</text>
+<text x="2180.5" y="1157.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">คืนช้า/เสียหาย มีค่าปรับ</text>
+<circle cx="2168.5" cy="1046.0" r="18" fill="#b45309" stroke="#ffffff" stroke-width="3"/>
+<text x="2168.5" y="1052.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">7</text>
+<rect x="2466.2" y="1247.0" width="249.8" height="135.0" rx="18" fill="#ffffff" stroke="#99a1ac" stroke-width="1.6"/>
+<text x="2482.2" y="1280.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="21" fill="#1e293b" text-anchor="start" style="white-space:pre">🏁</text>
+<text x="2517.4" y="1280.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#475569" text-anchor="start" style="white-space:pre" font-weight="700">ปิดคำขอ</text>
+<text x="2482.2" y="1314.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">คืนครบทุกชิ้น</text>
+<text x="2482.2" y="1338.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">ของกลับเข้าคลัง</text>
+<text x="2482.2" y="1362.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="15" fill="#334155" text-anchor="start" style="white-space:pre">แจ้งผู้ยืม</text>
+<circle cx="2470.2" cy="1251.0" r="18" fill="#475569" stroke="#ffffff" stroke-width="3"/>
+<text x="2470.2" y="1257.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="17" fill="#ffffff" text-anchor="middle" style="white-space:pre" font-weight="700">8</text>
+<path d="M607.8,904.5 L649.8,904.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M909.5,904.5 L931.5,904.5 L931.5,1109.5 L951.5,1109.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1211.2,1109.5 L1233.2,1109.5 L1233.2,904.5 L1253.2,904.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1513.0,904.5 L1535.0,904.5 L1535.0,1314.5 L1555.0,1314.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M1814.8,1314.5 L1836.8,1314.5 L1836.8,904.5 L1856.8,904.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M2116.5,904.5 L2138.5,904.5 L2138.5,1109.5 L2158.5,1109.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M2418.2,1109.5 L2440.2,1109.5 L2440.2,1314.5 L2460.2,1314.5" fill="none" stroke="#0f172a" stroke-width="3" stroke-linejoin="round" marker-end="url(#m0f172a)"/>
+<path d="M780.6,978.0 L780.6,1251.0" fill="none" stroke="#475569" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#m475569)"/>
+<path d="M1082.4,1183.0 L1082.4,1251.0" fill="none" stroke="#475569" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#m475569)"/>
+<text x="60.0" y="1494.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#1e293b" text-anchor="start" style="white-space:pre">🔐</text>
+<text x="103.2" y="1494.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="26" fill="#0f172a" text-anchor="start" style="white-space:pre" font-weight="700">ใครทำอะไรได้บ้าง (สรุปสั้น)</text>
+<text x="405.5" y="1494.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#64748b" text-anchor="start" style="white-space:pre">รายละเอียดเมนูของแต่ละคนดูรูป 01</text>
+<rect x="60.0" y="1526.0" width="866.7" height="122.0" rx="18" fill="#eff6f9" stroke="#74accb" stroke-width="1.6"/>
+<text x="82.0" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="24" fill="#1e293b" text-anchor="start" style="white-space:pre">🙋</text>
+<text x="120.8" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#0369a1" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ใช้งาน</text>
+<text x="82.0" y="1600.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">ยืม · ยกเลิกคำขอ · ขอคืน · ขอต่อเวลา</text>
+<text x="82.0" y="1628.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">ดูสถานะและประวัติของตัวเอง</text>
+<rect x="966.7" y="1526.0" width="866.7" height="122.0" rx="18" fill="#faf4f0" stroke="#d5a077" stroke-width="1.6"/>
+<text x="988.7" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="24" fill="#1e293b" text-anchor="start" style="white-space:pre">📦</text>
+<text x="1027.5" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#b45309" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลคลัง</text>
+<text x="988.7" y="1600.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">อนุมัติ · ตรวจรับคืน · บันทึกค่าปรับ</text>
+<text x="988.7" y="1628.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">จัดการอุปกรณ์ ผู้ใช้ และดูรายงาน</text>
+<rect x="1873.3" y="1526.0" width="866.7" height="122.0" rx="18" fill="#faf1f1" stroke="#d88282" stroke-width="1.6"/>
+<text x="1895.3" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="24" fill="#1e293b" text-anchor="start" style="white-space:pre">🛡️</text>
+<text x="1934.1" y="1562.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="20" fill="#b91c1c" text-anchor="start" style="white-space:pre" font-weight="700">ผู้ดูแลระบบสูงสุด</text>
+<text x="1895.3" y="1600.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">ทุกอย่างของผู้ดูแลคลัง และเพิ่มอีก:</text>
+<text x="1895.3" y="1628.0" font-family="'Noto Sans','Noto Sans Thai','Noto Color Emoji',sans-serif" font-size="16" fill="#334155" text-anchor="start" style="white-space:pre">แก้ราคา/กติกาค่าปรับ · ยกเว้นค่าปรับ · ลบถาวร · เปลี่ยนสิทธิ์</text>
+</svg>
