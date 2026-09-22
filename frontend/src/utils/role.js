@@ -29,3 +29,9 @@ export const roleBadgeClass = (role) => ROLE_BADGE_CLASS[role] ?? ROLE_BADGE_CLA
  *  ไม่งั้น superadmin จะกลายเป็นสิทธิ์ "น้อยกว่า" admin ซึ่งผิดความตั้งใจ */
 export const isStaff = (user) => user?.role === ADMIN || user?.role === SUPERADMIN
 export const isSuperadmin = (user) => user?.role === SUPERADMIN
+
+// ลำดับยศ — คู่แฝดของ backend app/utils/roles.py::can_manage_user (backend คือด่านจริง ที่นี่แค่ซ่อนปุ่ม)
+// จัดการบัญชีคนอื่น (เปิด/ปิด · แก้ชั้นปี) ได้เฉพาะยศที่ต่ำกว่าตัวเอง ผู้ดูแลระบบสูงสุดจัดการได้ทุกคน
+const ROLE_RANK = { [STUDENT]: 0, [ADMIN]: 1, [SUPERADMIN]: 2 }
+export const canManageUser = (actor, target) =>
+  isSuperadmin(actor) || (ROLE_RANK[target?.role] ?? 0) < (ROLE_RANK[actor?.role] ?? 0)

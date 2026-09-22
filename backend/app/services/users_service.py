@@ -12,7 +12,7 @@ from app.models.notification import Notification
 from app.core.security import hash_password
 from app.models.user import User
 from app.utils.identity import is_student_identifier
-from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, SUPERADMIN
+from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, STUDENT, SUPERADMIN, can_manage_user, role_rank
 from app.utils.study_year import compute_study_year, year_group_key
 from app.schemas.user import PaginatedUsers, UserCreateRequest, UserUpdateRequest
 
@@ -39,10 +39,43 @@ async def attach_study_year(db: AsyncSession, users: list[User]) -> None:
         u.study_year_label = info.label
 
 
+def _assert_can_manage(actor: User, target: User) -> None:
+    """กั้นการจัดการบัญชีที่ยศเท่าหรือสูงกว่าตัวเอง — ดู roles.can_manage_user (จุดตัดสินจุดเดียว)"""
+    if not can_manage_user(actor, target):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"จัดการบัญชี{ROLE_LABEL_TH.get(target.role, target.role)}ได้เฉพาะ{ROLE_LABEL_TH[SUPERADMIN]}",
+        )
+
+
+async def _assert_not_last_superadmin(db: AsyncSession, user: User) -> None:
+    """ต้องเหลือ superadmin ที่ใช้งานได้อย่างน้อย 1 บัญชีเสมอ — ไม่งั้นไม่มีใครแก้ settings/สิทธิ์ได้อีก
+    (ต้องแก้ที่ DB ตรง ๆ ซึ่งตั้งใจเลี่ยงตั้งแต่แรก) ใช้ทั้งตอนลดยศและตอนปิดบัญชี"""
+    if user.role != SUPERADMIN or not user.is_active:
+        return
+    remaining = (await db.execute(
+        select(func.count(User.id)).where(User.role == SUPERADMIN, User.is_active == True)  # noqa: E712
+    )).scalar() or 0
+    if remaining <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ต้องเหลือ{ROLE_LABEL_TH[SUPERADMIN]}ที่ใช้งานได้อย่างน้อย 1 บัญชีเสมอ",
+        )
+
+
 async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) -> User:
-    """แอดมินสร้างบัญชีผู้ใช้ใหม่ (student หรือ admin) — verified ทันที ไม่ต้องยืนยันอีเมล"""
+    """แอดมินสร้างบัญชีผู้ใช้ใหม่ — verified ทันที ไม่ต้องยืนยันอีเมล
+
+    สร้างได้ไม่เกินยศตัวเอง: ผู้ดูแลคลังสร้าง student/admin · superadmin สร้างได้ทุกยศ (22 ก.ย. 69 — เดิมเช็คแค่ว่า
+    role อยู่ใน ALL_ROLES ผู้ดูแลคลังยิง API สร้างบัญชี superadmin ให้ตัวเองได้ = ยกระดับสิทธิ์ตัวเอง)
+    """
     if body.role not in ALL_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role.")
+    if role_rank(body.role) > role_rank(admin.role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"สร้างบัญชี{ROLE_LABEL_TH[body.role]}ได้เฉพาะ{ROLE_LABEL_TH[SUPERADMIN]}",
+        )
     exists = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
@@ -193,10 +226,17 @@ async def delete_user(db: AsyncSession, admin: User, user_id: uuid.UUID) -> None
 
 
 async def update_status(db: AsyncSession, admin: User, user_id: uuid.UUID, is_active: bool) -> User:
+    """เปิด/ปิดใช้งานบัญชี — ปิดแล้วใช้งานไม่ได้ทันที (get_current_user เช็คทุก request)
+    จึงต้องกั้นยศ (_assert_can_manage) · ห้ามปิดตัวเอง · ห้ามปิด superadmin คนสุดท้าย"""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if user.id == admin.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="เปิด/ปิดใช้งานบัญชีของตัวเองไม่ได้")
+    _assert_can_manage(admin, user)
+    if not is_active:
+        await _assert_not_last_superadmin(db, user)
     user.is_active = is_active
     await audit_service.log_action(db, admin, "update_user_status", "users", user.id, {
         "full_name": user.full_name, "is_active": is_active,
@@ -218,6 +258,12 @@ async def update_approval(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    _assert_can_manage(admin, user)
+    # คิวอนุมัติมีไว้สำหรับผู้สมัครเอง (สมัครได้แค่ role student) — บัญชีเจ้าหน้าที่สร้างโดยสคริปต์/แอดมินและ
+    # ผ่านอนุมัติตั้งแต่แรก การ "ปฏิเสธ" บัญชีเจ้าหน้าที่ = ล็อกเอาต์เขาเหมือนปิดบัญชี (ทางอ้อมของบั๊กเดียวกัน)
+    if user.role != STUDENT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="การอนุมัติผู้สมัครใช้กับบัญชีผู้ใช้งานเท่านั้น")
     if user.approval_status == "approved" and approve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="บัญชีนี้ผ่านการอนุมัติแล้ว")
 
@@ -254,15 +300,8 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role.")
     if user.role == role:
         return user
-    if user.role == SUPERADMIN and role != SUPERADMIN:
-        remaining = (await db.execute(
-            select(func.count(User.id)).where(User.role == SUPERADMIN, User.is_active == True)  # noqa: E712
-        )).scalar() or 0
-        if remaining <= 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"ต้องเหลือ{ROLE_LABEL_TH[SUPERADMIN]}อย่างน้อย 1 บัญชีเสมอ",
-            )
+    if role != SUPERADMIN:
+        await _assert_not_last_superadmin(db, user)
     old_role = user.role
     user.role = role
     await audit_service.log_action(db, admin, "update_user_role", "users", user.id, {
@@ -293,6 +332,7 @@ async def update_study(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    _assert_can_manage(admin, user)
     reason = (reason or "").strip()
     if not reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="กรุณาระบุเหตุผลที่แก้ไขข้อมูลชั้นปี")

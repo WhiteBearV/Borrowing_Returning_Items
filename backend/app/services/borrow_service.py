@@ -1232,7 +1232,13 @@ async def return_item(
 
     rate, grace, cap = await _fine_settings(db)
     calc = _compute_fine(item, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap)
+    overriding = body.fine_late_amount_override is not None or body.fine_damage_amount_override is not None
+    if overriding:
+        _assert_not_own_fine(admin, req)   # รับคืนของตัวเองได้ แต่กรอกทับยอดค่าปรับของตัวเองไม่ได้
     fine_total = _apply_fine(item, calc, body.fine_late_amount_override, body.fine_damage_amount_override)
+    # กรอกทับจนยอดเป็น 0 ทั้งที่ระบบคิดได้ > 0 = ยกเว้นทางอ้อม (ยังไม่ commit — raise แล้วทุกอย่างในคำขอนี้ย้อนกลับ)
+    if overriding and fine_total <= 0 < calc["late_amount"] + calc["damage_amount"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_ZERO_FINE_DETAIL)
 
     # ถ้าทุก item returned แล้ว → complete request
     # ข้ามชิ้นที่แอดมินไม่อนุมัติ (ไม่เคยออกจากคลัง ไม่มีอะไรให้คืน) ไม่งั้นคำขอจะไม่มีวันปิด
@@ -1501,6 +1507,23 @@ async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
         print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
+def _assert_not_own_fine(actor: User, req: BorrowRequest) -> None:
+    """เจ้าหน้าที่จัดการค่าปรับของคำขอที่ตัวเองเป็นผู้ยืมไม่ได้ (แก้ยอด/กรอกทับตอนรับคืน/รับชำระ/ยกเว้น)
+
+    ผลประโยชน์ทับซ้อน — เจ้าหน้าที่ยืมของได้ (มีหน้า "การยืมของฉัน") ถ้าไม่กั้นจะแก้ค่าปรับของตัวเองเป็นเท่าไหร่ก็ได้
+    ต้องให้เจ้าหน้าที่คนอื่นทำ (22 ก.ย. 69 — สำรวจต่อจากบั๊กผู้ดูแลคลังปิดบัญชี superadmin ได้)
+    """
+    if req.student_id == actor.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="จัดการค่าปรับของคำขอที่ตัวเองเป็นผู้ยืมไม่ได้ — ให้เจ้าหน้าที่คนอื่นทำ")
+
+
+# ยอดเป็น 0 ด้วยการแก้มือ = ยกเว้นค่าปรับทางอ้อม (สิทธิ์ superadmin) และแย่กว่าด้วย เพราะสถานะกลายเป็น "none"
+# หายจากหน้าค่าปรับ/รายงานเลย ขณะที่ "ยกเว้น" ยังเก็บยอดไว้ตรวจย้อนหลังได้ — บังคับให้ไปทางยกเว้นเสมอ
+_ZERO_FINE_DETAIL = ("แก้ยอดค่าปรับเป็น 0 ไม่ได้ — ถ้าไม่เรียกเก็บให้ใช้ \"ยกเว้นค่าปรับ\" (ผู้ดูแลระบบสูงสุด) "
+                     "เพื่อให้ยังตรวจสอบย้อนหลังได้")
+
+
 def _load_fine_item(req: BorrowRequest, item_id: uuid.UUID) -> BorrowItem:
     """หารายการที่มีค่าปรับค้างชำระ — ทั้ง 3 การกระทำ (แก้ยอด/ชำระ/ยกเว้น) ทำได้เฉพาะสถานะ unpaid
 
@@ -1524,13 +1547,14 @@ async def update_fine(
     เพื่อให้ยังเทียบได้ว่าสูตรคิดเท่าไหร่ แล้วคนแก้เป็นเท่าไหร่ ด้วยเหตุผลอะไร
     """
     req = await _load_request(db, request_id)
+    _assert_not_own_fine(admin, req)
     item = _load_fine_item(req, item_id)
+    if round(body.late_amount, 2) + round(body.damage_amount, 2) <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_ZERO_FINE_DETAIL)
 
     old = (float(item.fine_late_amount or 0), float(item.fine_damage_amount or 0))
     item.fine_late_amount = round(body.late_amount, 2)
     item.fine_damage_amount = round(body.damage_amount, 2)
-    if item.fine_total <= 0:
-        item.fine_status = "none"
 
     await audit_service.log_action(db, admin, "update_fine", "borrow_items", item.id, {
         "request_code": req.request_code,
@@ -1547,6 +1571,7 @@ async def update_fine(
 async def pay_fine(db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID) -> None:
     """บันทึกว่าชำระค่าปรับแล้ว (เจ้าหน้าที่) — ระบบไม่รับเงินเอง แค่บันทึกว่ารับไว้แล้วเมื่อไหร่โดยใคร"""
     req = await _load_request(db, request_id)
+    _assert_not_own_fine(admin, req)
     item = _load_fine_item(req, item_id)
     item.fine_status = "paid"
 
@@ -1567,6 +1592,7 @@ async def waive_fine(
     ไม่ล้างยอดเป็น 0 โดยตั้งใจ: รายงานต้องตอบได้ว่า "ยกเว้นไปเท่าไหร่" ไม่ใช่แค่ "ไม่มีค่าปรับ"
     """
     req = await _load_request(db, request_id)
+    _assert_not_own_fine(superadmin, req)   # superadmin ยกเว้นค่าปรับของตัวเองก็ไม่ได้ ต้องให้อีกคนทำ
     item = _load_fine_item(req, item_id)
     item.fine_status = "waived"
     item.fine_waived_by = superadmin.id

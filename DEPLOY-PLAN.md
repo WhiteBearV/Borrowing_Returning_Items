@@ -1,5 +1,10 @@
 # แผนเตรียม Deploy — ระบบยืม-คืนอุปกรณ์
 
+> 📌 **เอกสารนี้เป็นบันทึกการเตรียม deploy รอบแรก (ส.ค. 2569) เก็บไว้เป็นประวัติการตัดสินใจ**
+> ขั้นตอนติดตั้ง / อัปเดต / ย้อนกลับ / backup ที่ใช้ได้จริงกับเวอร์ชันปัจจุบันอยู่ใน [`README.md`](README.md) หัวข้อ 5–8
+> (ตั้งแต่รอบนี้มีการเปลี่ยนแปลงสำคัญ: HTTPS + `gen-self-signed-cert.sh`, SuperAdmin ต้องสร้างด้วย
+> `create_admin.py --superadmin`, รายชื่อนักศึกษาที่รับรอง, `TZ=Asia/Bangkok`, migration ถึง 0041 — ดู `PATCH_NOTES.md`)
+
 > เป้าหมาย: ขึ้น Proxmox VM คณะ ใช้งานจริงผ่าน LAN ผู้ใช้ ~100–300 คน
 > สร้างเมื่อ 2 ส.ค. 2026 · **ข้อ 1–16 ทำครบแล้ว** เหลือแต่ที่ต้องยืนยันบน VM จริง (ดูท้ายไฟล์)
 > อัปเดต 13 ส.ค. 2026: เพิ่ม `ENABLE_EMAIL` flag (ปิดอีเมลไว้ก่อนรอบ pilot นี้ตั้งใจ) + แก้บั๊กที่เจอจากจำลอง QA จริง (ดูหัวข้อ "เจอเพิ่มระหว่างทำ") + ตรวจ `docker-compose.prod.yml` ซ้ำด้วย `.env` จริง ผ่านครบ (ดู Verification)
@@ -187,33 +192,8 @@
 
 ## ขั้นตอน deploy บน VM
 
-```bash
-git pull
-cp .env.prod.example .env
+**ย้ายไปอยู่ที่ [`README.md`](README.md) แล้ว** — ติดตั้งครั้งแรก (หัวข้อ 5.1–5.2) · IP เปลี่ยน (5.3) ·
+อัปเดตเวอร์ชัน + ย้อนกลับ (6) · backup/restore + cron (8)
 
-# แก้ .env อย่างน้อย 4 ค่านี้:
-#   SECRET_KEY        → openssl rand -hex 32
-#   POSTGRES_PASSWORD → openssl rand -hex 24
-#   FRONTEND_URL / APP_BASE_URL → http://<ip-ของ-vm>   (ไม่ต้องใส่ :8000)
-#   MAIL_*            → ถ้ามี SMTP ของคณะ
-#
-# ENABLE_EMAIL ปล่อย false (default) ไว้ก่อนสำหรับรอบ pilot นี้ — ไม่ต้องแก้
-# ตั้ง true พร้อม MAIL_* ค่อยเปิดตอนพร้อมส่งอีเมลจริง (ไม่ต้องแก้โค้ด)
-
-docker compose -f docker-compose.prod.yml up --build -d
-docker compose -f docker-compose.prod.yml logs -f backend   # ดูว่า alembic ขึ้นถึง head
-
-# สร้างแอดมินคนแรก (ไม่มีทางทำผ่านหน้าเว็บ)
-docker compose -f docker-compose.prod.yml exec backend python scripts/create_admin.py
-
-# หลังจากนี้: เข้าเว็บด้วยแอดมินที่เพิ่งสร้าง → เพิ่มอุปกรณ์ → ตั้งค่าชุดอุปกรณ์ (bundles) เอง
-# ดูรายละเอียดที่ต้องตั้งที่ข้อ 13 ใน "ยังต้องทำบน VM จริง" ด้านบน — DB จริงว่างเปล่า ไม่มีติดมาจาก dev
-
-# ตั้ง cron backup ตี 2 ทุกวัน
-crontab -e
-# 0 2 * * * bash /path/to/TermPJ/backend/scripts/backup_db.sh >> /var/log/eqb-backup.log 2>&1
-```
-
-เข้าใช้งานที่ `http://<ip-ของ-vm>/` — เปิดแค่ port 80 ทางเดียว backend กับ db ไม่โผล่ออกนอก
-
-**ถ้า `.env` ตั้ง `FRONTEND_URL` ผิด** ลิงก์ยืนยันอีเมลกับรีเซ็ตรหัสผ่านจะพาผู้ใช้ไปผิดที่ — ตรวจข้อนี้ก่อนเปิดให้คนอื่นใช้
+ขั้นตอนเดิมที่เคยอยู่ตรงนี้ใช้ไม่ได้แล้วกับเวอร์ชันปัจจุบัน (ยังเป็น http, ไม่มีขั้นตอนออก cert, สร้างแค่แอดมินธรรมดา
+ทำให้ไม่มีใครแก้ค่าปรับ/ราคาได้ และไม่ได้นำเข้ารายชื่อนักศึกษาที่รับรอง)

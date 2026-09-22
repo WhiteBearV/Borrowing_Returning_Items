@@ -36,3 +36,22 @@ def is_staff(user: User) -> bool:
 
 def is_superadmin(user: User) -> bool:
     return user.role == SUPERADMIN
+
+
+# ลำดับยศ — ใช้ตัดสินว่าใครจัดการบัญชีใครได้ (can_manage_user) และสร้างบัญชียศไหนได้
+ROLE_RANK = {STUDENT: 0, ADMIN: 1, SUPERADMIN: 2}
+
+
+def role_rank(role: str) -> int:
+    return ROLE_RANK.get(role, 0)
+
+
+def can_manage_user(actor: User, target: User) -> bool:
+    """จัดการบัญชีคนอื่น (เปิด/ปิด · อนุมัติผู้สมัคร · แก้ชั้นปี) ได้เฉพาะบัญชีที่ยศ **ต่ำกว่า** ตัวเอง
+    superadmin จัดการได้ทุกคน — **จุดเดียว** ที่ตัดสินเรื่องนี้ (หน้าเว็บมีคู่แฝดใน utils/role.js ไว้ซ่อนปุ่ม)
+
+    22 ก.ย. 69 เจอจริง: endpoint เหล่านี้กั้นแค่ require_admin แต่ไม่ดูยศของบัญชีเป้าหมาย ผู้ดูแลคลังปิดบัญชี
+    superadmin ได้ (ใช้งานไม่ได้ทันทีเพราะ get_current_user เช็ค is_active และไม่มีใครยศสูงพอจะเปิดคืน)
+    ผู้ดูแลคลังด้วยกันก็จัดการกันเองไม่ได้ — กันคนเดียวปิดบัญชีเจ้าหน้าที่คนอื่นทั้งหมด ต้องให้ superadmin ทำ
+    """
+    return is_superadmin(actor) or role_rank(target.role) < role_rank(actor.role)

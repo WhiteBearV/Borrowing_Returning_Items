@@ -284,3 +284,39 @@ async def test_student_sees_own_fine_in_request(
     item = next(i for i in r.json()["items"] if i["id"] == str(item_id))
     assert item["fine_total"] == 20.0 and item["fine_status"] == "unpaid"
     assert item["fine_basis"]["rate_per_day"] == 10.0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_staff_cannot_zero_fine_or_handle_own_fine(
+    client: AsyncClient, admin_token: str, superadmin_token: str,
+    test_admin: User, test_student: User, fine_equipment,
+):
+    """22 ก.ย. 69 — สำรวจต่อจากบั๊กผู้ดูแลคลังปิดบัญชี superadmin ได้:
+    แก้ยอด/กรอกทับเป็น 0 = ยกเว้นทางอ้อม (สิทธิ์ superadmin) และสถานะกลายเป็น none หายจากรายงาน
+    · เจ้าหน้าที่จัดการค่าปรับในคำขอที่ตัวเองเป็นผู้ยืมไม่ได้ (ผลประโยชน์ทับซ้อน)"""
+    h = auth(admin_token)
+
+    # ค่าปรับของนักศึกษา: กรอกทับเป็น 0 ตอนรับคืนไม่ได้ (ทั้งคำขอย้อนกลับ ของยังไม่ถูกรับคืน)
+    req_id, item_id = await _borrowed_item(test_student, test_admin, fine_equipment, days_late=3)
+    ret = f"/borrow-requests/{req_id}/items/{item_id}/return"
+    r = await client.post(ret, headers=h, json={"condition_on_return": "ok", "fine_late_amount_override": 0})
+    assert r.status_code == 400, r.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(BorrowItem, item_id)).returned is False
+    assert (await client.post(ret, headers=h, json={"condition_on_return": "ok"})).status_code == 200
+    # แก้ยอดทีหลังเป็น 0 ก็ไม่ได้ ต้องไปทาง "ยกเว้น"
+    r = await client.patch(f"/borrow-requests/{req_id}/items/{item_id}/fine", headers=h,
+                           json={"late_amount": 0, "damage_amount": 0, "reason": "ลบทิ้ง"})
+    assert r.status_code == 400, r.text
+
+    # ค่าปรับที่เจ้าหน้าที่เป็นผู้ยืมเอง: รับคืนได้ (ไม่กรอกทับ) แต่แก้ยอด/รับชำระเองไม่ได้ — คนอื่นทำได้
+    own_req, own_item = await _borrowed_item(test_admin, test_admin, fine_equipment, days_late=3)
+    own = f"/borrow-requests/{own_req}/items/{own_item}"
+    r = await client.post(f"{own}/return", headers=h,
+                          json={"condition_on_return": "ok", "fine_late_amount_override": 5})
+    assert r.status_code == 403, r.text
+    assert (await client.post(f"{own}/return", headers=h, json={"condition_on_return": "ok"})).status_code == 200
+    r = await client.patch(f"{own}/fine", headers=h, json={"late_amount": 1, "damage_amount": 0, "reason": "x"})
+    assert r.status_code == 403, r.text
+    assert (await client.patch(f"{own}/fine/pay", headers=h)).status_code == 403
+    assert (await client.patch(f"{own}/fine/pay", headers=auth(superadmin_token))).status_code == 200

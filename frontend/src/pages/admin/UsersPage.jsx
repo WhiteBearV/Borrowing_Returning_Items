@@ -4,7 +4,7 @@ import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
-import { ADMIN, STUDENT, SUPERADMIN, isSuperadmin, roleBadgeClass, roleLabel } from '../../utils/role.js'
+import { ADMIN, STUDENT, SUPERADMIN, canManageUser, isSuperadmin, roleBadgeClass, roleLabel } from '../../utils/role.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
@@ -194,7 +194,7 @@ export default function UsersPage() {
                     <span className={u.is_retained ? 'text-amber-600 font-medium' : 'text-gray-500'}>
                       {u.study_year_label}
                     </span>
-                    {u.student_id && (
+                    {u.student_id && canManageUser(me, u) && (
                       <button onClick={() => setStudyTarget(u)} className="ml-1.5 text-primary-600 hover:underline">แก้</button>
                     )}
                   </td>
@@ -208,10 +208,13 @@ export default function UsersPage() {
                           : <span className="text-xs text-yellow-600">รอยืนยัน</span>}
                   </td>
                   <td className="px-4 py-2.5 flex items-center gap-3">
-                    <button onClick={() => toggleStatus(u)}
-                      className={`text-xs hover:underline ${u.is_active ? 'text-red-500' : 'text-green-600'}`}>
-                      {u.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
-                    </button>
+                    {/* บัญชียศเท่า/สูงกว่า และบัญชีตัวเอง ไม่มีปุ่มนี้ (backend ปฏิเสธอยู่แล้ว — ดู canManageUser) */}
+                    {canManageUser(me, u) && u.id !== me?.id && (
+                      <button onClick={() => toggleStatus(u)}
+                        className={`text-xs hover:underline ${u.is_active ? 'text-red-500' : 'text-green-600'}`}>
+                        {u.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
+                      </button>
+                    )}
                     {canManageRoles && (
                       <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}
                         className="text-xs rounded border border-gray-300 px-1.5 py-1 bg-white">

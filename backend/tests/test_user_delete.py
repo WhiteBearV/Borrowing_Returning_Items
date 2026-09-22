@@ -97,7 +97,8 @@ async def test_delete_admin_who_approved_other_students_request(client: AsyncCli
         assert (await client.delete(f"/users/{throwaway_student.id}", headers=auth(superadmin_token))).status_code == 204
         req_id = None  # cascade ลบคำขอไปพร้อมกับ student แล้ว ไม่ต้อง cleanup ซ้ำ
 
-        assert (await client.patch(f"/users/{throwaway_admin.id}/status", json={"is_active": False}, headers=h_admin)).status_code == 200
+        # ปิดบัญชีผู้ดูแลคลังต้องเป็น superadmin (22 ก.ย. 69 — ผู้ดูแลคลังจัดการบัญชียศเท่ากันไม่ได้แล้ว)
+        assert (await client.patch(f"/users/{throwaway_admin.id}/status", json={"is_active": False}, headers=auth(superadmin_token))).status_code == 200
         r = await client.delete(f"/users/{throwaway_admin.id}", headers=auth(superadmin_token))
         assert r.status_code == 204, r.text
     finally:
