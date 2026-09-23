@@ -79,7 +79,9 @@ class BorrowRequest(Base):
     student = relationship("User", foreign_keys=[student_id], back_populates="borrow_requests_as_student")
     approver = relationship("User", foreign_keys=[approved_by], back_populates="borrow_requests_as_approver")
     receiver = relationship("User", foreign_keys=[returned_by])
-    handover_staff = relationship("User", foreign_keys=[handover_by])
+    # selectin เสมอ: handover_by_name ถูกอ่านตอน serialize ทุก response (รายการ/แจ้งเตือน/PDF) — lazy-load ใน
+    # async = MissingGreenlet → 500 ทั้งหน้าทันทีที่มีคำขอที่จ่ายของแล้วอยู่ในรายการ (เจอจริง 23 ก.ย.)
+    handover_staff = relationship("User", foreign_keys=[handover_by], lazy="selectin")
     items = relationship("BorrowItem", back_populates="borrow_request", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="borrow_request")
 

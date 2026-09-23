@@ -336,7 +336,7 @@ async def list_requests(
     approved ที่มี item แจ้งขอคืนแล้ว (return_requested) หรือขอต่อเวลาแล้ว (renew_requested) ไม่ต้องสลับไปหน้า
     "ประวัติทั้งหมด" แยกต่างหาก
 
-    search: ค้นชื่อผู้ยืม/รหัสนักศึกษา/ชื่ออุปกรณ์ในรายการ — ใช้หน้า "ประวัติการยืมทั้งหมด" (admin)
+    search: ค้นชื่อผู้ยืม/รหัสนักศึกษา/ชื่อหรือรหัสอุปกรณ์ในรายการ — ใช้หน้า "ประวัติการยืมทั้งหมด" (admin)
 
     item_type / category_id: คืนคำขอที่ "มีอย่างน้อย 1 รายการ" ตรงเงื่อนไข (ไม่ใช่ทุกรายการ) —
     คำขอหนึ่งใบยืมของหลายประเภทพร้อมกันได้ กรองแบบ "ทุกรายการต้องตรง" จะได้ผลลัพธ์ว่างเปล่าเป็นส่วนใหญ่
@@ -400,7 +400,12 @@ async def list_requests(
         pattern = f"%{search}%"
         has_matching_item = (
             select(BorrowItem.id)
-            .where(BorrowItem.borrow_request_id == BorrowRequest.id, BorrowItem.equipment_name.ilike(pattern))
+            .where(
+                BorrowItem.borrow_request_id == BorrowRequest.id,
+                # รหัสอุปกรณ์ด้วย — สแกน QR ที่เคาน์เตอร์รับคืนได้แค่รหัส ไม่ใช่ชื่อ
+                or_(BorrowItem.equipment_name.ilike(pattern),
+                    BorrowItem.equipment_id.in_(select(Equipment.id).where(Equipment.code.ilike(pattern)))),
+            )
             .exists()
         )
         # join กับ users เพื่อค้นชื่อ/รหัสนักศึกษา — ระวัง User.student_id (เลขรหัสนักศึกษา, string) คนละตัวกับ
@@ -1185,6 +1190,7 @@ async def handover_request(
         await _save_signature(req, "handover_staff", staff_signature, admin, user_agent)
     req.handover_at = datetime.now(timezone.utc)
     req.handover_by = admin.id
+    req.handover_staff = admin  # ตั้ง relationship ด้วย — selectin โหลดค่า None ไว้แล้ว ตั้งแค่ FK ชื่อจะไม่อัปเดตใน response
 
     await _notify(db, req.student_id, "handover_done",
                   f"รับอุปกรณ์ตามคำขอ {req.request_code} เรียบร้อยแล้ว", borrow_request_id=req.id)

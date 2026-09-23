@@ -11,6 +11,7 @@ import { openPdf } from '../../utils/openPdf.js'
 import { formatDate, formatDateTime } from '../../utils/formatDate.js'
 import { itemDueDate, hasOwnDueDate } from '../../utils/dueDate.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import QrScanModal from '../../components/common/QrScanModal.jsx'
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
@@ -30,6 +31,8 @@ export default function AllBorrowsPage() {
   const [signTarget, setSignTarget] = useState(null) // { id, code, mode } — เซ็นรับของ/รับคืน (เฟส 11)
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, code }
   const [loading, setLoading] = useState(true)
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState('')
   const highlightRef = useRef(null)
 
   const load = () => {
@@ -39,6 +42,37 @@ export default function AllBorrowsPage() {
       search: search || undefined, page, page_size: 20,
       category_id: filterCategory || undefined, item_type: filterType || undefined,
     }).then(setData).finally(() => setLoading(false))
+  }
+
+  // สแกนรับคืนที่เคาน์เตอร์: หาชิ้นที่ยังไม่คืนของอุปกรณ์ตัวนี้ — เจอใบเดียวเปิดโมดัลรับคืนเลย
+  // เจอหลายใบ (วัสดุก้อนเดียวกันที่หลายคนยืม) หรือไม่เจอ = กรองรายการด้วยรหัสให้เลือกเอง
+  const handleScan = async ({ equipmentId, code }) => {
+    setScanning(false)
+    setScanMsg('')
+    try {
+      const eq = equipmentId
+        ? await equipmentApi.get(equipmentId)
+        : (await equipmentApi.list({ search: code, page_size: 5 })).items
+          .find((e) => e.code?.toLowerCase() === code.toLowerCase())
+      if (!eq) {
+        setScanMsg(`ไม่พบอุปกรณ์รหัส ${code}`)
+        return
+      }
+      const res = await borrowApi.list({ status: 'approved', search: eq.code, page_size: 20 })
+      const hits = res.items.flatMap((req) => req.items
+        .filter((i) => i.equipment_id === eq.id && !i.returned && i.item_status !== 'rejected')
+        .map((item) => ({ requestId: req.id, item, req })))
+      if (hits.length === 1) return setReturnTarget(hits[0])
+      setScanMsg(hits.length
+        ? `${eq.code} มีผู้ยืมค้างอยู่ ${hits.length} ใบ — เลือกใบที่จะรับคืนจากรายการด้านล่าง`
+        : `${eq.code} (${eq.name}) ไม่มีรายการที่รอรับคืน`)
+      setOverdueOnly(false)
+      setFilterStatus('approved')
+      setSearch(eq.code)
+      setPage(1)
+    } catch {
+      setScanMsg('ค้นหาอุปกรณ์จากการสแกนไม่สำเร็จ')
+    }
   }
 
   useEffect(() => { load() }, [filterStatus, overdueOnly, search, page, filterCategory, filterType])
@@ -73,6 +107,10 @@ export default function AllBorrowsPage() {
           placeholder="ค้นหาชื่อ/รหัสนักศึกษา/ชื่ออุปกรณ์…"
           className="w-full sm:w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
+        <button type="button" onClick={() => setScanning(true)}
+          className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+          สแกนรับคืน
+        </button>
         <select
           value={overdueOnly ? 'overdue' : filterStatus}
           onChange={(e) => {
@@ -101,6 +139,11 @@ export default function AllBorrowsPage() {
         </select>
         </div>
       </div>
+
+      {scanning && <QrScanModal title="สแกนอุปกรณ์ที่รับคืน" onResult={handleScan} onClose={() => setScanning(false)} />}
+      {scanMsg && (
+        <p className="mb-4 rounded-lg bg-primary-50 border border-primary-100 px-3 py-2 text-sm text-gray-700">{scanMsg}</p>
+      )}
 
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>

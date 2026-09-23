@@ -51,6 +51,11 @@ async def test_search_by_equipment_name_finds_request(client: AsyncClient, admin
         ids = {item["id"] for item in r.json()["items"]}
         assert req_id in ids
 
+        # รหัสอุปกรณ์ (สิ่งที่สแกน QR/บาร์โค้ดได้ที่เคาน์เตอร์รับคืน) ต้องค้นเจอด้วย
+        code = (await client.get(f"/equipment/{eq_id}", headers=h_admin)).json()["code"]
+        r = await client.get("/borrow-requests", params={"search": code}, headers=h_admin)
+        assert req_id in {item["id"] for item in r.json()["items"]}
+
         r = await client.get("/borrow-requests", params={"search": "ไม่มีทางตรงกับอะไรแน่ๆ-xyz"}, headers=h_admin)
         assert req_id not in {item["id"] for item in r.json()["items"]}
     finally:

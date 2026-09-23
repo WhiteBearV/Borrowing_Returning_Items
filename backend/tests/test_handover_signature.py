@@ -71,7 +71,8 @@ def _sig_files(client_response: dict) -> list[str]:
 
 
 async def test_handover_stores_signature_without_touching_stock(
-    client: AsyncClient, student_token: str, admin_token: str, test_equipment: Equipment,
+    client: AsyncClient, student_token: str, admin_token: str, superadmin_token: str,
+    test_equipment: Equipment,
 ):
     req = await _pending_request(client, student_token, test_equipment.id)
     assert (await client.patch(f"/borrow-requests/{req['id']}/approve",
@@ -81,7 +82,9 @@ async def test_handover_stores_signature_without_touching_stock(
 
     files: list[str] = []
     try:
-        r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(admin_token),
+        # ผู้จ่ายของ ≠ ผู้อนุมัติ (เหมือนหน้างานจริง) — ถ้าคนเดียวกัน User อยู่ใน identity map จาก approver แล้ว
+        # จะไม่เกิด lazy-load และจับบั๊ก MissingGreenlet ของ handover_by_name ไม่ได้
+        r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(superadmin_token),
                               files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
         assert r.status_code == 200, r.text
         body = r.json()
@@ -90,6 +93,11 @@ async def test_handover_stores_signature_without_touching_stock(
         assert body["signatures"] == ["handover_borrower"]   # ไม่ได้เซ็นฝั่งเจ้าหน้าที่ = ต้องไม่โผล่
         # ชื่อไฟล์ลายเซ็นต้องไม่หลุดออก API — เปิดดูได้ทางเดียวคือ endpoint ที่ตรวจสิทธิ์
         assert "handover_sig_borrower" not in body and "signature_meta" not in body
+        # หน้ารายการต้องไม่พังเมื่อมีคำขอที่จ่ายของแล้ว (handover_by_name เคย lazy-load → 500 ทั้งหน้า)
+        r = await client.get("/borrow-requests", params={"search": test_equipment.code},
+                             headers=auth(admin_token))
+        assert r.status_code == 200, r.text
+        assert any(x["id"] == req["id"] and x["handover_by_name"] for x in r.json()["items"])
 
         async with AsyncSessionLocal() as db:
             fresh = await db.get(BorrowRequest, uuid.UUID(req["id"]))

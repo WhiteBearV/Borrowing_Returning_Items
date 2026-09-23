@@ -6,6 +6,7 @@ import { useCart } from '../../context/CartContext.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import QrScanModal from '../../components/common/QrScanModal.jsx'
 
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
 
@@ -17,6 +18,7 @@ export default function EquipmentListPage() {
   const [bundles, setBundles] = useState([])
   const [bundleMsg, setBundleMsg] = useState('')
   const [loading, setLoading] = useState(true)
+  const [scanning, setScanning] = useState(false)
 
   // เก็บ filter ไว้ใน URL เพื่อให้กดย้อนกลับจากหน้ารายละเอียดแล้วหมวด/หน้าเดิมยังอยู่
   const [params, setParams] = useSearchParams()
@@ -31,6 +33,15 @@ export default function EquipmentListPage() {
   const setSearch = (v) => patch({ q: v, page: '' })
   const setCategoryId = (v) => patch({ cat: v, page: '' })
   const setPage = (v) => patch({ page: v > 1 ? String(v) : '' })
+
+  // สแกนเจอ = เปิดหน้ารายละเอียดทันที · รหัสที่ไม่ตรงตัวเป๊ะ (พิมพ์บางส่วน) = ค้นหาในรายการแทน
+  const handleScan = async ({ equipmentId, code }) => {
+    setScanning(false)
+    if (equipmentId) return navigate(`/equipment/${equipmentId}`)
+    const res = await equipmentApi.list({ search: code, page_size: 5 }).catch(() => null)
+    const exact = res?.items?.find((e) => e.code?.toLowerCase() === code.toLowerCase())
+    exact ? navigate(`/equipment/${exact.id}`) : setSearch(code)
+  }
 
   const cartIds = new Set(cart.map((c) => c.equipment.id))
 
@@ -80,6 +91,7 @@ export default function EquipmentListPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
+      {scanning && <QrScanModal onResult={handleScan} onClose={() => setScanning(false)} />}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-light text-gray-800">อุปกรณ์ทั้งหมด</h1>
         <button
@@ -109,6 +121,10 @@ export default function EquipmentListPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
+        <button type="button" onClick={() => setScanning(true)}
+          className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+          สแกน QR
+        </button>
         <select
           value={categoryId}
           onChange={(e) => setCategoryId(e.target.value)}
