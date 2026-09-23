@@ -11,13 +11,14 @@ import QrCodeModal from '../../components/equipment/QrCodeModal.jsx'
 import AdjustStockModal from '../../components/equipment/AdjustStockModal.jsx'
 import QualityAssessField from '../../components/equipment/QualityAssessField.jsx'
 import BulkAdjustStockModal from '../../components/equipment/BulkAdjustStockModal.jsx'
-import StatusBadge from '../../components/equipment/StatusBadge.jsx'
+import StatusBadge, { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import AuditTimeline from '../../components/audit/AuditTimeline.jsx'
 import PartsPanel from '../../components/equipment/PartsPanel.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { daysSinceTH, formatAge, formatDate, formatMoney, todayTH } from '../../utils/formatDate.js'
 import DateInput from '../../components/common/DateInput.jsx'
+import { downloadCsv, fetchAllPages } from '../../utils/csv.js'
 
 const today = () => todayTH()
 
@@ -954,6 +955,29 @@ export default function EquipmentManagePage() {
     }).then(setData).finally(() => setLoading(false))
   }
 
+  // ส่งออกรายหน่วย (ไม่ใช่รายรุ่นแบบบนจอ) ตามตัวกรองปัจจุบัน — ฝ่ายพัสดุเอาไปเทียบทะเบียน/ทำรายงานต่อใน Excel
+  const [exporting, setExporting] = useState(false)
+  const exportCsv = async () => {
+    setExporting(true)
+    try {
+      const rows = await fetchAllPages(equipmentApi.list, {
+        search: search || undefined, category_id: filterCategory || undefined,
+        item_type: filterType || undefined, status: filterStatus || undefined,
+      })
+      downloadCsv('equipment', [
+        'รหัส', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'สถานที่', 'ประเภท', 'หมวดหมู่', 'สถานะ',
+        'จำนวนทั้งหมด', 'คงเหลือ', 'หน่วย', 'มูลค่าต่อหน่วย (บาท)', 'วันที่ได้มา', 'มูลค่าตามบัญชี (บาท)',
+      ], rows.map((e) => [
+        e.code, e.name, e.manufacturer, e.model_number, e.serial_number, e.location,
+        TYPE_LABEL[e.item_type] ?? e.item_type, e.categories?.map((c) => c.name).join(', '),
+        STATUS_LABEL[e.status] ?? e.status, e.quantity_total, e.quantity_available, e.unit,
+        e.unit_value, e.acquired_at ? formatDate(e.acquired_at) : '', e.book_value,
+      ]))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   useEffect(() => { reloadCategories() }, [])
   useEffect(() => { load() }, [search, filterCategory, filterType, filterStatus, page])
   // เปลี่ยนตัวกรอง/หน้า = แถวที่เห็นเปลี่ยนไป การเลือกเดิมอาจอ้างถึงแถวที่ไม่อยู่ในจอแล้ว เคลียร์กันสับสน
@@ -1215,6 +1239,10 @@ export default function EquipmentManagePage() {
           <button onClick={() => setShowImport(true)}
             className="rounded-full border border-primary-300 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50">
             นำเข้าจากไฟล์ทะเบียน
+          </button>
+          <button onClick={exportCsv} disabled={exporting || data.total === 0}
+            className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            {exporting ? 'กำลังสร้างไฟล์…' : 'ส่งออก CSV'}
           </button>
           <button onClick={() => setModal('create')}
             className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">

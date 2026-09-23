@@ -5,6 +5,7 @@ import { formatDate, todayTH } from '../../utils/formatDate.js'
 import DateInput from '../../components/common/DateInput.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
+import { downloadCsv } from '../../utils/csv.js'
 
 // low = เคยถูกยืมแต่ใช้น้อย แยกจาก idle = ไม่ถูกยืมเลย (เดิมปนกันเป็น "ไม่ถูกใช้" ทั้งคู่ อ่านแล้วงง)
 const RATING = {
@@ -278,6 +279,20 @@ export default function UtilizationPage() {
           <option value="idle">{idleLabel}</option>
         </select>
         <span className="self-center text-xs text-gray-500">{rows.length.toLocaleString('th-TH')} รายการ</span>
+        {/* ส่งออกทุกแถวที่ผ่านตัวกรอง/เรียงตามที่เห็น (ข้อมูลอยู่ในหน้าแล้ว ไม่ต้องยิง API ซ้ำ) — ตัวเลขดิบไม่มี
+            คอมมา/หน่วย ให้ Excel คำนวณต่อได้ */}
+        <button type="button" disabled={rows.length === 0}
+          onClick={() => downloadCsv(period ? `utilization-${from}_${to}` : 'utilization',
+            columns(period).map((c) => c.label.replace('อัตราการใช้งาน', 'อัตราการใช้งาน (%)')),
+            rows.map((r) => [
+              r.code, r.name, TYPE_LABEL[r.item_type] ?? r.item_type, r.unit_value,
+              r.acquired_at ? formatDate(r.acquired_at) : '', r.borrow_count, r.days_borrowed, r.tracked_days,
+              r.utilization_rate == null ? '' : (r.utilization_rate * 100).toFixed(1),
+              r.daily_depreciation, r.cost_per_use_day, ratingLabel(r.rating),
+            ]))}
+          className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          ส่งออก CSV
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">

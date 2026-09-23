@@ -12,6 +12,7 @@ import { formatDate, formatDateTime } from '../../utils/formatDate.js'
 import { itemDueDate, hasOwnDueDate } from '../../utils/dueDate.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import QrScanModal from '../../components/common/QrScanModal.jsx'
+import { downloadCsv, fetchAllPages } from '../../utils/csv.js'
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
@@ -33,6 +34,7 @@ export default function AllBorrowsPage() {
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
+  const [exporting, setExporting] = useState(false)
   const highlightRef = useRef(null)
 
   const load = () => {
@@ -75,6 +77,32 @@ export default function AllBorrowsPage() {
     }
   }
 
+  // ส่งออก 1 แถวต่อ 1 ชิ้น (ไม่ใช่ต่อใบ) ตามตัวกรองปัจจุบัน — วันคืน/ค่าปรับอยู่ระดับรายชิ้นอยู่แล้ว
+  const exportCsv = async () => {
+    setExporting(true)
+    try {
+      const reqs = await fetchAllPages(borrowApi.list, {
+        status: filterStatus || undefined, overdue_only: overdueOnly || undefined, search: search || undefined,
+        category_id: filterCategory || undefined, item_type: filterType || undefined,
+      })
+      const itemState = (i) => (i.item_status === 'rejected' ? 'ไม่อนุมัติ' : i.returned ? 'คืนแล้ว' : '')
+      downloadCsv('borrow-history', [
+        'เลขคำขอ', 'ผู้ยืม', 'รหัสประจำตัว', 'สถานะคำขอ', 'ยื่นเมื่อ', 'อนุมัติเมื่อ', 'ผู้อนุมัติ', 'วัตถุประสงค์',
+        'อุปกรณ์', 'รหัสอุปกรณ์', 'จำนวน', 'หน่วย', 'สถานะรายการ', 'กำหนดคืน', 'คืนเมื่อ', 'สภาพเมื่อคืน',
+        'ค่าปรับรวม (บาท)',
+      ], reqs.flatMap((r) => r.items.map((i) => [
+        r.request_code, r.student_name, r.borrower_identifier ?? r.student_number, STATUS_LABEL[r.status] ?? r.status,
+        formatDateTime(r.requested_at), r.approved_at ? formatDateTime(r.approved_at) : '', r.approver_name, r.purpose,
+        i.equipment_name, i.equipment_code, i.quantity, i.equipment_unit, itemState(i),
+        i.item_status === 'rejected' ? '' : formatDate(itemDueDate(i, r)),
+        i.returned_at ? formatDateTime(i.returned_at) : '', CONDITION_LABEL[i.condition_on_return] ?? '',
+        i.fine_total || '',
+      ])))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   useEffect(() => { load() }, [filterStatus, overdueOnly, search, page, filterCategory, filterType])
 
   useEffect(() => { equipmentApi.listCategories().then(setCategories).catch(() => {}) }, [])
@@ -110,6 +138,10 @@ export default function AllBorrowsPage() {
         <button type="button" onClick={() => setScanning(true)}
           className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
           สแกนรับคืน
+        </button>
+        <button type="button" onClick={exportCsv} disabled={exporting || data.total === 0}
+          className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          {exporting ? 'กำลังสร้างไฟล์…' : 'ส่งออก CSV'}
         </button>
         <select
           value={overdueOnly ? 'overdue' : filterStatus}

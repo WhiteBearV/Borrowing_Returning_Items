@@ -5,7 +5,8 @@ import EmptyState from '../../components/common/EmptyState.jsx'
 import { ACTION_LABEL, actionLabel, actorLabel, detailLines, logDetailChips, logHeadline, logSentence } from '../../components/audit/auditLabels.js'
 import { ALL_ROLES, roleBadgeClass, roleLabel } from '../../utils/role.js'
 import DateInput from '../../components/common/DateInput.jsx'
-import { formatDateTime, todayTH } from '../../utils/formatDate.js'
+import { formatDateTime } from '../../utils/formatDate.js'
+import { downloadCsv, fetchAllPages } from '../../utils/csv.js'
 
 function DetailModal({ log, onClose }) {
   const rows = [
@@ -53,12 +54,9 @@ function DetailModal({ log, onClose }) {
   )
 }
 
-const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
 // ponytail: export ฝั่ง client จากข้อมูลที่ API ส่งอยู่แล้ว — ไม่ต้องมี endpoint ใหม่และไม่ต้อง
 // ย้ายป้ายภาษาไทยทั้งชุดไปไว้ฝั่ง backend ให้ซ้ำสองที่ เพดานคือ 5,000 แถว (50 หน้า)
 // ถ้าเกินให้ผู้ใช้แคบช่วงวันที่ลง — ถ้าวันหนึ่งต้องการมากกว่านี้จริงค่อยทำ endpoint CSV ที่ backend
-const EXPORT_MAX_PAGES = 50
-const EXPORT_PAGE_SIZE = 100
 
 export default function AuditLogPage() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -88,26 +86,13 @@ export default function AuditLogPage() {
   const exportCsv = async () => {
     setExporting(true)
     try {
-      const rows = []
-      for (let p = 1; p <= EXPORT_MAX_PAGES; p++) {
-        const chunk = await auditApi.list({ page: p, page_size: EXPORT_PAGE_SIZE, ...params })
-        rows.push(...chunk.items)
-        if (rows.length >= chunk.total) break
-      }
-      const header = ['เวลา', 'ผู้ทำ', 'รหัสประจำตัว', 'สิทธิ์ขณะทำ', 'การกระทำ', 'เหตุการณ์', 'ตาราง', 'Target ID']
-      const body = rows.map((l) => [
-        formatDateTime(l.created_at), l.actor_name, l.actor_identifier,
-        l.actor_role ? roleLabel(l.actor_role) : '', actionLabel(l.action), logSentence(l),
-        l.target_table, l.target_id,
-      ])
-      // ﻿ (BOM) — ไม่มีตัวนี้ Excel บน Windows เปิดไฟล์แล้วภาษาไทยเป็นตัวขยะ
-      const csv = '﻿' + [header, ...body].map((r) => r.map(csvCell).join(',')).join('\n')
-      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `audit-log-${todayTH()}.csv`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 10000)
+      const rows = await fetchAllPages(auditApi.list, params)
+      downloadCsv('audit-log', ['เวลา', 'ผู้ทำ', 'รหัสประจำตัว', 'สิทธิ์ขณะทำ', 'การกระทำ', 'เหตุการณ์', 'ตาราง', 'Target ID'],
+        rows.map((l) => [
+          formatDateTime(l.created_at), l.actor_name, l.actor_identifier,
+          l.actor_role ? roleLabel(l.actor_role) : '', actionLabel(l.action), logSentence(l),
+          l.target_table, l.target_id,
+        ]))
     } finally {
       setExporting(false)
     }
