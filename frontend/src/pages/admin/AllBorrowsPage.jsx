@@ -5,6 +5,7 @@ import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { ReturnModal, CONDITION_LABEL } from '../../components/borrow/ReturnModal.jsx'
+import { SignatureModal, SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
 import BorrowStatusBadge, { STATUS_LABEL } from '../../components/borrow/BorrowStatusBadge.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate, formatDateTime } from '../../utils/formatDate.js'
@@ -26,6 +27,7 @@ export default function AllBorrowsPage() {
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(highlightId)
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, itemId }
+  const [signTarget, setSignTarget] = useState(null) // { id, code, mode } — เซ็นรับของ/รับคืน (เฟส 11)
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, code }
   const [loading, setLoading] = useState(true)
   const highlightRef = useRef(null)
@@ -138,6 +140,20 @@ export default function AllBorrowsPage() {
                     </p>
                   )}
                   {req.purpose && <p className="text-sm text-gray-500">วัตถุประสงค์: {req.purpose}</p>}
+                  {/* จ่ายของแล้ว (เฟส 11) — ลายเซ็นเปิดดูผ่าน endpoint ที่ตรวจสิทธิ์ ไม่มี URL สาธารณะ */}
+                  {req.handover_at && (
+                    <p className="text-sm text-gray-600">
+                      จ่ายของแล้ว {formatDateTime(req.handover_at)}
+                      {req.handover_by_name ? ` โดย ${req.handover_by_name}` : ''}
+                      {req.signatures?.map((kind) => (
+                        <button key={kind}
+                          onClick={async () => openPdf(await borrowApi.downloadSignature(req.id, kind))}
+                          className="ml-2 text-primary-600 hover:underline">
+                          ✍ {SIGNATURE_LABEL[kind]}
+                        </button>
+                      ))}
+                    </p>
+                  )}
                   {/* ใบยืมที่ผู้ยืมเซ็นแล้วอัปโหลดมา — แอดมินต้องเปิดตรวจก่อนจ่ายของได้โดยไม่ต้องรอกระดาษ */}
                   {req.signed_form_file && (
                     <p className="text-sm">
@@ -213,6 +229,23 @@ export default function AllBorrowsPage() {
                   </div>
 
                   <div className="flex items-center gap-4 pt-1">
+                    {/* จ่ายของ + เซ็นรับบนหน้าจอ (เฟส 11) — ไม่บังคับ แต่ถ้าทำแล้วลายเซ็นจะขึ้นบนใบยืม */}
+                    {req.status === 'approved' && !req.signatures?.includes('handover_borrower') && (
+                      <button
+                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, mode: 'handover' })}
+                        className="text-sm rounded-lg bg-primary-50 text-primary-700 px-3 py-1 hover:bg-primary-100 font-medium border border-primary-200"
+                      >
+                        จ่ายของ + เซ็นรับ
+                      </button>
+                    )}
+                    {req.items?.some((i) => i.returned) && !req.signatures?.includes('return_borrower') && (
+                      <button
+                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, mode: 'return' })}
+                        className="text-sm rounded-lg bg-emerald-50 text-emerald-700 px-3 py-1 hover:bg-emerald-100 font-medium border border-emerald-200"
+                      >
+                        เซ็นรับคืน
+                      </button>
+                    )}
                     {req.status === 'approved' && req.items.some((i) => !i.returned && i.item_type_snapshot === 'durable') && (
                       <button
                         onClick={() => setConfirmDelete({ id: req.id, code: req.request_code, action: 'returnAll' })}
@@ -252,6 +285,16 @@ export default function AllBorrowsPage() {
       )}
 
       <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
+
+      {signTarget && (
+        <SignatureModal
+          requestId={signTarget.id}
+          requestCode={signTarget.code}
+          mode={signTarget.mode}
+          onClose={() => setSignTarget(null)}
+          onDone={() => { setSignTarget(null); load() }}
+        />
+      )}
 
       {returnTarget && (
         <ReturnModal

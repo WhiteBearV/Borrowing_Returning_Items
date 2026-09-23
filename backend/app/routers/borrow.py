@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,6 +171,55 @@ async def download_signed_form(
     """เปิดดูใบยืมที่เซ็นแล้ว — เจ้าของคำขอหรือเจ้าหน้าที่เท่านั้น (ไฟล์มีลายเซ็น + ข้อมูลส่วนบุคคล)"""
     path, filename = await borrow_service.get_signed_form(db, current_user, request_id)
     return FileResponse(path, filename=filename)
+
+
+@router.post("/{request_id}/handover", response_model=BorrowRequestResponse)
+async def handover_request(
+    request_id: uuid.UUID,
+    request: Request,
+    borrower_signature: UploadFile = File(...),
+    staff_signature: UploadFile | None = File(None),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BorrowRequestResponse:
+    """บันทึกการจ่ายของพร้อมลายเซ็นรับของบนหน้าจอ — เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมเซ็น
+
+    ลายเซ็นเจ้าหน้าที่ (staff_signature) เว้นได้ · ไม่แตะสต็อกเพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว
+    """
+    req = await borrow_service.handover_request(
+        db, admin, request_id, borrower_signature, staff_signature,
+        user_agent=request.headers.get("user-agent"))
+    return req
+
+
+@router.post("/{request_id}/sign-return", response_model=BorrowRequestResponse)
+async def sign_return(
+    request_id: uuid.UUID,
+    request: Request,
+    borrower_signature: UploadFile = File(...),
+    staff_signature: UploadFile | None = File(None),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> BorrowRequestResponse:
+    """เซ็นรับรองตอนรับคืน (ผู้คืน + ผู้รับคืน) หลังสรุปสภาพของครบแล้ว"""
+    req = await borrow_service.sign_return(
+        db, admin, request_id, borrower_signature, staff_signature,
+        user_agent=request.headers.get("user-agent"))
+    return req
+
+
+@router.get("/{request_id}/signature/{kind}")
+async def download_signature(
+    request_id: uuid.UUID,
+    kind: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """เปิดดูลายเซ็น — เจ้าของคำขอหรือเจ้าหน้าที่เท่านั้น (kind: handover_borrower / handover_staff /
+    return_borrower / return_staff) ทุกครั้งที่เปิดดูถูกบันทึกลง audit log
+    """
+    path, filename = await borrow_service.get_signature(db, current_user, request_id, kind)
+    return FileResponse(path, filename=filename, media_type="image/png")
 
 
 @router.post("/{request_id}/return-all")

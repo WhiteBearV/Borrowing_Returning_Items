@@ -19,6 +19,8 @@ const notificationTarget = (n, role) => {
   if (n.type === 'renew_requested_admin') return `/admin/borrow-requests?request=${n.borrow_request_id}`
   // ใบยืมที่เซ็นแล้วแนบมากับคำขอที่อนุมัติไปแล้ว จึงอยู่หน้า "การยืมทั้งหมด" ไม่ใช่หน้ารออนุมัติ
   if (n.type === 'signed_form_uploaded') return `/admin/borrows?request=${n.borrow_request_id}`
+  // ผู้ยืมได้รับแจ้งว่ารับของเรียบร้อย — พาไปหน้ารายการยืมของตัวเอง
+  if (n.type === 'handover_done') return '/my-borrows'
   if (n.type === 'overdue' && STAFF_ROLES.includes(role)) return `/admin/borrows?request=${n.borrow_request_id}`
   return `/my-borrows?request=${n.borrow_request_id}`
 }

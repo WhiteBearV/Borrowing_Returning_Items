@@ -1,3 +1,4 @@
+import hashlib
 import os
 import uuid
 from datetime import date, datetime, timezone, timedelta
@@ -10,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import TZ, settings
 from app.models.borrow_item import BorrowItem
-from app.models.borrow_request import BorrowRequest
+from app.models.borrow_request import SIGNATURE_FIELDS, BorrowRequest
 from app.models.equipment import Equipment, equipment_category_links
 from app.models.equipment_part import EquipmentPart
 from app.models.notification import Notification
@@ -1109,6 +1110,155 @@ async def get_signed_form(
 
     await audit_service.log_action(db, current_user, "view_signed_form", "borrow_requests", req.id, {
         "request_code": req.request_code,
+        "file": filename,
+    })
+    await db.commit()
+    return path, filename
+
+
+SIGNATURE_EXT = {".png"}
+SIGNATURE_MAX_BYTES = 1 * 1024 * 1024   # ลายเซ็นจาก canvas ปกติ < 50KB — 1MB เหลือเฟือและกัน payload บวม
+# mapping kind → คอลัมน์อยู่ที่ models/borrow_request.py (ใช้ร่วมกับ property signatures ของ response)
+SIGNATURE_LABEL_TH = {
+    "handover_borrower": "ผู้รับของ",
+    "handover_staff": "ผู้จ่ายของ",
+    "return_borrower": "ผู้คืน",
+    "return_staff": "ผู้รับคืน",
+}
+
+
+async def _save_signature(
+    req: BorrowRequest, kind: str, file: UploadFile, signer: User, user_agent: str | None
+) -> str:
+    """เก็บลายเซ็น 1 รูปลงโฟลเดอร์ส่วนตัว แล้วบันทึกชื่อไฟล์ + หลักฐานประกอบลงแถวคำขอ
+
+    หลักฐาน (`signature_meta[kind]`) เก็บ sha256 ของไฟล์ไว้ด้วย เพื่อให้ตอบได้ว่าไฟล์ที่เปิดดูวันนี้เป็นไฟล์
+    เดียวกับที่เซ็นไว้จริง — ลายเซ็นอิเล็กทรอนิกส์ต้องระบุตัวผู้ลงลายมือชื่อและเจตนาได้ (พ.ร.บ.ธุรกรรมฯ)
+    ไฟล์เก่าไม่ถูกลบตั้งใจ (เหมือนใบยืมที่เซ็นแล้ว) — ถ้าเถียงกันภายหลังยังตามจาก audit log ได้
+    """
+    filename = await equipment_service.save_private_upload(file, SIGNATURE_EXT, SIGNATURE_MAX_BYTES)
+    with open(os.path.join(settings.PRIVATE_UPLOAD_DIR, filename), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    setattr(req, SIGNATURE_FIELDS[kind], filename)
+    # สร้าง dict ใหม่เสมอ — SQLAlchemy ไม่เห็นการแก้ไข JSONB ในที่ (mutation) จึงจะไม่ commit ให้
+    req.signature_meta = {**(req.signature_meta or {}), kind: {
+        "file": filename,
+        "sha256": digest,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+        "signer_user_id": str(signer.id),
+        "signer_name": signer.full_name,
+        "user_agent": (user_agent or "")[:300],
+    }}
+    return filename
+
+
+async def handover_request(
+    db: AsyncSession,
+    admin: User,
+    request_id: uuid.UUID,
+    borrower_signature: UploadFile,
+    staff_signature: UploadFile | None = None,
+    user_agent: str | None = None,
+) -> BorrowRequestResponse:
+    """บันทึกการจ่ายของพร้อมลายเซ็นรับของบนหน้าจอ — แทนการปริ้นใบยืมไปเซ็นแล้วถ่ายรูปกลับมา
+
+    เจ้าหน้าที่เป็นคนกดที่เคาน์เตอร์ (ของอยู่ตรงนั้น) แล้วยื่นจอให้ผู้ยืมเซ็น ลายเซ็นเจ้าหน้าที่เว้นได้
+    เพราะบางที่เซ็นกำกับในสมุดอยู่แล้ว
+
+    **ไม่แตะสต็อกและไม่เปลี่ยน status** — ของออกจากคลังตั้งแต่อนุมัติตามกฎเดิม (ดู CLAUDE.md) การจ่ายของ
+    เป็นการบันทึกการส่งมอบเท่านั้น จึงไม่กระทบ _all_settled / ค่าปรับ / ตัวนับใด ๆ
+
+    **เซ็นได้ครั้งเดียว** — ลายเซ็นคือหลักฐานการรับมอบ ถ้าเซ็นทับได้ ใครก็อ้างได้ว่าลายเซ็นบนเอกสารไม่ใช่
+    ฉบับที่ตัวเองเซ็น และวันที่บนใบยืมจะขยับตามการเซ็นครั้งล่าสุด (เอกสารที่พิมพ์ไปแล้วจะไม่ตรงกับในระบบ)
+    เซ็นผิดต้องให้ผู้ดูแลระบบล้างค่าในฐานข้อมูลก่อน ซึ่งทิ้งร่องรอยไว้ตรวจได้
+    """
+    req = await _load_request(db, request_id)
+    if req.status != "approved":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Can only hand over approved requests.")
+    if req.handover_sig_borrower:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This request has already been signed for handover.")
+
+    await _save_signature(req, "handover_borrower", borrower_signature, req.student, user_agent)
+    if staff_signature is not None:
+        await _save_signature(req, "handover_staff", staff_signature, admin, user_agent)
+    req.handover_at = datetime.now(timezone.utc)
+    req.handover_by = admin.id
+
+    await _notify(db, req.student_id, "handover_done",
+                  f"รับอุปกรณ์ตามคำขอ {req.request_code} เรียบร้อยแล้ว", borrow_request_id=req.id)
+    await audit_service.log_action(db, admin, "handover_request", "borrow_requests", req.id, {
+        "request_code": req.request_code,
+        "student_name": req.student_name,
+        "staff_signed": staff_signature is not None,
+    })
+    await db.commit()
+    await _attach_request_student_year(db, [req])
+    return BorrowRequestResponse.model_validate(req)
+
+
+async def sign_return(
+    db: AsyncSession,
+    admin: User,
+    request_id: uuid.UUID,
+    borrower_signature: UploadFile,
+    staff_signature: UploadFile | None = None,
+    user_agent: str | None = None,
+) -> BorrowRequestResponse:
+    """เซ็นตอนรับคืน (ผู้คืน + ผู้รับคืน) — ปิดวงจรยืม-คืนโดยไม่ต้องใช้กระดาษ
+
+    แยก endpoint จากการรับคืนจริง (`return_item`/`return_all_items`) โดยตั้งใจ เพราะการสรุปสภาพของทีละชิ้น
+    กับการเซ็นรับรองเป็นคนละจังหวะกัน — เจ้าหน้าที่สรุปผลครบก่อน แล้วค่อยให้ผู้คืนเซ็นครั้งเดียวทั้งใบ
+
+    เซ็นได้ครั้งเดียวเหมือนตอนรับของ (ดูเหตุผลใน handover_request)
+    """
+    req = await _load_request(db, request_id)
+    if not any(i.returned for i in req.items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="No returned items to sign for yet.")
+    if req.return_sig_borrower:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This request has already been signed for return.")
+
+    await _save_signature(req, "return_borrower", borrower_signature, req.student, user_agent)
+    if staff_signature is not None:
+        await _save_signature(req, "return_staff", staff_signature, admin, user_agent)
+
+    await audit_service.log_action(db, admin, "sign_return", "borrow_requests", req.id, {
+        "request_code": req.request_code,
+        "student_name": req.student_name,
+        "staff_signed": staff_signature is not None,
+    })
+    await db.commit()
+    await _attach_request_student_year(db, [req])
+    return BorrowRequestResponse.model_validate(req)
+
+
+async def get_signature(
+    db: AsyncSession, current_user: User, request_id: uuid.UUID, kind: str
+) -> tuple[str, str]:
+    """คืน (path จริงบนดิสก์, ชื่อไฟล์) ของลายเซ็น หลังตรวจสิทธิ์ — เจ้าของคำขอหรือเจ้าหน้าที่
+
+    ลง audit ทุกครั้งที่เปิดดูเหมือนใบยืมที่เซ็นแล้ว — ลายเซ็นเป็นข้อมูลส่วนบุคคล ต้องตอบได้ว่าใครเปิดดูบ้าง
+    """
+    if kind not in SIGNATURE_FIELDS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown signature kind.")
+    req = await _load_request(db, request_id)
+    _assert_can_see_request(req, current_user)
+
+    stored = getattr(req, SIGNATURE_FIELDS[kind], None)
+    if not stored:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No signature for this step.")
+    # ประกอบ path จาก basename เท่านั้น (ค่าที่เก็บเป็น uuid อยู่แล้ว) — กัน path traversal เหมือน signed-form
+    filename = os.path.basename(stored)
+    path = os.path.join(settings.PRIVATE_UPLOAD_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signature file is missing.")
+
+    await audit_service.log_action(db, current_user, "view_signature", "borrow_requests", req.id, {
+        "request_code": req.request_code,
+        "kind": kind,
         "file": filename,
     })
     await db.commit()

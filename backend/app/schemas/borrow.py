@@ -112,6 +112,18 @@ class BorrowRequestResponse(BaseModel):
     # ตัวไฟล์ต้องโหลดผ่าน GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ ไม่มี URL ตรงให้แปะ
     signed_form_file: str | None = None
     signed_form_at: datetime | None = None
+    # จ่ายของ + ลายเซ็นบนหน้าจอ (เฟส 11) — `signatures` คือชนิดที่เซ็นแล้ว ไม่ใช่ชื่อไฟล์
+    # (ชื่อไฟล์เป็นข้อมูลภายใน เปิดดูต้องผ่าน GET /borrow-requests/{id}/signature/{kind} ที่ตรวจสิทธิ์)
+    handover_at: datetime | None = None
+    handover_by_name: str | None = None
+    signatures: list[str] = []
+    # ชื่อไฟล์ + หลักฐานการเซ็น: ตัวสร้าง PDF ต้องใช้ (มันรับ response object ไม่ใช่แถว ORM) แต่
+    # `exclude=True` ทำให้ไม่ถูก serialize ออก API — ชื่อไฟล์เป็นข้อมูลภายใน เปิดดูต้องผ่าน endpoint ที่ตรวจสิทธิ์
+    handover_sig_borrower: str | None = Field(None, exclude=True)
+    handover_sig_staff: str | None = Field(None, exclude=True)
+    return_sig_borrower: str | None = Field(None, exclude=True)
+    return_sig_staff: str | None = Field(None, exclude=True)
+    signature_meta: dict | None = Field(None, exclude=True)
     items: list[BorrowItemResponse] = []
 
     model_config = {"from_attributes": True}

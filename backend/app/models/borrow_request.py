@@ -2,10 +2,19 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+# ชนิดลายเซ็น → คอลัมน์ที่เก็บชื่อไฟล์ (เฟส 11) — ประกาศที่นี่เพื่อให้ทั้ง model, service และ response
+# ใช้ชุดเดียวกัน ห้ามเขียน mapping ซ้ำที่อื่น
+SIGNATURE_FIELDS = {
+    "handover_borrower": "handover_sig_borrower",
+    "handover_staff": "handover_sig_staff",
+    "return_borrower": "return_sig_borrower",
+    "return_staff": "return_sig_staff",
+}
 
 
 class BorrowRequest(Base):
@@ -48,6 +57,19 @@ class BorrowRequest(Base):
     # เปิดได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อน (เฟส 7)
     signed_form_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
     signed_form_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # จ่ายของจริง (เฟส 11) — บันทึกการส่งมอบเท่านั้น ไม่ใช่สถานะใหม่ สต็อกยังตัดตอนอนุมัติเหมือนเดิม
+    handover_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    handover_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # ลายเซ็นบนหน้าจอ — เก็บ **ชื่อไฟล์ PNG เปล่า** ใน PRIVATE_UPLOAD_DIR เหมือน signed_form_file
+    # เปิดได้ทางเดียวคือ GET /borrow-requests/{id}/signature/{kind} ที่ตรวจสิทธิ์ก่อน
+    handover_sig_borrower: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    handover_sig_staff: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    return_sig_borrower: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    return_sig_staff: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # หลักฐานประกอบการเซ็นแต่ละครั้ง (เวลา ผู้เกี่ยวข้อง user-agent sha256) — ใช้ยืนยันว่าไฟล์ไม่ถูกสลับ
+    signature_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -57,10 +79,24 @@ class BorrowRequest(Base):
     student = relationship("User", foreign_keys=[student_id], back_populates="borrow_requests_as_student")
     approver = relationship("User", foreign_keys=[approved_by], back_populates="borrow_requests_as_approver")
     receiver = relationship("User", foreign_keys=[returned_by])
+    handover_staff = relationship("User", foreign_keys=[handover_by])
     items = relationship("BorrowItem", back_populates="borrow_request", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="borrow_request")
 
     __table_args__ = (Index("ix_borrow_requests_status", "status"),)
+
+    @property
+    def handover_by_name(self) -> str | None:
+        """ชื่อเจ้าหน้าที่ที่จ่ายของ — ใบยืมและหน้าเว็บต้องบอกได้ว่าใครเป็นคนส่งมอบ"""
+        return self.handover_staff.full_name if self.handover_staff else None
+
+    @property
+    def signatures(self) -> list[str]:
+        """ชนิดลายเซ็นที่มีแล้ว เช่น ["handover_borrower"] — ส่งให้หน้าเว็บแทนชื่อไฟล์จริง
+
+        ชื่อไฟล์เป็นข้อมูลภายใน ไม่ควรหลุดออก response (เปิดดูต้องผ่าน endpoint ที่ตรวจสิทธิ์อยู่แล้ว)
+        """
+        return [kind for kind, field in SIGNATURE_FIELDS.items() if getattr(self, field, None)]
 
     @property
     def student_name(self) -> str | None:

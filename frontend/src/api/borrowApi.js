@@ -39,6 +39,24 @@ export const borrowApi = {
   // ไฟล์ใบเซ็นไม่มี URL สาธารณะแล้ว (เฟส 7) — ต้องโหลดผ่าน endpoint ที่ตรวจสิทธิ์แล้วเปิดจาก blob
   downloadSignedForm: (id) =>
     api.get(`/borrow-requests/${id}/signed-form`, { responseType: 'blob' }).then((r) => r.data),
+  // เซ็นบนหน้าจอ (เฟส 11) — blob จาก canvas ทั้งคู่ ลายเซ็นเจ้าหน้าที่เว้นได้
+  handover: (id, borrowerBlob, staffBlob) => {
+    const fd = new FormData()
+    fd.append('borrower_signature', borrowerBlob, 'borrower.png')
+    if (staffBlob) fd.append('staff_signature', staffBlob, 'staff.png')
+    return api.post(`/borrow-requests/${id}/handover`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
+  signReturn: (id, borrowerBlob, staffBlob) => {
+    const fd = new FormData()
+    fd.append('borrower_signature', borrowerBlob, 'borrower.png')
+    if (staffBlob) fd.append('staff_signature', staffBlob, 'staff.png')
+    return api.post(`/borrow-requests/${id}/sign-return`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
+  // ลายเซ็นไม่มี URL สาธารณะ — โหลดผ่าน endpoint ที่ตรวจสิทธิ์แล้วเปิดจาก blob (เหมือนใบยืมที่เซ็นแล้ว)
+  downloadSignature: (id, kind) =>
+    api.get(`/borrow-requests/${id}/signature/${kind}`, { responseType: 'blob' }).then((r) => r.data),
   returnItem: (id, itemId, data) =>
     api.post(`/borrow-requests/${id}/items/${itemId}/return`, data).then((r) => r.data),
   returnAll: (id) => api.post(`/borrow-requests/${id}/return-all`).then((r) => r.data),

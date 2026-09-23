@@ -1,3 +1,4 @@
+import os
 import io
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,10 +10,10 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, HRFlowable
+    Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, HRFlowable
 )
 
-from app.core.config import TZ
+from app.core.config import TZ, settings
 from app.utils.duedate import effective_due_date
 
 _FONT_DIR = Path(__file__).parent / "fonts"
@@ -439,22 +440,57 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     signer = receiver if is_return else approver
     right_name = f"({signer})" if signer else blank
     line = "............................................"
-    sig = _style("S", fontSize=11, leading=22)
+    # ทุกบรรทัดในบล็อกลายเซ็นจัดกึ่งกลางคอลัมน์เหมือนกันหมด (รูป → ป้าย+เส้น → ชื่อ → วันที่)
+    # เดิมป้ายกับวันที่ชิดซ้าย ชื่อกึ่งกลาง รูปชิดซ้าย = สามแนวคนละที่ ดูเหมือนวางผิดตำแหน่ง
+    sig = _style("S", fontSize=11, leading=22, alignment=1)
     sig_c = _style("SC", fontSize=10, leading=16, alignment=1)
     date_line = "วันที่ .......... เดือน .................... พ.ศ. .........."
     left_label, right_label = ("ผู้คืน", "ผู้รับคืน") if is_return else ("ผู้ยืม", "ผู้อนุมัติ")
 
-    sig_rows = [
-        [Paragraph(f"{left_label} {line}", sig), Paragraph(f"{right_label} {line}", sig)],
-        [Paragraph(borrower, sig_c), Paragraph(right_name, sig_c)],
-        [Paragraph(date_line, sig), Paragraph(date_line, sig)],
-    ]
+    # ลายเซ็นบนหน้าจอ (เฟส 11) — มีไฟล์ = วางรูปแทนเส้นประของฝั่งนั้น พร้อมบอกว่าเซ็นในระบบเมื่อไหร่
+    left_field, right_field = (
+        ("return_sig_borrower", "return_sig_staff") if is_return
+        else ("handover_sig_borrower", "handover_sig_staff")
+    )
+    left_kind, right_kind = (
+        ("return_borrower", "return_staff") if is_return else ("handover_borrower", "handover_staff")
+    )
+    left_img = _signature_image(req, left_field)
+    right_img = _signature_image(req, right_field)
+    # วันที่บนเอกสาร = **วันที่รับลายเซ็นนั้นจริง ๆ** ของแต่ละฝั่ง (จาก signature_meta) ไม่ใช่เวลาจ่ายของรวม
+    # เพราะผู้ยืมกับเจ้าหน้าที่อาจเซ็นคนละจังหวะ — ฝั่งที่ยังไม่เซ็นคงเส้นว่างไว้ให้ลงวันที่ด้วยมือเหมือนเดิม
+    left_date = _signed_date_line(req, left_kind) or date_line
+    right_date = _signed_date_line(req, right_kind) or date_line
+    e_note = _style("SE", fontSize=8, alignment=1, textColor=colors.gray)
+
+    # เรียงเป็นแกนเดียวกันทั้งบล็อก: ลายเซ็น → เส้น → ชื่อ → ตำแหน่ง → วันที่ (ทุกบรรทัดกึ่งกลาง)
+    # ป้าย "ผู้ยืม/ผู้อนุมัติ" ต้องอยู่คนละบรรทัดกับเส้น ไม่งั้นความกว้างของป้ายจะดันจุดกึ่งกลางของเส้นให้
+    # เยื้องไปจากลายเซ็นและชื่อที่อยู่กึ่งกลางคอลัมน์
+    sig_rows = []
+    if left_img or right_img:
+        sig_rows.append([left_img or Spacer(1, SIGNATURE_IMG_H), right_img or Spacer(1, SIGNATURE_IMG_H)])
+    sig_rows.append([Paragraph(line, sig), Paragraph(line, sig)])
+    sig_rows.append([Paragraph(borrower, sig_c), Paragraph(right_name, sig_c)])
+    sig_rows.append([Paragraph(left_label, sig_c), Paragraph(right_label, sig_c)])
+    sig_rows.append([Paragraph(left_date, sig), Paragraph(right_date, sig)])
     sig_table = Table(sig_rows, colWidths=[W / 2, W / 2])
-    sig_table.setStyle(TableStyle([
+    sig_style = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
+    ]
+    if left_img or right_img:
+        # รูปใน cell ชิดซ้ายเสมอ (hAlign ของ flowable ไม่มีผลใน Table) ต้องสั่ง ALIGN ที่แถวนี้เอง
+        # ไม่งั้นลายเซ็นไปกองซ้าย ไม่ตรงกับเส้น/ชื่อ/วันที่ที่จัดกึ่งกลาง
+        sig_style.append(("ALIGN", (0, 0), (-1, 0), "CENTER"))
+    sig_table.setStyle(TableStyle(sig_style))
     elems.append(sig_table)
+    # ป้ายกำกับท้ายเอกสาร — ให้คนที่ถือกระดาษรู้ว่าฉบับนี้ลงลายมือชื่อในระบบแล้ว ไม่ต้องตามหาใบเซ็นอีกใบ
+    if left_img or right_img:
+        elems.append(Spacer(1, 6))
+        elems.append(Paragraph(
+            "เอกสารฉบับนี้ลงลายมือชื่ออิเล็กทรอนิกส์ในระบบแล้ว "
+            "ตรวจสอบต้นฉบับได้จากเลขที่คำขอในระบบยืม-คืนอุปกรณ์",
+            _style("EN", fontSize=8, alignment=1, textColor=colors.gray)))
 
     doc.build(elems)
     return buf.getvalue()
@@ -805,6 +841,53 @@ def _condition_th(condition: str | None) -> str:
         "ok": "ปกติ", "damaged": "เสียหาย", "lost": "สูญหาย",
         "returned_full": "คืนครบ", "used_up": "ใช้หมด", "discarded": "ทิ้ง (เสียหาย)",
     }.get(condition, condition)
+
+
+SIGNATURE_IMG_W, SIGNATURE_IMG_H = 110, 34
+
+
+def _signature_image(req: object, field: str):
+    """รูปลายเซ็นบนหน้าจอของฝั่งนั้น (ถ้ามี) — ไม่มีไฟล์ = คืน None แล้วใช้เส้นประให้เซ็นมือเหมือนเดิม
+
+    ไฟล์อยู่ใน PRIVATE_UPLOAD_DIR ซึ่งไม่ได้เสิร์ฟสาธารณะ — อ่านตรงจากดิสก์ตอนสร้าง PDF เท่านั้น
+    ใบเก่าที่ยังไม่มีลายเซ็นต้องพิมพ์ออกมาเหมือนเดิมทุกจุด จึงต้องไม่พังเมื่อไฟล์หาย
+    """
+    filename = getattr(req, field, None)
+    if not filename:
+        return None
+    path = os.path.join(settings.PRIVATE_UPLOAD_DIR, os.path.basename(filename))
+    if not os.path.isfile(path):
+        return None
+    try:
+        # ต้องบังคับให้ PIL อ่านไฟล์จริงตรงนี้ — ReportLab เปิดรูปตอน build เอกสาร ถ้าไฟล์เสียจะระเบิด
+        # กลางทางแล้วใบยืมทั้งใบออกไม่ได้ (ทั้งที่ลายเซ็นเป็นแค่ส่วนประกอบ) จับให้จบตั้งแต่ตรงนี้
+        from PIL import Image as PILImage
+        with PILImage.open(path) as im:
+            im.load()
+            ratio = im.height / im.width if im.width else 1
+        # คงสัดส่วนเดิมของลายเซ็น (canvas กว้างกว่าสูง) ไม่งั้นบีบจนลายเซ็นเพี้ยนรูป
+        img = Image(path, width=SIGNATURE_IMG_W, height=min(SIGNATURE_IMG_W * ratio, SIGNATURE_IMG_H))
+        img.hAlign = "CENTER"   # ต้องสั่งเอง — ปกติรูปใน cell ชิดซ้าย ไม่ตรงกับเส้นและชื่อที่อยู่กึ่งกลาง
+        return img
+    except Exception:   # ไฟล์เสีย/ไม่ใช่รูป — ใบยืมต้องออกได้เสมอ ห้ามล้มทั้งเอกสารเพราะลายเซ็นเดียว
+        return None
+
+
+def _signed_date_line(req: object, kind: str) -> str | None:
+    """บรรทัดวันที่ของลายเซ็นฝั่งนั้น — ใช้เวลาที่ระบบรับลายเซ็นจริง (signature_meta[kind].signed_at)
+
+    ไม่ใช้ handover_at/returned_at รวม เพราะผู้ยืมกับเจ้าหน้าที่อาจเซ็นคนละจังหวะ วันที่บนเอกสารต้องตรงกับ
+    ลายเซ็นที่อยู่เหนือมันจริง ๆ · ยังไม่เซ็น = คืน None แล้วผู้เรียกใช้เส้นว่างให้ลงวันที่ด้วยมือเหมือนเดิม
+    """
+    meta = (getattr(req, "signature_meta", None) or {}).get(kind)
+    if not isinstance(meta, dict) or not meta.get("signed_at"):
+        return None
+    try:
+        signed = datetime.fromisoformat(meta["signed_at"])
+    except (TypeError, ValueError):
+        return None
+    d, m, y = _thai_date_parts(signed)
+    return f"วันที่ {d} เดือน {m} พ.ศ. {y}"
 
 
 def _sig_cell(label: str, name: str):

@@ -10,6 +10,9 @@ export const ACTION_LABEL = {
   request_renew: 'ขอต่อเวลา',
   upload_signed_form: 'อัปโหลดใบยืมที่เซ็นแล้ว',
   view_signed_form: 'เปิดดูใบยืมที่เซ็นแล้ว',
+  handover_request: 'จ่ายของ + เซ็นรับบนหน้าจอ',
+  sign_return: 'เซ็นรับคืนบนหน้าจอ',
+  view_signature: 'เปิดดูลายเซ็น',
   register: 'สมัครใช้งาน',
   import_eligible_students: 'นำเข้ารายชื่อนักศึกษาที่รับรอง',
   delete_eligible_student: 'ถอนรายชื่อนักศึกษาที่รับรอง',
@@ -58,6 +61,9 @@ export const ACTION_LABEL = {
 // ชื่อฟิลด์ในภาษาคน — ที่ผ่านมา modal โชว์ชื่อคอลัมน์ดิบ (`location: 15310 → 15399`) ซึ่งอ่านไม่รู้เรื่อง
 // สำหรับคนที่ไม่ได้เขียนโค้ด ครอบทั้ง key แบบ diff (changes) และ key แบบ flat ของ action อื่น
 export const FIELD_LABEL = {
+  // ลายเซ็นบนหน้าจอ (เฟส 11)
+  staff_signed: 'เจ้าหน้าที่เซ็นกำกับ',
+  kind: 'ชนิดลายเซ็น',
   name: 'ชื่อ',
   code: 'รหัส',
   manufacturer: 'ผู้ผลิต',
