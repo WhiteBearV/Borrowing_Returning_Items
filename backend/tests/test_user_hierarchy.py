@@ -43,7 +43,10 @@ async def test_admin_cannot_create_superadmin(client: AsyncClient, admin_token: 
     base = {"full_name": "ทดสอบ ลำดับยศ", "password": "Test1234!"}
     emails = ["hier_super@cdti.ac.th", "hier_admin@cdti.ac.th"]
     try:
-        r = await client.post("/users", headers=h, json={**base, "email": emails[0], "role": "superadmin"})
+        # ส่ง username ที่ถูกรูปแบบมาด้วย ไม่งั้นจะโดน schema เตะที่ 422 ก่อน แล้วเทสนี้จะผ่านโดยไม่ได้
+        # พิสูจน์เรื่องลำดับยศเลย (บัญชีที่ไม่ใช่นักศึกษาต้องมีรหัสประจำตัวเสมอ — ดู UserCreateRequest)
+        r = await client.post("/users", headers=h, json={**base, "email": emails[0], "role": "superadmin",
+                                                          "username": "hier_super"})
         assert r.status_code == 403, r.text
         # สร้างบัญชียศเดียวกับตัวเอง (ผู้ดูแลคลัง) ยังทำได้เหมือนเดิม — หน้าเว็บมีปุ่มนี้อยู่
         r = await client.post("/users", headers=h, json={**base, "email": emails[1], "role": "admin",

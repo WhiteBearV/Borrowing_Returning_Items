@@ -188,7 +188,15 @@ export default function UsersPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{u.email}</td>
-                  <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{u.student_id ?? u.username ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">
+                    {u.student_id ?? u.username ?? '—'}
+                    {/* บอกชนิดของรหัสให้ชัด (feedback อาจารย์) — เลข 10 หลักคือ นศ. ที่เหลือคือบุคลากร */}
+                    {(u.student_id || u.username) && (
+                      <span className="block font-sans text-[10px] text-gray-400">
+                        {u.role === 'student' ? 'รหัสนักศึกษา' : 'รหัสบุคลากร'}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-gray-500 text-xs">{MAJOR_LABEL[u.major] ?? '—'}</td>
                   <td className="px-4 py-2.5 text-xs">
                     <span className={u.is_retained ? 'text-amber-600 font-medium' : 'text-gray-500'}>
@@ -375,7 +383,9 @@ function AddUserModal({ onClose, onCreated }) {
       phone: form.phone || undefined,
       student_id: form.role === 'student' ? form.student_id || undefined : undefined,
       major: form.role === 'student' ? form.major : undefined,
-      username: form.role === 'admin' ? form.username || undefined : undefined,
+      // ทุก role ที่ไม่ใช่นักศึกษาต้องมีรหัสประจำตัว (backend บังคับ) — เดิมส่งเฉพาะ admin ทำให้สร้างบัญชี
+      // ผู้ดูแลระบบสูงสุดจากหน้านี้แล้วรหัสหายไปเงียบ ๆ
+      username: form.role !== 'student' ? form.username || undefined : undefined,
     }
     try {
       await usersApi.create(payload)
@@ -433,8 +443,14 @@ function AddUserModal({ onClose, onCreated }) {
             </select>
           </>
         ) : (
-          <input className={input} placeholder="รหัสประจำตัวอาจารย์/เจ้าหน้าที่ เช่น 01MNK01 (ใช้ล็อกอิน)"
-            value={form.username} onChange={set('username')} />
+          <div>
+            <input className={input} placeholder="รหัสประจำตัวอาจารย์/เจ้าหน้าที่ เช่น 01MNK01 (ใช้ล็อกอิน)"
+              required pattern="(?=.*[A-Za-z])[A-Za-z0-9_-]{4,20}" title="4-20 ตัว ใช้ตัวอักษร ตัวเลข - _ และต้องมีตัวอักษรอย่างน้อย 1 ตัว"
+              value={form.username} onChange={set('username')} />
+            <p className="text-xs text-gray-500 mt-1">
+              ต้องมีตัวอักษรปน ห้ามเป็นตัวเลขล้วน เพื่อให้แยกออกจากรหัสนักศึกษาบนใบยืมและประวัติการใช้งาน
+            </p>
+          </div>
         )}
 
         <div className="flex gap-2 pt-2">

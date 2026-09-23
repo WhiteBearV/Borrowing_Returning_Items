@@ -92,7 +92,9 @@ async def test_username_cannot_look_like_a_student_id(client: AsyncClient, admin
             "email": email, "full_name": "อาจารย์ ทดสอบ", "password": "Test1234!",
             "role": "admin", "username": "6610301006",
         }, headers=h)
-        assert r.status_code == 400, r.text
+        # 422 = schema ปฏิเสธ "ตัวเลขล้วน" ตั้งแต่ชั้น request · 400 = ด่านเดิมใน users_service
+        # (ยังเก็บไว้เป็นชั้นที่สอง) — ที่สำคัญคือต้องไม่ผ่านเข้าไปสร้างบัญชี
+        assert r.status_code in (400, 422), r.text
     finally:
         await _delete_users([email])
 
@@ -159,3 +161,28 @@ async def test_teacher_identifier_appears_on_borrow_pdf():
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf_mod.generate_borrow_pdf(_Req()))).pages)
     assert "01MNK01" in text
     assert "อาจารย์/เจ้าหน้าที่" in text
+
+
+def test_staff_code_rules():
+    """รหัสประจำตัวบุคลากร (feedback อาจารย์ — "อินดิเชียรเนม"): บังคับกรอก + ห้ามเป็นตัวเลขล้วน
+
+    ตัวเลขล้วนแยกไม่ออกจากรหัสนักศึกษาทั้งบนใบยืมและตอนล็อกอิน ส่วนบัญชีเก่าที่ตั้งชื่อไว้แล้ว
+    (Admin / SUAdmin) ต้องยังผ่านกฎนี้ ไม่งั้นแก้ข้อมูลบัญชีเดิมไม่ได้เลย
+    """
+    from pydantic import ValidationError
+    from app.schemas.user import UserCreateRequest
+
+    base = dict(email="staffcode@cdti.ac.th", full_name="อ. ทดสอบ", password="Test1234!")
+    assert UserCreateRequest(**base, role="admin", username="01MNK01").username == "01MNK01"
+    assert UserCreateRequest(**base, role="superadmin", username="SUAdmin").username == "SUAdmin"
+    # นักศึกษาไม่ต้องมีรหัสบุคลากร
+    assert UserCreateRequest(**base, role="student", student_id="6610301006").username is None
+
+    for bad in ({"role": "admin"},                              # ไม่กรอกรหัสเลย
+                {"role": "admin", "username": "6610301006"},    # ตัวเลขล้วน = ปนกับรหัสนักศึกษา
+                {"role": "superadmin", "username": "ab"}):      # สั้นเกินไป
+        try:
+            UserCreateRequest(**base, **bad)
+            raise AssertionError(f"ควรถูกปฏิเสธ: {bad}")
+        except ValidationError:
+            pass

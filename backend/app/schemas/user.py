@@ -2,9 +2,16 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.schemas.auth import Password, _strip_student_id
+
+# รหัสประจำตัวบุคลากร (feedback อาจารย์ — "อินดิเชียรเนม" เช่น 01MNK01) เก็บในคอลัมน์ username เดิม
+# กฎมีข้อเดียวที่จำเป็นจริง: **ห้ามเป็นตัวเลขล้วน** เพราะรหัสนักศึกษาเป็นตัวเลข 10 หลัก ถ้าปนกันจะดูไม่ออกว่า
+# รหัสบนใบยืมเป็นของอาจารย์หรือนักศึกษา (และ login ที่รับได้ทั้งสองแบบก็แยกไม่ออก) ที่เหลือปล่อยให้ยืดหยุ่น
+# ไม่บังคับรูปแบบเป๊ะ ๆ เพราะแต่ละหน่วยงานตั้งคนละแบบ — ตัวอย่างที่แนะนำอยู่ใน placeholder ของฟอร์ม
+# (pattern ของ pydantic ใช้ rust regex ที่ไม่มี look-ahead เงื่อนไข "ต้องมีตัวอักษร" จึงไปเช็คใน validator)
+STAFF_CODE_PATTERN = r"^[A-Za-z0-9_-]{4,20}$"
 
 
 class UserResponse(BaseModel):
@@ -45,7 +52,8 @@ class UserCreateRequest(BaseModel):
     full_name: str
     password: Password
     role: str = "student"  # student / admin / superadmin (ดู app/utils/roles.py)
-    username: str | None = None
+    # บังคับกรอกเมื่อ role ไม่ใช่ student — ดู _require_staff_code ด้านล่าง
+    username: Annotated[str | None, Field(pattern=STAFF_CODE_PATTERN)] = None
     # เดิมไม่มี pattern เลย ต่างจาก RegisterRequest.student_id — แอดมินเพิ่มผู้ใช้ผ่านฟอร์มนี้ได้
     # โดยตั้ง student_id เป็นอะไรก็ได้ ทำให้ข้อมูลไม่ตรงรูปแบบ \d{10} หลุดเข้าระบบ
     student_id: Annotated[str | None, Field(pattern=r"^\d{10}$")] = None
@@ -57,6 +65,20 @@ class UserCreateRequest(BaseModel):
     # เว้นวรรคหัวท้ายทำให้ค้นหา/ล็อกอินไม่เจอทั้งที่ตาเห็นว่าตรง — normalize เหมือน student_id/phone
     _normalize_username = field_validator("username", mode="before")(_strip_student_id)
     _normalize_phone = field_validator("phone", mode="before")(_strip_student_id)
+
+    @model_validator(mode="after")
+    def _require_staff_code(self) -> "UserCreateRequest":
+        """บัญชีที่ไม่ใช่นักศึกษาต้องมีรหัสประจำตัวเสมอ — เดิมสร้างบัญชีอาจารย์โดยไม่กรอกอะไรเลยก็ได้
+
+        ทำให้ใบยืม/ใบคืนและหน้า Audit ขึ้นรหัสว่างสำหรับเจ้าหน้าที่ ทั้งที่เอกสารต้องระบุตัวผู้ทำรายการได้
+        (บัญชีเก่าที่สร้างไว้ก่อนกฎนี้ยังใช้งานได้ตามเดิม — validator ทำงานเฉพาะตอนสร้างบัญชีใหม่)
+        """
+        if self.role != "student" and not self.username:
+            raise ValueError("บัญชีอาจารย์/เจ้าหน้าที่ต้องระบุรหัสประจำตัว (เช่น 01MNK01)")
+        # ตัวเลขล้วนแยกไม่ออกจากรหัสนักศึกษา — ทั้งบนเอกสารและตอนล็อกอิน (login รับได้ทั้งสองแบบ)
+        if self.username and not any(c.isalpha() for c in self.username):
+            raise ValueError("รหัสประจำตัวบุคลากรต้องมีตัวอักษรอย่างน้อย 1 ตัว ห้ามเป็นตัวเลขล้วน")
+        return self
 
 
 class UserUpdateRequest(BaseModel):
