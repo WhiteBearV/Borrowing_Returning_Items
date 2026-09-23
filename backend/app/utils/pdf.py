@@ -276,9 +276,12 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     name = getattr(req, "student_name", None) or "____________________"
     # อาจารย์/เจ้าหน้าที่ต้องมีรหัสประจำตัวขึ้นบนใบยืมเหมือนกัน ไม่ใช่เว้นว่างเพราะไม่มีรหัสนักศึกษา
     number = getattr(req, "borrower_identifier", None) or getattr(req, "student_number", None)
-    who = f"{name} ({number})" if number else name
+    position = _position_th(req)
+    # บอกชนิดรหัสกำกับ (feedback อาจารย์) — ดูแล้วรู้ทันทีว่าเลขนี้เป็นของนักศึกษาหรือบุคลากร
+    id_kind = "รหัสนักศึกษา" if position == "นักศึกษา" else "รหัสบุคลากร"
+    who = f"{name} ({id_kind} {number})" if number else name
     elems.append(Paragraph(
-        f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{_position_th(req)}</u>", body))
+        f"ข้าพเจ้า <u>{who}</u> &nbsp;&nbsp;&nbsp; ตำแหน่ง <u>{position}</u>", body))
     major = _MAJOR_LABEL.get(getattr(req, "student_major", None))
     major_part = f"สาขา <u>{major}</u> &nbsp;&nbsp;&nbsp; " if major else ""
     elems.append(Paragraph(f"{major_part}ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))

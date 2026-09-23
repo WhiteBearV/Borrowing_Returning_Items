@@ -208,14 +208,21 @@ function targetPhrase(log) {
   return ''
 }
 
+/** "ชื่อ (รหัสนักศึกษา 66...)" / "ชื่อ (รหัสบุคลากร 01MNK01)" — บอกชนิดรหัสจาก actor_role ที่ snapshot ไว้ตอนทำ
+ *  (feedback อาจารย์) log เก่าที่ไม่มี role โชว์แค่รหัสเหมือนเดิม */
+export function actorLabel(log) {
+  const id = log.actor_identifier
+  if (!id) return log.actor_name ?? '—'
+  const kind = !log.actor_role ? '' : log.actor_role === 'student' ? 'รหัสนักศึกษา ' : 'รหัสบุคลากร '
+  return `${log.actor_name ?? '—'} (${kind}${id})`
+}
+
 /** log 1 แถว -> ประโยคไทยบรรทัดเดียวที่คนทั่วไป (ไม่ใช่ dev) อ่านรู้เรื่อง
  *  เช่น "สมชาย ใจดี (65010001) ยื่นคำขอยืม คำขอ REQ-2026-... — รายการ: โน้ตบุ๊ค ×1"
  *  ponytail: ตัดส่วนท้ายไว้ 3 ช่วง รายละเอียดครบ ๆ ดูได้ในโมดัลอยู่แล้ว */
 /** บรรทัดแรก: ใคร ทำอะไร กับอะไร — สั้นพอให้กวาดตาอ่านทั้งตารางได้ */
 export function logHeadline(log) {
-  const who = log.actor_name
-    ? `${log.actor_name}${log.actor_identifier ? ` (${log.actor_identifier})` : ''}`
-    : 'ไม่ทราบผู้ทำ'
+  const who = log.actor_name ? actorLabel(log) : 'ไม่ทราบผู้ทำ'
   return [`${who} ${actionLabel(log.action)}`, targetPhrase(log)].filter(Boolean).join(' ')
 }
 
@@ -228,9 +235,7 @@ export function logDetailChips(log) {
 }
 
 export function logSentence(log) {
-  const who = log.actor_name
-    ? `${log.actor_name}${log.actor_identifier ? ` (${log.actor_identifier})` : ''}`
-    : 'ไม่ทราบผู้ทำ'
+  const who = log.actor_name ? actorLabel(log) : 'ไม่ทราบผู้ทำ'
   const target = targetPhrase(log)
   const rest = detailLines(log.detail)
     .filter((l) => !TARGET_KEYS.includes(l.field))

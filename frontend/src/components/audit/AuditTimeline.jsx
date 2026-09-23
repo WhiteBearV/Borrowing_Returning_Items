@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { auditApi } from '../../api/auditApi.js'
 import EmptyState from '../common/EmptyState.jsx'
-import { actionLabel, detailLines } from './auditLabels.js'
+import { actionLabel, actorLabel, detailLines } from './auditLabels.js'
 import { formatDateTime } from '../../utils/formatDate.js'
 
 /**
@@ -44,8 +44,7 @@ export default function AuditTimeline({ targetId, limit = 50 }) {
               </ul>
             )}
             <p className="mt-0.5 text-xs text-gray-400">
-              {formatDateTime(log.created_at)} · โดย {log.actor_name ?? 'ไม่ทราบ'}
-              {log.actor_identifier ? ` (${log.actor_identifier})` : ''}
+              {formatDateTime(log.created_at)} · โดย {log.actor_name ? actorLabel(log) : 'ไม่ทราบ'}
             </p>
           </li>
         )

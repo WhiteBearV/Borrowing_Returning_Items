@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# สำรองฐานข้อมูล + รูปที่อัปโหลด แล้วลบไฟล์เก่าเกิน RETAIN_DAYS วัน
+# สำรองฐานข้อมูล + รูปที่อัปโหลด + เอกสารส่วนตัว (private_uploads) แล้วลบไฟล์เก่าเกิน RETAIN_DAYS วัน
 #
 # ทำไมต้องมี: อาจารย์ห่วงว่า "ถ้า Postgres เสียจะทำยังไง" คำตอบคือกู้จาก backup
 # ไม่ใช่ย้ายไป MySQL — ระบบผูกกับ JSONB/UUID ของ Postgres อยู่
@@ -35,8 +35,10 @@ echo "[$(date -Is)] dump ฐานข้อมูล → $BACKUP_DIR/db-$STAMP.d
 "${COMPOSE[@]}" exec -T db pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" \
   > "$BACKUP_DIR/db-$STAMP.dump"
 
-echo "[$(date -Is)] เก็บรูปจาก volume → $BACKUP_DIR/uploads-$STAMP.tar.gz"
-"${COMPOSE[@]}" exec -T backend tar czf - -C /app uploads \
+# private_uploads = ใบยืมที่เซ็นแล้ว + ลายเซ็นบนหน้าจอ (ข้อมูลส่วนบุคคล) — เดิมไม่ได้เก็บ กู้แล้วลายเซ็นหายหมด
+# อยู่ใน archive เดียวกัน restore_db.sh แตกไฟล์คืนให้ครบทั้งสองโฟลเดอร์โดยไม่ต้องแก้
+echo "[$(date -Is)] เก็บไฟล์จาก volume → $BACKUP_DIR/uploads-$STAMP.tar.gz"
+"${COMPOSE[@]}" exec -T backend tar czf - -C /app uploads private_uploads \
   > "$BACKUP_DIR/uploads-$STAMP.tar.gz"
 
 # backup ที่ว่างเปล่าคือ backup ที่ใช้กู้ไม่ได้ ต้องรู้ตั้งแต่ตอนนี้ ไม่ใช่ตอนของหาย

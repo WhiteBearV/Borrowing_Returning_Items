@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { auditApi } from '../../api/auditApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
-import { ACTION_LABEL, actionLabel, detailLines, logDetailChips, logHeadline, logSentence } from '../../components/audit/auditLabels.js'
+import { ACTION_LABEL, actionLabel, actorLabel, detailLines, logDetailChips, logHeadline, logSentence } from '../../components/audit/auditLabels.js'
 import { ALL_ROLES, roleBadgeClass, roleLabel } from '../../utils/role.js'
 import DateInput from '../../components/common/DateInput.jsx'
 import { formatDateTime, todayTH } from '../../utils/formatDate.js'
 
 function DetailModal({ log, onClose }) {
   const rows = [
-    ['ผู้ทำ', `${log.actor_name ?? '—'}${log.actor_identifier ? ` (${log.actor_identifier})` : ''}`],
+    ['ผู้ทำ', actorLabel(log)],
     ['สิทธิ์ขณะทำ', log.actor_role ? roleLabel(log.actor_role) : '— (ก่อนระบบเริ่มเก็บ)'],
     ['การกระทำ', actionLabel(log.action)],
     ['เวลา', formatDateTime(log.created_at)],

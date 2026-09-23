@@ -12,6 +12,7 @@ import { RenewModal } from '../../components/borrow/RenewModal.jsx'
 import { ReturnAppointModal } from '../../components/borrow/ReturnAppointModal.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import ReasonModal, { CANCEL_REASONS } from '../../components/common/ReasonModal.jsx'
+import { SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
 
 const ITEM_CONDITION_LABEL = {
   ok: 'คืนแล้ว', damaged: 'เสียหาย', lost: 'สูญหาย',
@@ -138,6 +139,7 @@ export default function MyBorrowsPage() {
   // ใบเซ็นเก็บในโฟลเดอร์ที่ไม่ได้เสิร์ฟสาธารณะ ต้องดึงผ่าน API ที่ตรวจสิทธิ์แล้วเปิดจาก blob
   const viewSignedForm = async (id) => openPdf(await borrowApi.downloadSignedForm(id))
   const viewReturnPdf = async (id) => openPdf(await borrowApi.downloadReturnPdf(id))
+  const viewSignature = async (id, kind) => openPdf(await borrowApi.downloadSignature(id, kind))
 
   return (
     <div className="px-4 sm:px-6 py-8">
@@ -363,7 +365,8 @@ export default function MyBorrowsPage() {
                       ) : (
                         <button onClick={() => viewPdf(req.id)}
                           className="text-sm font-medium text-primary-600 hover:underline">
-                          {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม (ยังไม่ได้เซ็น)'}
+                          {req.status === 'pending' ? 'ดูใบร่างคำขอ'
+                            : req.signatures?.includes('handover_borrower') ? 'ดูใบยืม (เซ็นบนหน้าจอแล้ว)' : 'ดูใบยืม (ยังไม่ได้เซ็น)'}
                         </button>
                       )}
                       {req.status === 'approved' && (
@@ -377,6 +380,22 @@ export default function MyBorrowsPage() {
                         </label>
                       )}
                     </div>
+                    {/* ลายเซ็นบนหน้าจอ (เฟส 11) — ผู้ยืมเปิดดูของตัวเองได้ ผ่าน endpoint ที่ตรวจสิทธิ์ + ลง audit */}
+                    {req.signatures?.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                        {req.handover_at && (
+                          <span className="text-xs text-gray-500">
+                            รับของแล้ว {formatDateTime(req.handover_at)}{req.handover_by_name ? ` · ผู้จ่าย ${req.handover_by_name}` : ''}
+                          </span>
+                        )}
+                        {req.signatures.map((kind) => (
+                          <button key={kind} onClick={() => viewSignature(req.id, kind)}
+                            className="text-sm text-primary-600 hover:underline">
+                            ✍ {SIGNATURE_LABEL[kind]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {req.items.some((i) => i.returned) && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                         <button onClick={() => viewReturnPdf(req.id)}

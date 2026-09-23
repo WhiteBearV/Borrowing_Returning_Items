@@ -328,7 +328,7 @@ bash backend/scripts/backup_db.sh
 ```
 
 สคริปต์ทำงานผ่าน `docker compose exec` (**container ต้องเปิดอยู่**) ได้ไฟล์ 2 ชุดต่อรอบ:
-`db-<วันเวลา>.dump` (pg_dump custom format) และ `uploads-<วันเวลา>.tar.gz` แล้วลบไฟล์เก่าเกิน `RETAIN_DAYS` วัน
+`db-<วันเวลา>.dump` (pg_dump custom format) และ `uploads-<วันเวลา>.tar.gz` (รวม `uploads/` + `private_uploads/` ที่เก็บลายเซ็น/ใบยืมที่เซ็นแล้ว) แล้วลบไฟล์เก่าเกิน `RETAIN_DAYS` วัน
 
 ตั้งอัตโนมัติทุกวันตี 2 (`crontab -e`):
 
