@@ -314,29 +314,38 @@ async def get_utilization(
         ))
 
     never = [r for r in rows if r.days_borrowed == 0]
+    first_at = (await db.execute(select(func.min(BorrowRequest.approved_at)))).scalar()
+    first = first_at.astimezone(TZ).date() if first_at else None
+    # ตัวหาร "เฉลี่ยของอยู่นอกคลังกี่ชิ้นต่อวัน" นับรวมวันนี้ (ของที่ยังไม่คืนถูกนับถึงตอนนี้)
+    if period:
+        span_days = max((min(date_to, today) - date_from).days + 1, 1)
+    else:
+        span_days = (today - first).days + 1 if first else 0
     return UtilizationResponse(
         rows=rows,
         never_borrowed_count=len(never),
         never_borrowed_value=sum(r.unit_value or 0 for r in never),
         total_days_borrowed=sum(r.days_borrowed for r in rows),
+        span_days=span_days,
         depreciation_years_default=years_default, salvage_value=salvage,
         good_threshold=UTILIZATION_GOOD, fair_threshold=UTILIZATION_FAIR,
         date_from=date_from if period else None, date_to=date_to if period else None,
-        monthly=await _monthly_usage(db, types, now),
+        monthly=await _monthly_usage(db, types, now, first),
     )
 
 
-async def _monthly_usage(db: AsyncSession, types: tuple[str, ...], now: datetime) -> list[UtilizationMonth]:
+async def _monthly_usage(
+    db: AsyncSession, types: tuple[str, ...], now: datetime, first: date | None,
+) -> list[UtilizationMonth]:
     """สรุปรายเดือน (ปฏิทิน) ตอบว่า "เดือนไหนใช้ของเยอะ/น้อย" — ยืมใหม่ / วันที่ของออกจากคลัง (ตัดเฉพาะส่วนที่
     อยู่ในเดือนนั้น) / มูลค่าที่ถูกยืมออก (นิยามเดียวกับการ์ด Dashboard: ราคา ณ วันอนุมัติ ตามเดือนที่อนุมัติ)
 
     ครอบทุกเดือนตั้งแต่เดือนแรกที่มีการอนุมัติถึงเดือนนี้เสมอ **ไม่ขึ้นกับช่วงที่เลือก** (เลือก "เดือนนี้" แล้วเหลือ
     แถวเดียวจะเทียบกับเดือนอื่นไม่ได้ — หน้าเว็บไฮไลต์เดือนที่เลือกแทน) · กรองประเภทด้วย item_type_snapshot
     """
-    first_at = (await db.execute(select(func.min(BorrowRequest.approved_at)))).scalar()
-    if first_at is None:
+    if first is None:
         return []
-    first, last = first_at.astimezone(TZ).date(), now.date()
+    last = now.date()
     months: list[tuple[int, int]] = []
     y, m = first.year, first.month
     while (y, m) <= (last.year, last.month):

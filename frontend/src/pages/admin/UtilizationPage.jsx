@@ -37,6 +37,8 @@ const columns = (period) => [
 const PAGE_SIZE = 15   // เท่ากับหน้าจัดการอุปกรณ์
 
 const money = (v) => (v == null ? '—' : v.toLocaleString('th-TH', { maximumFractionDigits: 2 }))
+// ชิ้น-วัน ÷ จำนวนวัน = เฉลี่ยมีของอยู่นอกคลังกี่ชิ้นต่อวัน (ตัวเลขที่อ่านรู้เรื่องกว่ายอดรวมหลักพัน)
+const perDay = (pieceDays, span) => (span ? pieceDays / span : 0).toLocaleString('th-TH', { maximumFractionDigits: 1 })
 
 /** เดือน "YYYY-MM" → ช่วง {from, to} ของเดือนนั้น (ถึงวันนี้ถ้าเป็นเดือนปัจจุบัน) */
 const monthRange = (month) => {
@@ -185,13 +187,17 @@ export default function UtilizationPage() {
           <p className="text-2xl font-light text-red-600">{money(data.never_borrowed_value)} บาท</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
-          <p className="text-xs text-gray-500">วันที่อุปกรณ์ออกจากคลังรวม ({scope})</p>
-          <p className="text-2xl font-light text-gray-800">{data.total_days_borrowed.toLocaleString('th-TH')} วัน</p>
+          <p className="text-xs text-gray-500">เฉลี่ยมีของอยู่นอกคลัง ({scope})</p>
+          <p className="text-2xl font-light text-gray-800">{perDay(data.total_days_borrowed, data.span_days)} ชิ้น/วัน</p>
+          <p className="mt-0.5 text-xs text-gray-400"
+            title="รวมทุกชิ้น ไม่ใช่วันตามปฏิทิน — ของ 10 ชิ้นออกไป 3 วัน = 30 ชิ้น-วัน">
+            รวม {data.total_days_borrowed.toLocaleString('th-TH')} ชิ้น-วัน ÷ {data.span_days.toLocaleString('th-TH')} วัน
+          </p>
         </div>
       </div>
 
       {/* ภาพรวมรายเดือน — ตอบ "เดือนไหนใช้ของเยอะ/น้อย" แสดงทุกเดือนเสมอ (ไม่ขึ้นกับช่วงที่เลือก) แล้วไฮไลต์
-          เดือนที่เลือกอยู่ · แท่ง = วันที่ของออกจากคลัง (ชุดข้อมูลเดียว สีเดียว ตัวเลขอยู่ข้างแท่งเสมอ) */}
+          เดือนที่เลือกอยู่ · แท่ง = ชิ้น-วันที่ของอยู่นอกคลัง (ชุดข้อมูลเดียว สีเดียว ตัวเลขอยู่ข้างแท่งเสมอ) */}
       {data.monthly.length > 0 && (
         <section className="mb-6">
           <h2 className="mb-2 text-sm font-semibold text-gray-600">
@@ -204,7 +210,9 @@ export default function UtilizationPage() {
                 <tr>
                   <th className="px-3 py-2 text-left font-medium whitespace-nowrap">เดือน</th>
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">ยืมใหม่ (ครั้ง)</th>
-                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap w-1/2">วันที่อุปกรณ์ออกจากคลังรวม</th>
+                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap w-1/2"
+                    title="รวมทุกชิ้น ไม่ใช่วันตามปฏิทิน — ของ 10 ชิ้นออกไป 3 วัน = 30 ชิ้น-วัน">ชิ้น-วันที่อยู่นอกคลัง</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">เฉลี่ย (ชิ้น/วัน)</th>
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">มูลค่าที่ถูกยืมออก (บาท)</th>
                 </tr>
               </thead>
@@ -214,9 +222,10 @@ export default function UtilizationPage() {
                   const label = `${TH_MONTHS[Number(mo) - 1]} ${y}`
                   const r = monthRange(m.month)
                   const selected = period && from === r.from && to === r.to
+                  const avg = perDay(m.days_borrowed, Number(r.to.slice(8)))   // เดือนนี้หารถึงวันนี้
                   return (
                     <tr key={m.month} onClick={() => pickMonth(m.month)}
-                      title={`${label}: ยืมใหม่ ${m.new_borrows} ครั้ง · ออกจากคลังรวม ${m.days_borrowed} วัน · มูลค่า ${money(m.borrowed_value)} บาท`}
+                      title={`${label}: ยืมใหม่ ${m.new_borrows} ครั้ง · นอกคลัง ${m.days_borrowed} ชิ้น-วัน (เฉลี่ย ${avg} ชิ้น/วัน) · มูลค่า ${money(m.borrowed_value)} บาท`}
                       className={`cursor-pointer ${selected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}>
                       <td className={`px-3 py-2 whitespace-nowrap ${selected ? 'font-semibold text-primary-700' : 'text-gray-800'}`}>{label}</td>
                       <td className="px-3 py-2 text-right text-gray-700">{m.new_borrows.toLocaleString('th-TH')}</td>
@@ -228,9 +237,10 @@ export default function UtilizationPage() {
                                 style={{ width: `${Math.max((m.days_borrowed / maxDays) * 100, 1)}%` }} />
                             )}
                           </div>
-                          <span className="w-16 shrink-0 text-right text-xs text-gray-600">{m.days_borrowed.toLocaleString('th-TH')} วัน</span>
+                          <span className="w-24 shrink-0 text-right text-xs text-gray-600">{m.days_borrowed.toLocaleString('th-TH')} ชิ้น-วัน</span>
                         </div>
                       </td>
+                      <td className="px-3 py-2 text-right text-gray-700">{avg}</td>
                       <td className="px-3 py-2 text-right text-gray-700">{money(m.borrowed_value)}</td>
                     </tr>
                   )

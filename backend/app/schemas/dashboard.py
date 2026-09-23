@@ -78,7 +78,7 @@ class UtilizationMonth(BaseModel):
     """สรุป 1 เดือนปฏิทิน — ใช้เทียบว่าเดือนไหนใช้ของเยอะ/น้อย"""
     month: str                  # "YYYY-MM"
     new_borrows: int = 0        # ยืมใหม่ (อนุมัติ) ในเดือนนั้น
-    days_borrowed: int = 0      # วันที่ของออกจากคลังรวม ตัดเฉพาะส่วนที่อยู่ในเดือนนั้น
+    days_borrowed: int = 0      # ชิ้น-วันที่อยู่นอกคลัง (รวมทุกชิ้น) ตัดเฉพาะส่วนที่อยู่ในเดือนนั้น
     borrowed_value: float = 0   # มูลค่าที่ถูกยืมออก — นิยามเดียวกับการ์ด Dashboard
 
 
@@ -86,7 +86,8 @@ class UtilizationResponse(BaseModel):
     rows: list[UtilizationRow]
     never_borrowed_count: int = 0
     never_borrowed_value: float = 0     # มูลค่ารวมของที่ซื้อมาแล้วไม่เคยถูกยืมเลย — ตัวเลขที่ใช้ต่อรองงบ
-    total_days_borrowed: int = 0
+    total_days_borrowed: int = 0        # ชิ้น-วัน รวมทุกชิ้น (ของ 10 ชิ้นออกไป 3 วัน = 30) ไม่ใช่วันตามปฏิทิน
+    span_days: int = 0                  # ตัวหาร "เฉลี่ยชิ้นต่อวัน": ช่วงที่เลือก หรือตั้งแต่อนุมัติครั้งแรก (0 = ยังไม่เคยยืม)
     # ฐานที่ใช้คำนวณ — ส่งให้หน้าเว็บเขียนคำอธิบายสูตรจากค่าจริง (settings/เกณฑ์เปลี่ยนแล้วข้อความไม่ค้าง)
     depreciation_years_default: int = 5
     salvage_value: float = 1
