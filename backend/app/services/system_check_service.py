@@ -20,6 +20,7 @@ from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
 from app.models.user import User
+from app.services.borrow_service import STOCK_RETURN_CONDITIONS
 
 # ตารางที่นับจำนวนแถวให้ดู — ชื่อไทยคู่กันเพื่อให้คนที่ไม่ได้เขียนโค้ดอ่านออก
 _COUNTED_TABLES = [
@@ -65,9 +66,11 @@ async def run_checks(db: AsyncSession) -> dict:
 
     issues = []
 
-    async def add_issue(key: str, label: str, count: int, hint: str) -> None:
+    async def add_issue(key: str, label: str, count: int, hint: str,
+                        sample: list[str] | None = None) -> None:
         if count:
-            issues.append({"key": key, "label": label, "count": count, "hint": hint})
+            issues.append({"key": key, "label": label, "count": count, "hint": hint,
+                           "sample": sample or []})
 
     # สต็อกเกินจำนวนทั้งหมด — มี CheckConstraint กันอยู่แล้ว ตรวจซ้ำเผื่อข้อมูลเก่าก่อน migration 0016
     await add_issue(
@@ -113,6 +116,14 @@ async def run_checks(db: AsyncSession) -> dict:
         "คำนวณอายุและค่าเสื่อมไม่ได้จนกว่าจะกรอกวันที่ได้มา",
     )
 
+    mismatch_count, mismatch_sample = await _stock_reconcile(db)
+    await add_issue(
+        "stock_mismatch", "อุปกรณ์ที่ยอดคงเหลือไม่ตรงกับประวัติการยืม", mismatch_count,
+        "ยอดคงเหลือ + ที่ยืมค้าง + ที่คืนแบบไม่เข้าคลัง ควรเท่ากับจำนวนทั้งหมด "
+        "ถ้าไม่ตรงแปลว่ามีของหายไปจากยอดโดยไม่มีประวัติรองรับ (หรือเคยปรับยอดด้วยมือ — ดูได้ในหน้าประวัติการใช้งาน)",
+        mismatch_sample,
+    )
+
     oldest_log = (await db.execute(select(func.min(AuditLog.created_at)))).scalar()
     return {
         "counts": counts,
@@ -122,6 +133,51 @@ async def run_checks(db: AsyncSession) -> dict:
         "uploads_size_mb": _dir_size_mb(settings.UPLOAD_DIR),
         "checked_at": datetime.now(timezone.utc),
     }
+
+
+SAMPLE_LIMIT = 5
+
+
+async def _stock_reconcile(db: AsyncSession) -> tuple[int, list[str]]:
+    """กระทบยอดสต็อก: จำนวนทั้งหมด ควรเท่ากับ คงเหลือ + ยืมค้าง + ที่คืนแบบไม่เข้าคลัง
+
+    ระบบตัดสต็อกตอนอนุมัติและคืนเข้าเฉพาะสภาพ ok/returned_full เท่านั้น (ดู borrow_service) ดังนั้นสมการนี้
+    ต้องเป็นจริงเสมอสำหรับของที่ยัง `available` — ถ้าไม่ตรงแปลว่ามีของหายจากยอดโดยไม่มีประวัติ เช่น
+    บั๊กนำเข้าไฟล์ทะเบียนที่เคยเขียนทับ quantity_available จนของยืมไม่ได้ทั้งที่ยังอยู่บนชั้น
+
+    ตรวจเฉพาะแถวที่ `status = 'available'` — ของที่ส่งซ่อม/สูญหาย/ปลดระวางถูกกันยอดคงเหลือเป็น 0 โดยตั้งใจ
+    (borrow_service.return_item ตั้ง status ให้เมื่อรับคืนแบบชำรุด/สูญหาย) ถ้านับรวมจะเตือนผิดทุกแถว
+
+    คืน (จำนวนแถวที่ไม่ตรง, ตัวอย่างรหัสไม่เกิน SAMPLE_LIMIT ตัว) — ต้องบอกด้วยว่าแถวไหน ไม่งั้นรู้ว่าเพี้ยน
+    แต่ตามแก้ไม่ถูก
+    """
+    borrowed = (
+        select(BorrowItem.equipment_id.label("eq"), func.sum(BorrowItem.quantity).label("qty"))
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(BorrowItem.returned == False, BorrowItem.item_status != "rejected",  # noqa: E712
+               BorrowRequest.status == "approved")
+        .group_by(BorrowItem.equipment_id).subquery()
+    )
+    # คืนแล้วแต่ของไม่กลับเข้าคลัง (ชำรุด/สูญหาย/ใช้หมด/ทิ้ง) — ยอดหายถาวรแต่ quantity_total ไม่ลด
+    not_returned_to_stock = (
+        select(BorrowItem.equipment_id.label("eq"), func.sum(BorrowItem.quantity).label("qty"))
+        .where(BorrowItem.returned == True, BorrowItem.item_status != "rejected",  # noqa: E712
+               func.coalesce(BorrowItem.condition_on_return, "").not_in(STOCK_RETURN_CONDITIONS))
+        .group_by(BorrowItem.equipment_id).subquery()
+    )
+    accounted = (
+        Equipment.quantity_available
+        + func.coalesce(borrowed.c.qty, 0)
+        + func.coalesce(not_returned_to_stock.c.qty, 0)
+    )
+    rows = (await db.execute(
+        select(Equipment.code)
+        .outerjoin(borrowed, borrowed.c.eq == Equipment.id)
+        .outerjoin(not_returned_to_stock, not_returned_to_stock.c.eq == Equipment.id)
+        .where(Equipment.status == "available", accounted != Equipment.quantity_total)
+        .order_by(Equipment.code)
+    )).scalars().all()
+    return len(rows), list(rows[:SAMPLE_LIMIT])
 
 
 def _fmt_uptime(seconds: float) -> str:

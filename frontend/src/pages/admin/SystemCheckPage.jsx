@@ -88,6 +88,11 @@ export default function SystemCheckPage() {
               <div className="min-w-0">
                 <p className="text-sm text-gray-800">{i.label}</p>
                 <p className="text-xs text-gray-500">{i.hint}</p>
+                {i.sample?.length > 0 && (
+                  <p className="text-[11px] text-gray-400 font-mono mt-1 break-words">
+                    เช่น {i.sample.join(' · ')}{i.count > i.sample.length && ` … และอีก ${i.count - i.sample.length} รายการ`}
+                  </p>
+                )}
               </div>
             </div>
           ))}
