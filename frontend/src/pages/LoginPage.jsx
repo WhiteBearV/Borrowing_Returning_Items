@@ -65,6 +65,7 @@ export default function LoginPage() {
               <input
                 type={showPw ? 'text' : 'password'}
                 required
+                maxLength={72}
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"

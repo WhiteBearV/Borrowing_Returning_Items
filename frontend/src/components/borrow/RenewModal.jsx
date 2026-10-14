@@ -4,6 +4,13 @@ import DateInput from '../common/DateInput.jsx'
 import { todayTH } from '../../utils/formatDate.js'
 
 const tomorrow = () => todayTH(1)
+// ต่อเวลาต้องเลื่อนออกเท่านั้น — วันแรกที่เลือกได้ = วันถัดจากกำหนดคืนเดิม (หรือพรุ่งนี้ถ้าเลยกำหนดมาแล้ว) backend ตรวจซ้ำ
+const minRenewDate = (item) => {
+  const due = item.extended_due_date || item.due_date
+  if (!due) return tomorrow()
+  const next = new Date(Date.parse(`${due}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
+  return next > tomorrow() ? next : tomorrow()
+}
 
 // นักศึกษายื่นคำขอต่อเวลา (เลือกวันที่+เหตุผลเอง) — ยังไม่ใช่การต่อเวลาจริง แค่แจ้ง admin ให้มาอนุมัติ
 export function RenewModal({ item, requestId, onClose, onDone }) {
@@ -33,7 +40,7 @@ export function RenewModal({ item, requestId, onClose, onDone }) {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">วันที่ต้องการคืนใหม่</label>
-          <DateInput type="date" min={tomorrow()} value={requestedDate}
+          <DateInput type="date" min={minRenewDate(item)} value={requestedDate}
             onChange={(e) => setRequestedDate(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>

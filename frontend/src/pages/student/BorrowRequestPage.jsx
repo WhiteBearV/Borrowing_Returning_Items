@@ -87,9 +87,10 @@ export default function BorrowRequestPage() {
     setError('')
     setLoading(true)
     try {
-      await borrowApi.create(cartPayload())
+      const created = await borrowApi.create(cartPayload())
       clearCart()
-      navigate('/my-borrows')
+      // หน้า "คำขอของฉัน" ขึ้นแบนเนอร์บอกขั้นต่อไป (รออนุมัติ → ไปรับของที่ไหน) จาก state นี้
+      navigate('/my-borrows', { state: { submitted: created?.request_code, pickupPlace: created?.pickup_place } })
     } catch (err) {
       setError(err.response?.data?.detail ?? 'ยื่นคำขอไม่สำเร็จ')
     } finally {

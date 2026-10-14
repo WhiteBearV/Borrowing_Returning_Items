@@ -30,7 +30,7 @@ class User(Base):
     # approved / pending / rejected — คิวอนุมัติผู้สมัคร (เฟส 9) แยกจาก is_active คนละความหมาย:
     # is_active=False = แอดมินปิดบัญชีที่เคยใช้ได้ · pending = สมัครมาแต่ไม่อยู่ในรายชื่อของสาขา ยังไม่เคยใช้ได้เลย
     approval_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="approved", server_default="approved")
+        String(20), nullable=False, default="approved", server_default="approved", index=True)
     approval_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # เวลาที่เรียก API ล่าสุด — ใช้ตอบ "ตอนนี้มีคนใช้งานอยู่กี่คน" ในหน้าตรวจสอบระบบ
     # อัปเดตแบบ throttle ใน dependencies.get_current_user (ไม่ใช่ทุก request) กันเขียน DB ถี่เกินจำเป็น

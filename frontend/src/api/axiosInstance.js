@@ -26,11 +26,25 @@ async function unwrapBlobError(error) {
   return error
 }
 
+const PUBLIC_PATHS = ['/login', '/register', '/verify-email', '/forgot-password', '/reset-password']
+// ข้อความ validation ที่ผู้ใช้เจอบ่อย — ที่เหลือใช้ข้อความจาก backend ตามเดิม
+const VALIDATION_TH = {
+  string_too_short: 'กรอกข้อมูลสั้นเกินไปหรือเว้นว่าง',
+  string_too_long: 'กรอกข้อมูลยาวเกินไป',
+  missing: 'กรอกข้อมูลไม่ครบ',
+}
+
 // Refresh token เมื่อได้ 401
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     await unwrapBlobError(error)
+    // 422 ของ FastAPI ส่ง detail เป็น "อาร์เรย์ของ object" — 24 หน้าที่แสดง detail ตรง ๆ จะทำ React ล่มทั้งหน้า (หน้าขาว)
+    // เจอจริง: ล็อกอินรหัสผ่านยาวเกิน 72 ตัว / บันทึกชื่อว่างในโปรไฟล์ (QA รอบ 5, R5-08) แปลงเป็นข้อความที่จุดเดียวตรงนี้
+    const detail = error.response?.data?.detail
+    if (Array.isArray(detail)) {
+      error.response.data.detail = detail.map((d) => VALIDATION_TH[d?.type] ?? d?.msg ?? String(d)).join(', ')
+    }
     const original = error.config
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
@@ -47,7 +61,9 @@ api.interceptors.response.use(
         } catch {
           localStorage.removeItem('access_token')
           localStorage.removeItem('refresh_token')
-          window.location.href = '/login'
+          // หน้าสาธารณะไม่ต้องเด้ง — เดิม session เก่าที่หมดอายุค้างในเบราว์เซอร์ทำให้ลิงก์รีเซ็ตรหัสผ่าน/ยืนยันอีเมล
+          // จากอีเมลถูกพาไปหน้า login แทน (R5-01) หน้าที่ต้องล็อกอิน ProtectedRoute พาไปเองอยู่แล้ว
+          if (!PUBLIC_PATHS.includes(window.location.pathname)) window.location.href = '/login'
         }
       }
     }

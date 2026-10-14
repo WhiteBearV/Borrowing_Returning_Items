@@ -52,6 +52,8 @@ export const equipmentApi = {
     return api.post('/equipment/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
   },
   // body = ร่างที่แอดมินตรวจ/แก้แล้ว: { filename, rows: [{ code, action, name, location, status, category, reason }] }
+  // แม่แบบนำเข้า .xlsx (ครุภัณฑ์ · วัสดุ · SN) — หัวตารางตรงกับตัวอ่านไฟล์ฝั่ง backend
+  importTemplate: () => api.get('/equipment/import/template', { responseType: 'blob' }).then((r) => r.data),
   importCommit: (importId, body) =>
     api.post(`/equipment/import/${importId}/commit`, body).then((r) => r.data),
   uploadImage: (file) => {

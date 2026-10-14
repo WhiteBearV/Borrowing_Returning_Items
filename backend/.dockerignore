@@ -10,7 +10,10 @@ __pycache__/
 .pytest_cache/
 
 # ไฟล์จริงอยู่ใน docker volume ไม่ใช่ใน image
+# private_uploads = ใบยืมที่เซ็นแล้ว/ลายเซ็น (ข้อมูลส่วนบุคคล) · import_tmp = ร่างไฟล์ทะเบียน — ห้ามอบติด image (R3-05)
 uploads/
+private_uploads/
+import_tmp/
 
 tests/
 *.db

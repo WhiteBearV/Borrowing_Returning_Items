@@ -44,6 +44,9 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+    if user.approval_status != "approved":
+        # ปฏิเสธบัญชีแล้ว token ที่ออกไปก่อนหน้าต้องใช้ไม่ได้ทันที เหมือนปิดบัญชี (QA-16)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is not approved")
     if not user.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

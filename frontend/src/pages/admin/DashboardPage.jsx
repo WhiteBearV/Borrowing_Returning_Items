@@ -13,7 +13,7 @@ export default function DashboardPage() {
     equipment_counts: { durable: 0, material: 0, consumable: 0, total: 0 },
     users_total: 0, users_students: 0, users_staff: 0, users_pending_approval: 0, users_by_major: [],
     users_by_year: [],
-    quality_low_count: 0, quality_unassessed_count: 0,
+    quality_low_count: 0, quality_unassessed_count: 0, quality_inspect_overdue_count: 0,
     borrowed_value_this_month: 0,
     borrowed_value_this_year: 0,
   })
@@ -90,6 +90,13 @@ export default function DashboardPage() {
             className="rounded-2xl p-5 flex flex-col justify-between bg-rose-50 text-rose-700 hover:opacity-80 transition-opacity">
             <p className="text-sm font-medium">คุณภาพต่ำ ควรตรวจสภาพ</p>
             <p className="text-3xl font-bold">{summary.quality_low_count}</p>
+          </Link>
+        )}
+        {summary.quality_inspect_overdue_count > 0 && (
+          <Link to="/admin/equipment"
+            className="rounded-2xl p-5 flex flex-col justify-between bg-orange-50 text-orange-700 hover:opacity-80 transition-opacity">
+            <p className="text-sm font-medium">ถึงรอบตรวจเช็คสภาพ</p>
+            <p className="text-3xl font-bold">{summary.quality_inspect_overdue_count}</p>
           </Link>
         )}
         {summary.quality_unassessed_count > 0 && (

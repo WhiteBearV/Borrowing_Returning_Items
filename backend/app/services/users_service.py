@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
@@ -13,7 +14,7 @@ from app.core.security import hash_password
 from app.models.user import User
 from app.utils.identity import is_student_identifier
 from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, STUDENT, SUPERADMIN, can_manage_user, role_rank
-from app.utils.study_year import compute_study_year, year_group_key
+from app.utils.study_year import compute_study_year, display_label, year_group_key
 from app.schemas.user import PaginatedUsers, UserCreateRequest, UserUpdateRequest
 
 
@@ -36,7 +37,25 @@ async def attach_study_year(db: AsyncSession, users: list[User]) -> None:
         u.year_level = info.year_level
         u.is_retained = info.is_retained
         u.remaining_study_years = info.remaining_study_years
-        u.study_year_label = info.label
+        u.study_year_label = display_label(u.role == "student", u.enrollment_year, info)
+
+
+async def attach_unpaid_fines(db: AsyncSession, users: list[User]) -> None:
+    """เติมยอดค่าปรับค้างชำระรวมต่อคน (SKGRent ข้อ 6) — รวมสดจาก borrow_items ด้วย query เดียว ไม่เก็บเป็นคอลัมน์
+    ที่ตัวผู้ใช้ (ยอดสะสมแยกเก็บ = ต้องคอย sync ทุกจุดที่แก้ยอด/รับชำระ/ยกเว้น ลืมจุดเดียวตัวเลขเพี้ยนถาวร)
+    ผู้ใช้หลักร้อยคน รวมสดไม่หนัก · ยังไม่บล็อกการยืม (ดู CLAUDE.md) — ถ้าจะบล็อก เรียก query เดียวกันใน create_request
+    """
+    if not users:
+        return
+    totals = dict((await db.execute(
+        select(BorrowRequest.student_id,
+               func.sum(func.coalesce(BorrowItem.fine_late_amount, 0) + func.coalesce(BorrowItem.fine_damage_amount, 0)))
+        .join(BorrowItem, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(BorrowRequest.student_id.in_([u.id for u in users]), BorrowItem.fine_status == "unpaid")
+        .group_by(BorrowRequest.student_id)
+    )).all())
+    for u in users:
+        u.unpaid_fine_total = float(totals.get(u.id) or 0)
 
 
 def _assert_can_manage(actor: User, target: User) -> None:
@@ -76,7 +95,8 @@ async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) ->
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"สร้างบัญชี{ROLE_LABEL_TH[body.role]}ได้เฉพาะ{ROLE_LABEL_TH[SUPERADMIN]}",
         )
-    exists = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    body.email = body.email.strip().lower()  # อีเมลไม่สนตัวพิมพ์ (QA-15)
+    exists = (await db.execute(select(User).where(func.lower(User.email) == body.email))).scalars().first()
     if exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
     if body.student_id:
@@ -104,7 +124,7 @@ async def create_user(db: AsyncSession, admin: User, body: UserCreateRequest) ->
         student_id=body.student_id,
         phone=body.phone,
         major=body.major,
-        password_hash=hash_password(body.password),
+        password_hash=await asyncio.to_thread(hash_password, body.password),
         role=body.role,
         email_verified=True,
         is_active=True,
@@ -181,6 +201,7 @@ async def list_users(
         total = len(rows)
         items = rows[(page - 1) * page_size: (page - 1) * page_size + page_size]
         await attach_study_year(db, items)
+        await attach_unpaid_fines(db, items)
         return PaginatedUsers(items=items, total=total, page=page, page_size=page_size)  # type: ignore
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
@@ -188,12 +209,14 @@ async def list_users(
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
     await attach_study_year(db, items)
+    await attach_unpaid_fines(db, items)
     return PaginatedUsers(items=items, total=total, page=page, page_size=page_size)  # type: ignore
 
 
 async def delete_user(db: AsyncSession, admin: User, user_id: uuid.UUID) -> None:
     """ลบ user ที่ปิดใช้งานแล้วออกจาก DB พร้อม cascade (notifications, borrow history)"""
-    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    # ล็อกแถว — กดลบซ้ำพร้อมกัน คำขอหลังรอแล้วเจอ 404 แทนการลง audit ลบซ้ำ (R4-03)
+    user = (await db.execute(select(User).where(User.id == user_id).with_for_update())).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     if user.is_active:
@@ -207,7 +230,9 @@ async def delete_user(db: AsyncSession, admin: User, user_id: uuid.UUID) -> None
 
     # ลบ child records ตาม FK ก่อน
     req_ids = (await db.execute(
+        # รวมคำขอที่ถูกซ่อนด้วย — select ปกติมองไม่เห็น แต่ delete ด้านล่างลบทุกแถว รายการของมันจะชน FK
         select(BorrowRequest.id).where(BorrowRequest.student_id == user_id)
+        .execution_options(include_deleted=True)
     )).scalars().all()
     for req_id in req_ids:
         await db.execute(delete(Notification).where(Notification.borrow_request_id == req_id))
@@ -255,7 +280,8 @@ async def update_approval(
     ปฏิเสธไม่ลบบัญชีทิ้ง — เก็บไว้พร้อมเหตุผลเพื่อให้ตอบได้ว่าใครขอเข้ามาแล้วไม่ผ่านเพราะอะไร
     (ลบจริงยังทำได้ที่เมนูลบบัญชี ซึ่งเป็นสิทธิ์ superadmin)
     """
-    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    # ล็อกแถว — แอดมิน 2 คนตัดสินพร้อมกันต้องเรียงกัน คนหลังเห็นผลของคนแรก (R3-04)
+    user = (await db.execute(select(User).where(User.id == user_id).with_for_update())).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     _assert_can_manage(admin, user)
@@ -266,6 +292,8 @@ async def update_approval(
                             detail="การอนุมัติผู้สมัครใช้กับบัญชีผู้ใช้งานเท่านั้น")
     if user.approval_status == "approved" and approve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="บัญชีนี้ผ่านการอนุมัติแล้ว")
+    if user.approval_status == "rejected" and not approve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="บัญชีนี้ถูกปฏิเสธไปแล้ว")
 
     user.approval_status = "approved" if approve else "rejected"
     user.approval_note = (note or "").strip() or user.approval_note

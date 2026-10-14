@@ -26,6 +26,16 @@ async def list_eligible_students(
     return await student_import_service.list_students(db, page, page_size, search, cohort)
 
 
+@router.get("/import/template")
+async def download_student_template(_: User = Depends(require_admin)) -> Response:
+    """แม่แบบรายชื่อนักศึกษา — หน้าตาเดียวกับไฟล์สำนักทะเบียน"""
+    return Response(
+        content=student_import_service.build_student_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''student-list-template.xlsx"},
+    )
+
+
 @router.post("/import", response_model=StudentImportResult)
 async def import_eligible_students(
     file: UploadFile = File(...),

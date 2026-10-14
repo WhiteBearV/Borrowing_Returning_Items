@@ -93,14 +93,26 @@ async def list_bundles(db: AsyncSession, active_only: bool) -> list[BundleRespon
     )
     if active_only:
         query = query.where(Bundle.is_active == True)  # noqa: E712
-    result = await db.execute(query.order_by(Bundle.name))
+    result = await db.execute(query.order_by(Bundle.name, Bundle.id))
     responses = [BundleResponse.model_validate(b) for b in result.scalars().all()]
     await _annotate_unit_counts(db, responses)
     return responses
 
 
+async def _assert_name_free(db: AsyncSession, name: str, exclude_id: uuid.UUID | None = None) -> None:
+    """ชื่อชุดห้ามซ้ำ (ไม่สนตัวพิมพ์/ช่องว่างหัวท้าย) — ชื่อเหมือนกันสองชุดในหน้าเลือกชุดแยกไม่ออก (R4-04)"""
+    # ล็อกต่อชื่อจนจบ transaction — กดบันทึกซ้ำพร้อมกันไม่งั้นผ่านการเช็คทั้งคู่
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtext("bundle:" + name.strip().lower()))))
+    query = select(Bundle.id).where(func.lower(func.btrim(Bundle.name)) == name.strip().lower())
+    if exclude_id:
+        query = query.where(Bundle.id != exclude_id)
+    if (await db.execute(query.limit(1))).scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="มีชุดอุปกรณ์ชื่อนี้อยู่แล้ว")
+
+
 async def create_bundle(db: AsyncSession, admin: User, body: BundleCreate) -> BundleResponse:
     """สร้างชุดอุปกรณ์ใหม่ (admin)"""
+    await _assert_name_free(db, body.name)
     bundle = Bundle(name=body.name, description=body.description, is_active=body.is_active,
                     trigger_equipment_id=body.trigger_equipment_id)
     await _replace_items(db, bundle, body.items)
@@ -125,6 +137,9 @@ async def update_bundle(
     }
     old_item_count = len(bundle.items)
 
+    # เช็คเฉพาะตอนเปลี่ยนชื่อ — ชุดเดิมที่ชื่อซ้ำกันอยู่ก่อนกฎนี้ยังแก้ฟิลด์อื่นได้
+    if body.name is not None and body.name.strip().lower() != bundle.name.strip().lower():
+        await _assert_name_free(db, body.name, exclude_id=bundle.id)
     for field in ("name", "description", "is_active"):
         value = getattr(body, field)
         if value is not None:

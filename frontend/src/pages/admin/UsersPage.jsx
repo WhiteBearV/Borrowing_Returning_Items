@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { ADMIN, STUDENT, SUPERADMIN, canManageUser, isSuperadmin, roleBadgeClass, roleLabel } from '../../utils/role.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+import { fineMoney } from '../../utils/fine.js'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 // ดร. เพิ่มจาก RegisterPage.jsx เพราะ admin สร้างบัญชีอาจารย์ได้ด้วย ไม่ใช่แค่นักศึกษา
@@ -186,6 +187,13 @@ export default function UsersPage() {
                     {u.role !== 'student' && (
                       <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${roleBadgeClass(u.role)}`}>{roleLabel(u.role)}</span>
                     )}
+                    {/* ค่าปรับค้างชำระรวม (SKGRent ข้อ 6) — ยังไม่บล็อกการยืม แค่ให้เห็นที่เคาน์เตอร์ */}
+                    {u.unpaid_fine_total > 0 && (
+                      <Link to={`/admin/fines?search=${encodeURIComponent(u.student_id ?? u.username ?? u.full_name)}`}
+                        className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 hover:underline">
+                        ค้างชำระ {fineMoney(u.unpaid_fine_total)} บาท
+                      </Link>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{u.email}</td>
                   <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">
@@ -209,6 +217,8 @@ export default function UsersPage() {
                   <td className="px-4 py-2.5">
                     {u.approval_status === 'pending'
                       ? <span className="text-xs text-amber-600">รออนุมัติ</span>
+                      : !u.is_active
+                        ? <span className="text-xs text-gray-500">ปิดใช้งาน</span>
                       : u.approval_status === 'rejected'
                         ? <span className="text-xs text-red-600">ไม่อนุมัติ</span>
                         : u.email_verified
@@ -428,7 +438,7 @@ function AddUserModal({ onClose, onCreated }) {
             ))}
           </select>
           <input className={input} placeholder="ชื่อ" required value={form.first_name} onChange={set('first_name')} />
-          <input className={input} placeholder="นามสกุล" required value={form.last_name} onChange={set('last_name')} />
+          <input className={input} placeholder="นามสกุล (ไม่มีให้ใส่ -)" required value={form.last_name} onChange={set('last_name')} />
         </div>
         <input className={input} type="email" placeholder="อีเมล" required value={form.email} onChange={set('email')} />
         <input className={input} type="tel" placeholder="เบอร์โทรศัพท์ (ถ้ามี)" pattern="0\d{9}" value={form.phone} onChange={set('phone')} />

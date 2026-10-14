@@ -3,7 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
+import ReasonModal from '../../components/common/ReasonModal.jsx'
+import { useAuthContext } from '../../context/AuthContext.jsx'
+import { isSuperadmin } from '../../utils/role.js'
 import Pagination from '../../components/common/Pagination.jsx'
+import SwapModal from '../../components/borrow/SwapModal.jsx'
 import { ReturnModal, CONDITION_LABEL } from '../../components/borrow/ReturnModal.jsx'
 import { SignatureModal, SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
 import BorrowStatusBadge, { STATUS_LABEL } from '../../components/borrow/BorrowStatusBadge.jsx'
@@ -13,10 +17,19 @@ import { itemDueDate, hasOwnDueDate } from '../../utils/dueDate.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import QrScanModal from '../../components/common/QrScanModal.jsx'
 import { downloadCsv, fetchAllPages } from '../../utils/csv.js'
+import ItemLineTag from '../../components/borrow/ItemLineTag.jsx'
 
 const imgSrc = (url) => (url?.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}` : url)
 
+// เหตุผลสำเร็จรูปตอนลบ (ซ่อน) ประวัติ — ของจริงที่ทำให้ต้องลบคือบันทึกผิด ไม่ใช่ "ไม่อยากให้เห็น"
+const HIDE_PRESETS = ['บันทึกซ้ำ', 'ข้อมูลทดสอบระบบ', 'สร้างผิดคน/ผิดรายการ']
+
 export default function AllBorrowsPage() {
+  const { user } = useAuthContext()
+  const canDelete = isSuperadmin(user)
+  const [hideTarget, setHideTarget] = useState(null) // { id, code }
+  const [hidden, setHidden] = useState(null) // null = ยังไม่เปิดดูรายการที่ซ่อน
+  const loadHidden = () => borrowApi.listHidden().then(setHidden)
   const [searchParams, setSearchParams] = useSearchParams()
   const highlightId = searchParams.get('request')
   const [data, setData] = useState({ items: [], total: 0 })
@@ -28,6 +41,7 @@ export default function AllBorrowsPage() {
   const [categories, setCategories] = useState([])
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState(highlightId)
+  const [swapTarget, setSwapTarget] = useState(null) // { item, req } — เปลี่ยนตัวระหว่างยืม
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, itemId }
   const [signTarget, setSignTarget] = useState(null) // { id, code, mode } — เซ็นรับของ/รับคืน (เฟส 11)
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, code }
@@ -37,13 +51,17 @@ export default function AllBorrowsPage() {
   const [exporting, setExporting] = useState(false)
   const highlightRef = useRef(null)
 
+  // พิมพ์ค้นทีละตัว = ยิงหลายรอบ — รับเฉพาะคำตอบของรอบล่าสุด ไม่งั้นผลของคำค้นเก่าที่มาช้าทับผลที่ถูก
+  const loadSeq = useRef(0)
   const load = () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     borrowApi.list({
       status: filterStatus || undefined, overdue_only: overdueOnly || undefined,
       search: search || undefined, page, page_size: 20,
       category_id: filterCategory || undefined, item_type: filterType || undefined,
-    }).then(setData).finally(() => setLoading(false))
+    }).then((res) => { if (seq === loadSeq.current) setData(res) })
+      .finally(() => { if (seq === loadSeq.current) setLoading(false) })
   }
 
   // สแกนรับคืนที่เคาน์เตอร์: หาชิ้นที่ยังไม่คืนของอุปกรณ์ตัวนี้ — เจอใบเดียวเปิดโมดัลรับคืนเลย
@@ -55,7 +73,7 @@ export default function AllBorrowsPage() {
       const eq = equipmentId
         ? await equipmentApi.get(equipmentId)
         : (await equipmentApi.list({ search: code, page_size: 5 })).items
-          .find((e) => e.code?.toLowerCase() === code.toLowerCase())
+          .find((e) => [e.code, e.asset_number].some((v) => v?.toLowerCase() === code.toLowerCase()))
       if (!eq) {
         setScanMsg(`ไม่พบอุปกรณ์รหัส ${code}`)
         return
@@ -247,14 +265,16 @@ export default function AllBorrowsPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
-                            <span className="text-gray-400">×{item.quantity}</span>
+                            <span className="text-gray-400">×{item.quantity} {item.equipment_unit ?? ''}</span>
+                            <ItemLineTag item={item} items={req.items} />
                             {isConsumable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">วัสดุสิ้นเปลือง</span>}
                             {item.returned ? (
                               <span className={`text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
                                 {CONDITION_LABEL[item.condition_on_return] ?? 'สรุปแล้ว'}
                               </span>
                             ) : (
-                              req.status === 'approved' && <span className="text-xs text-primary-500">{isConsumable ? 'เบิกแล้ว (รอสรุป)' : 'ยังไม่คืน'}</span>
+                              // ชิ้นที่ไม่อนุมัติไม่เคยออกจากคลัง — ห้ามขึ้น "เบิกแล้ว/ยังไม่คืน" คู่กับ "ไม่อนุมัติ" (QA-24)
+                              req.status === 'approved' && item.item_status !== 'rejected' && <span className="text-xs text-primary-500">{isConsumable ? 'เบิกแล้ว (รอสรุป)' : 'ยังไม่คืน'}</span>
                             )}
                             {!item.returned && item.return_requested && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
@@ -292,12 +312,20 @@ export default function AllBorrowsPage() {
                           )}
                         </div>
                         {req.status === 'approved' && !item.returned && item.item_status !== 'rejected' && (
-                          <button
-                            onClick={() => setReturnTarget({ requestId: req.id, item, req })}
-                            className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
-                          >
-                            {isConsumable ? 'สรุปผล' : 'รับคืน'}
-                          </button>
+                          <div className="flex shrink-0 gap-1.5">
+                            {!isConsumable && item.quantity === 1 && (
+                              <button onClick={() => setSwapTarget({ item, req })}
+                                className="shrink-0 text-xs rounded-lg bg-amber-50 text-amber-700 px-3 py-1 hover:bg-amber-100 font-medium">
+                                เปลี่ยนตัว
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setReturnTarget({ requestId: req.id, item, req })}
+                              className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
+                            >
+                              {isConsumable ? 'สรุปผล' : 'รับคืน'}
+                            </button>
+                          </div>
                         )}
                       </div>
                     )})}
@@ -343,9 +371,9 @@ export default function AllBorrowsPage() {
                         ดูใบรับคืน
                       </button>
                     )}
-                    {['completed', 'rejected', 'cancelled'].includes(req.status) && (
+                    {canDelete && ['completed', 'rejected', 'cancelled'].includes(req.status) && (
                       <button
-                        onClick={() => setConfirmDelete({ id: req.id, code: req.request_code, action: 'delete' })}
+                        onClick={() => setHideTarget({ id: req.id, code: req.request_code })}
                         className="text-sm text-red-500 hover:underline ml-auto"
                       >
                         ลบประวัติ
@@ -361,6 +389,49 @@ export default function AllBorrowsPage() {
 
       <Pagination page={page} total={data.total} pageSize={20} onChange={setPage} />
 
+      {canDelete && (
+        <div className="mt-8">
+          <button onClick={() => (hidden ? setHidden(null) : loadHidden())}
+            className="text-sm text-gray-500 hover:underline">
+            {hidden ? 'ซ่อนรายการ' : 'ดูประวัติที่ถูกลบ (กู้คืนได้)'}
+          </button>
+          {hidden && (hidden.length === 0
+            ? <p className="mt-2 text-sm text-gray-400">ไม่มีประวัติที่ถูกลบ</p>
+            : (
+              <div className="mt-2 divide-y rounded-xl border bg-white">
+                {hidden.map((h) => (
+                  <div key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-sm">
+                    <span className="font-mono">{h.request_code}</span>
+                    <span className="text-gray-600">{h.borrower_name} {h.borrower_identifier}</span>
+                    <span className="text-gray-400">
+                      ลบเมื่อ {formatDateTime(h.deleted_at)} โดย {h.deleted_by_name ?? '—'} · {h.delete_reason}
+                    </span>
+                    <button onClick={async () => { await borrowApi.restore(h.id); loadHidden(); load() }}
+                      className="ml-auto text-primary-600 hover:underline">กู้คืน</button>
+                  </div>
+                ))}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {hideTarget && (
+        <ReasonModal
+          title="ลบประวัติการยืม"
+          message={`ลบ "${hideTarget.code}" ออกจากทุกหน้าจอและสถิติ\nกู้คืนได้จาก "ดูประวัติที่ถูกลบ" ท้ายหน้านี้ · การลบบันทึกใน Audit พร้อมเหตุผล`}
+          presets={HIDE_PRESETS}
+          confirmLabel="ลบ"
+          danger
+          onCancel={() => setHideTarget(null)}
+          onConfirm={async (reason) => {
+            await borrowApi.deleteRequest(hideTarget.id, reason)
+            setHideTarget(null)
+            load()
+            if (hidden) loadHidden()
+          }}
+        />
+      )}
+
       {signTarget && (
         <SignatureModal
           requestId={signTarget.id}
@@ -369,6 +440,11 @@ export default function AllBorrowsPage() {
           onClose={() => setSignTarget(null)}
           onDone={() => { setSignTarget(null); load() }}
         />
+      )}
+
+      {swapTarget && (
+        <SwapModal item={swapTarget.item} req={swapTarget.req}
+          onClose={() => setSwapTarget(null)} onDone={() => { setSwapTarget(null); load() }} />
       )}
 
       {returnTarget && (
@@ -383,18 +459,13 @@ export default function AllBorrowsPage() {
 
       {confirmDelete && (
         <ConfirmModal
-          title={confirmDelete.action === 'delete' ? 'ลบประวัติการยืม' : 'รับคืนทั้งหมด'}
-          message={confirmDelete.action === 'delete'
-            ? `ลบประวัติ "${confirmDelete.code}" ถาวร?\nข้อมูลจะหายไปและไม่สามารถกู้คืนได้`
-            : `รับคืนครุภัณฑ์ทุกชิ้นในคำขอ "${confirmDelete.code}" (สภาพปกติทั้งหมด)?\nวัสดุสิ้นเปลืองต้องสรุปผลทีละชิ้น`
-          }
-          confirmLabel={confirmDelete.action === 'delete' ? 'ลบถาวร' : 'ยืนยันรับคืน'}
-          danger={confirmDelete.action === 'delete'}
+          title="รับคืนทั้งหมด"
+          message={`รับคืนครุภัณฑ์ทุกชิ้นในคำขอ "${confirmDelete.code}" (สภาพปกติทั้งหมด)?\nวัสดุสิ้นเปลืองต้องสรุปผลทีละชิ้น`}
+          confirmLabel="ยืนยันรับคืน"
           onConfirm={async () => {
-            const { id, action } = confirmDelete
+            const { id } = confirmDelete
             setConfirmDelete(null)
-            if (action === 'delete') await borrowApi.deleteRequest(id)
-            else await borrowApi.returnAll(id)
+            await borrowApi.returnAll(id)
             load()
           }}
           onCancel={() => setConfirmDelete(null)}

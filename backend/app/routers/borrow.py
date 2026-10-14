@@ -13,12 +13,15 @@ from app.schemas.borrow import (
     CancelRequest,
     FineEditRequest,
     FineWaiveRequest,
+    HiddenRequestResponse,
+    HideRequestBody,
     PaginatedBorrowRequests,
     RejectRequest,
     RenewRejectRequest,
     RenewRequestCreate,
     RequestReturnRequest,
     ReturnItemRequest,
+    SwapItemRequest,
 )
 from app.services import borrow_service
 
@@ -52,6 +55,15 @@ async def list_borrow_requests(
         db, current_user, page, page_size, status, overdue_only, needs_attention, search, own_only,
         item_type, category_id,
     )
+
+
+@router.get("/hidden", response_model=list[HiddenRequestResponse])
+async def list_hidden_borrow_requests(
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+) -> list[HiddenRequestResponse]:
+    """ประวัติการยืมที่ถูกซ่อน (ลบแบบกู้คืนได้)"""
+    return await borrow_service.list_hidden_requests(db)
 
 
 @router.get("/{request_id}", response_model=BorrowRequestResponse)
@@ -233,6 +245,19 @@ async def return_all_items(
     return {"detail": "All items returned."}
 
 
+@router.post("/{request_id}/items/{item_id}/swap")
+async def swap_item(
+    request_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: SwapItemRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """เปลี่ยนตัวระหว่างยืม — รับหน่วยเดิมกลับตามสภาพจริง จ่ายหน่วยใหม่รุ่นเดียวกัน คงวันครบกำหนดเดิม"""
+    await borrow_service.swap_item(db, admin, request_id, item_id, body)
+    return {"detail": "Item swapped."}
+
+
 @router.post("/{request_id}/items/{item_id}/return")
 async def return_item(
     request_id: uuid.UUID,
@@ -276,11 +301,11 @@ async def waive_fine(
     request_id: uuid.UUID,
     item_id: uuid.UUID,
     body: FineWaiveRequest,
-    superadmin: User = Depends(require_superadmin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """ยกเว้นค่าปรับ — superadmin เท่านั้น (เกี่ยวกับเงิน ย้อนกลับไม่ได้)"""
-    await borrow_service.waive_fine(db, superadmin, request_id, item_id, body)
+    """ยกเว้นค่าปรับ — superadmin ทุกยอด · ผู้ดูแลคลังเฉพาะยอด ≤ fine_waive_limit_admin (ตรวจใน service)"""
+    await borrow_service.waive_fine(db, admin, request_id, item_id, body)
     return {"detail": "Fine waived."}
 
 
@@ -319,11 +344,23 @@ async def preview_borrow_pdf(
 @router.delete("/{request_id}", status_code=204)
 async def delete_borrow_request(
     request_id: uuid.UUID,
+    body: HideRequestBody,
     admin: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """ลบประวัติการยืม — เฉพาะ completed / rejected / cancelled"""
-    await borrow_service.delete_request(db, admin, request_id)
+    """ลบ (ซ่อน) ประวัติการยืม — เฉพาะ completed / rejected / cancelled · กู้คืนได้ ลบจริงผ่านสคริปต์เท่านั้น"""
+    await borrow_service.hide_request(db, admin, request_id, body.reason)
+    return Response(status_code=204)
+
+
+@router.post("/{request_id}/restore", status_code=204)
+async def restore_borrow_request(
+    request_id: uuid.UUID,
+    admin: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """กู้คืนประวัติการยืมที่ถูกซ่อน"""
+    await borrow_service.restore_request(db, admin, request_id)
     return Response(status_code=204)
 
 

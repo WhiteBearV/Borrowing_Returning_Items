@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # ต้องอยู่นอก UPLOAD_DIR เพราะ UPLOAD_DIR ถูก mount เป็น StaticFiles ที่ใครรู้ URL ก็เปิดได้
     # เข้าถึงได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อนส่งไฟล์
     PRIVATE_UPLOAD_DIR: str = "./private_uploads"
-    ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th,student.cdti.ac.th"
+    ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th"
 
     # Dev
     DEV_AUTO_VERIFY_EMAIL: bool = False  # ต้องตั้งชัดเจน ห้าม True ใน production

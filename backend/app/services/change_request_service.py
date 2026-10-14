@@ -75,7 +75,10 @@ async def decide(
     """
     if new_status not in DECIDED_STATUSES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid decision.")
-    cr = (await db.execute(select(ChangeRequest).where(ChangeRequest.id == request_id))).scalar_one_or_none()
+    # ล็อกแถว — approve กับ reject พร้อมกันเคยผ่านทั้งคู่ audit ขัดกันเอง (R4-02)
+    cr = (await db.execute(
+        select(ChangeRequest).where(ChangeRequest.id == request_id).with_for_update()
+    )).scalar_one_or_none()
     if not cr:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change request not found.")
     if cr.status != OPEN_STATUS:

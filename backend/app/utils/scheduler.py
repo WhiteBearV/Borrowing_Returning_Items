@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime, timedelta
 from html import escape
 
@@ -58,6 +59,11 @@ async def _check_due_soon() -> None:
                 BorrowRequest.status == "approved",
                 BorrowRequest.is_overdue == False,
                 has_due_item,
+                # แจ้งไปแล้ววันนี้ไม่แจ้งซ้ำ — แก้ notify_time เป็นเวลาที่ยังมาไม่ถึง job จะรันรอบสองในวันเดียว (R3-01)
+                ~select(Notification.id).where(
+                    Notification.borrow_request_id == BorrowRequest.id, Notification.type == "due_soon",
+                    func.date(func.timezone("Asia/Bangkok", Notification.sent_at)) == date.today(),
+                ).exists(),
             )
         )).scalars().all()
 
@@ -83,8 +89,12 @@ async def _check_due_soon() -> None:
                 print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
-async def _check_overdue() -> None:
-    """ตั้งค่า is_overdue=True และแจ้งเตือนรายการที่เกินกำหนดคืน (รันทุกวันเที่ยงคืน)"""
+async def _check_overdue(only_request_id: uuid.UUID | None = None) -> None:
+    """ตั้งค่า is_overdue=True และแจ้งเตือนรายการที่เกินกำหนดคืน (รันทุกวันเที่ยงคืน)
+
+    only_request_id: ให้เทสจำกัดเฉพาะคำขอของตัวเอง — เดิมเทสเรียก job ทั้งฐาน รัน pytest บน DB dev แล้วผู้ยืมจริง
+    ที่เกินกำหนดอยู่ได้แจ้งเตือนจากเทส (R2-01) · job จริงไม่ส่งค่านี้
+    """
     async with AsyncSessionLocal() as db:
         # เทียบกำหนดคืน "ที่ใช้จริง" ของแต่ละรายการ = extended_due_date ถ้าต่อเวลาแล้ว
         # ไม่งั้นใช้ due_date ของใบ — ดูแค่ due_date ระดับใบอย่างเดียวจะทวงคนที่ต่อเวลาถูกต้อง
@@ -107,6 +117,7 @@ async def _check_overdue() -> None:
                 BorrowRequest.status == "approved",
                 BorrowRequest.is_overdue == False,
                 has_overdue_item,
+                *([BorrowRequest.id == only_request_id] if only_request_id else []),
             )
         )).scalars().all()
 
@@ -153,10 +164,56 @@ async def _check_overdue() -> None:
                     print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
 
 
+# ยิงซ้ำได้อย่างมากสัปดาห์ละครั้ง — ของที่ถึงรอบตรวจค้างอยู่ได้เป็นสัปดาห์ ทวงทุกวันเจ้าหน้าที่จะเลิกอ่าน
+INSPECTION_REMIND_EVERY = timedelta(days=7)
+
+
+async def _check_inspection() -> None:
+    """ทวงเจ้าหน้าที่ให้ไปตรวจสภาพอุปกรณ์ (คุณภาพต่ำ · ถึงรอบตรวจ · ยังไม่เคยประเมิน) เป็น digest เดียว
+    เกณฑ์มาจาก equipment_service.inspection_status() จุดเดียวกับการ์ด Dashboard"""
+    # import ในฟังก์ชัน: equipment_service → settings_service → scheduler (reschedule_daily_jobs) = วงกลม
+    from app.services import equipment_service
+
+    async with AsyncSessionLocal() as db:
+        last = (await db.execute(
+            select(func.max(Notification.sent_at)).where(Notification.type == "inspection_due")
+        )).scalar_one_or_none()
+        if last and datetime.now(TZ) - last < INSPECTION_REMIND_EVERY - timedelta(hours=1):
+            return
+        status = await equipment_service.inspection_status(db)
+        if not any(status.values()):
+            return
+
+        def codes(rows: list) -> str:
+            head = ", ".join(e.code for e in rows[:10])
+            return head + (f" และอีก {len(rows) - 10} รายการ" if len(rows) > 10 else "")
+
+        lines = [(label, rows) for label, rows in (
+            ("คุณภาพต่ำกว่าเกณฑ์", status["low"]),
+            ("ถึงรอบตรวจเช็ค", status["overdue"]),
+            ("เปิดติดตามแล้วแต่ยังไม่เคยประเมิน", status["unassessed"]),
+        ) if rows]
+        message = "อุปกรณ์ที่ควรตรวจสภาพ — " + " · ".join(f"{label} {len(rows)} ({codes(rows)})" for label, rows in lines)
+        admins = (await db.execute(
+            select(User).where(User.role.in_(STAFF_ROLES), User.is_active == True))).scalars().all()
+        for admin in admins:
+            _notif(db, admin.id, "inspection_due", message[:1000])
+        await db.commit()
+
+        body = "<p>อุปกรณ์ที่ควรตรวจสภาพ:</p><ul>" + "".join(
+            f"<li>{escape(label)} {len(rows)} รายการ: {escape(codes(rows))}</li>" for label, rows in lines
+        ) + "</ul><p>ประเมินได้ที่หน้าจัดการอุปกรณ์ → ปุ่ม \"ประเมินคุณภาพ\"</p>"
+        for admin in admins:
+            try:
+                await send_email(admin.email, "อุปกรณ์ที่ควรตรวจสภาพ", body)
+            except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้ job ล้ม
+                print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
+
+
 # เวลาส่งแจ้งเตือนรายวัน (setting `notify_time`, superadmin แก้ได้) — เดิมตายตัวเที่ยงคืน
 # นักศึกษาได้อีเมลทวงตอนตี 0 · ค่าเริ่มต้นตรงกับ migration 0041
 DEFAULT_NOTIFY_TIME = "08:00"
-DAILY_JOB_IDS = ("due_soon", "overdue")
+DAILY_JOB_IDS = ("due_soon", "overdue", "inspection")
 
 
 def _daily_trigger(hhmm: str) -> CronTrigger:
@@ -189,4 +246,5 @@ async def start_scheduler() -> None:
     # ไม่ใส่ = รอบนั้นหายถาวร ไม่มีใครได้รับแจ้งเตือนของวันนั้นเลย
     scheduler.add_job(_check_due_soon, trigger, id="due_soon", misfire_grace_time=3600)
     scheduler.add_job(_check_overdue, trigger, id="overdue", misfire_grace_time=3600)
+    scheduler.add_job(_check_inspection, trigger, id="inspection", misfire_grace_time=3600)
     scheduler.start()

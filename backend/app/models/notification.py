@@ -19,7 +19,7 @@ class Notification(Base):
         UUID(as_uuid=True), ForeignKey("borrow_requests.id"), nullable=True
     )
     type: Mapped[str] = mapped_column(String(50), nullable=False)
-    # due_soon / overdue / approved / rejected / new_request_admin / returned_confirmed
+    # due_soon / overdue / approved / rejected / new_request_admin / returned_confirmed / inspection_due
     channel: Mapped[str] = mapped_column(String(20), nullable=False)  # email / line / in_app
     message: Mapped[str] = mapped_column(Text, nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

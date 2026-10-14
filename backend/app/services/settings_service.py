@@ -30,8 +30,18 @@ ADMIN_EDITABLE_KEYS = {
     "max_renew_days",
     "quality_repair_default_drop",
     "quality_low_threshold",
+    "quality_inspect_interval_months",
     "academic_year_start",
 }
+
+
+# ค่าต่ำสุดของคีย์จำนวนเต็ม — 0 ใช้ได้เฉพาะที่ 0 มีความหมาย (ไม่ต่อเวลา/ไม่ผ่อนผัน/ไม่แจ้งล่วงหน้า)
+INT_SETTING_MIN = {
+    "max_items_per_request": 1, "max_active_requests_per_student": 1, "max_renew_days": 1,
+    "depreciation_years_default": 1, "max_renew_count": 0, "due_soon_notify_days_before": 0,
+    "low_stock_threshold_default": 0, "fine_grace_days": 0,
+}
+NONNEG_NUMBER_SETTINGS = {"fine_per_day_per_item", "fine_max_per_item", "depreciation_salvage_value"}
 
 
 def _validate_setting_value(key: str, value: str) -> None:
@@ -43,6 +53,22 @@ def _validate_setting_value(key: str, value: str) -> None:
             return float(v)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"ค่า '{key}' ต้องเป็นตัวเลข")
+
+    # คีย์ที่ตัวอ่านแปลงเป็นตัวเลขตรง ๆ (int()/float()) — ค่าว่าง/ทศนิยม/ตัวอักษรเคยหลุดเข้า DB แล้วการยืมทั้งระบบ
+    # 500 ทันที (QA-07, 30 ก.ย. 69: ล้างช่องในหน้าตั้งค่าแล้วกดบันทึกก็เกิดได้)
+    v = (value or "").strip()
+    if key in INT_SETTING_MIN:
+        if not re.fullmatch(r"\d+", v) or int(v) < INT_SETTING_MIN[key]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"ค่านี้ต้องเป็นจำนวนเต็มตั้งแต่ {INT_SETTING_MIN[key]} ขึ้นไป")
+    elif key in NONNEG_NUMBER_SETTINGS:
+        if not re.fullmatch(r"\d+(\.\d+)?", v):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ค่านี้ต้องเป็นตัวเลขไม่ติดลบ")
+    elif key == "pdf_value_source" and v not in ("acquisition", "book"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ค่าที่ใช้ได้: acquisition หรือ book")
+    elif key == "default_pickup_time" and v and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="เวลานัดรับต้องอยู่ในรูปแบบ HH:MM (24 ชั่วโมง) หรือเว้นว่าง")
 
     if key == "quality_age_weight":
         n = _num(value)
@@ -67,6 +93,14 @@ def _validate_setting_value(key: str, value: str) -> None:
         n = _num(value)
         if not (0 <= n <= 100):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="เกณฑ์คุณภาพต่ำต้องอยู่ระหว่าง 0-100")
+    elif key == "quality_inspect_interval_months":
+        if not re.fullmatch(r"\d{1,2}", (value or "").strip()):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="รอบตรวจเช็คต้องเป็นจำนวนเต็มเดือน 0-99 (0 = ไม่ใช้รอบตรวจ)")
+    elif key == "fine_waive_limit_admin":
+        if _num(value) < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="เพดานยกเว้นค่าปรับต้องไม่ติดลบ (0 = ผู้ดูแลคลังยกเว้นไม่ได้)")
     elif key == "academic_year_start":
         # ต้องเป็นวันที่จริงในปฏิทิน ไม่ใช่แค่ตัวเลขอยู่ในช่วงกว้าง ๆ — regex เดิม (01-31 ทุกเดือน) ปล่อยให้
         # "02-30"/"02-31" (กุมภาพันธ์ไม่มีวันนี้) ผ่านได้ทั้งที่ parse เป็นวันที่จริงไม่ขึ้น ใช้ปี 2024

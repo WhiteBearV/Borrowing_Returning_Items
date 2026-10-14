@@ -1,10 +1,25 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AfterValidator, StringConstraints, BaseModel, EmailStr, Field, field_validator
 
 # ขั้นต่ำ 8 ตัว — ก่อนหน้านี้ไม่จำกัดเลย สมัครด้วยรหัส "1" ก็ผ่าน
 # เพดาน 72 ตัวเพราะ bcrypt ตัดส่วนที่เกินทิ้งเงียบ ๆ ปล่อยไว้ผู้ใช้จะเข้าใจผิดว่ารหัสยาวกว่าที่ใช้จริง
-Password = Annotated[str, Field(min_length=8, max_length=72)]
+def _fits_bcrypt(v: str) -> str:
+    """bcrypt ใช้แค่ 72 ไบต์แรก — ภาษาไทย 1 ตัว = 3 ไบต์ รหัส 30 ตัวจึงถูกตรวจแค่ 24 ตัวแรก (R2-07)"""
+    if len(v.encode()) > 72:
+        raise ValueError("รหัสผ่านยาวเกินไป (ไม่เกิน 72 ไบต์ — ตัวอักษรไทยนับ 3 ไบต์ต่อตัว)")
+    return v
+
+
+Password = Annotated[str, Field(min_length=8, max_length=72), AfterValidator(_fits_bcrypt)]
+
+
+# ชื่อ-นามสกุล: ตัดช่องว่างหัวท้าย ห้ามว่าง/ช่องว่างล้วน (R3-06 — ชื่อนี้ขึ้นบนใบยืมและ audit) · ไม่บังคับว่าต้องมีนามสกุล
+# คนที่ไม่มีนามสกุลให้กรอก "-" ในช่องนามสกุล (ผู้ใช้กำหนด 1 ต.ค. 69 — เจอนาน ๆ ครั้ง)
+FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+# ชื่อ/เหตุผลที่ "ต้องมีตัวอักษรจริง" ทุกจุด (หมวดหมู่ · อุปกรณ์ · ชุดอุปกรณ์ · เหตุผล) — min_length อย่างเดียวปล่อยช่องว่างล้วนผ่าน
+# และ `name: str` เฉย ๆ รับ "" ได้ (QA รอบ 5, R5-03: หมวดหมู่/อุปกรณ์ชื่อว่างโผล่ในตัวเลือกทุกหน้า)
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 def _strip_student_id(v: str | None) -> str | None:
@@ -21,7 +36,7 @@ def _strip_student_id(v: str | None) -> str | None:
 
 
 class RegisterRequest(BaseModel):
-    full_name: str
+    full_name: FullName
     # ต้องตรงกับ pattern="\d{10}" ฝั่ง frontend (RegisterPage.jsx) — เดิม backend ไม่เช็คเลย
     # เรียก API ตรง ๆ (ข้าม frontend) แล้วตั้ง student_id เป็นอะไรก็ได้ผ่านหมด
     student_id: Annotated[str, Field(pattern=r"^\d{10}$")]
@@ -29,7 +44,7 @@ class RegisterRequest(BaseModel):
     # ^0\d{9}$ ไม่ใช่ ^\d{10}$ เฉย ๆ — เบอร์มือถือไทยขึ้นต้นด้วย 0 เสมอ ตรงกับ placeholder "08XXXXXXXX"
     phone: Annotated[str, Field(pattern=r"^0\d{9}$")]
     password: Password
-    major: str  # comp_eng / digital_design
+    major: Literal["comp_eng", "digital_design"]  # ค่าอื่นทำให้ใบยืมไม่พิมพ์สาขา (R2-06)
     pdpa_consent: bool
     # หลักสูตร (เฟส 10, 15 ก.ย. 69) — ปกติ 4 ปี (ค่าเริ่มต้น) หรือเทียบโอน 2/3/4 ปีแล้วแต่คน แสดงให้ทุกคน
     # เลือกได้ตั้งแต่ตอนสมัคร (ไม่ใช่เฉพาะคนที่ระบบรู้ว่าเป็นรุ่นเทียบโอน) เพื่อไม่ต้องมี endpoint ที่บอกได้ว่า
@@ -61,8 +76,9 @@ class StudyYearPreviewResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    identifier: str  # student_id, username, or email
-    password: str
+    identifier: Annotated[str, Field(max_length=255)]  # student_id, username, or email
+    # bcrypt รับได้ 72 ไบต์ — ยาวกว่านั้นเดิมหลุดเป็น 500 (R2-07) · ไม่ใช้ Password เพราะรหัสเก่าสั้นกว่า 8 อาจยังมี
+    password: Annotated[str, Field(max_length=72)]
 
 
 class TokenResponse(BaseModel):

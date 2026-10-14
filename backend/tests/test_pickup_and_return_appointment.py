@@ -15,6 +15,7 @@ from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
 from app.models.notification import Notification
+from app.models.setting import Setting
 from tests.conftest import auth
 
 DUE = (date.today() + timedelta(days=10)).isoformat()
@@ -106,7 +107,8 @@ async def test_approve_stores_pickup_and_tells_student(
 
 
 async def test_approve_without_pickup_stays_empty(client: AsyncClient, admin_token: str, student_token: str):
-    """ไม่นัดล่วงหน้า (จ่ายทันทีหน้าเคาน์เตอร์) ต้องอนุมัติได้ตามปกติ ไม่บังคับ"""
+    """ไม่นัดล่วงหน้า (จ่ายทันทีหน้าเคาน์เตอร์) ต้องอนุมัติได้ตามปกติ ไม่บังคับเวลา — แต่สถานที่ใช้ค่าตั้งต้น
+    (default_pickup_location) เสมอ ผู้ยืมต้องรู้ว่าไปรับที่ไหน (24 ก.ย. 69)"""
     h_admin, h_student = auth(admin_token), auth(student_token)
     eq_id = await _make_equipment(client, h_admin)
     req_id = None
@@ -114,7 +116,11 @@ async def test_approve_without_pickup_stays_empty(client: AsyncClient, admin_tok
         req_id = (await _make_request(client, h_student, eq_id))["id"]
         assert (await client.patch(f"/borrow-requests/{req_id}/approve", headers=h_admin)).status_code == 200
         body = (await client.get(f"/borrow-requests/{req_id}", headers=h_student)).json()
-        assert body["pickup_at"] is None and body["pickup_location"] is None
+        assert body["pickup_at"] is None
+        async with AsyncSessionLocal() as db:
+            default_place = (await db.execute(
+                select(Setting.value).where(Setting.key == "default_pickup_location"))).scalar_one()
+        assert body["pickup_location"] == default_place and body["pickup_place"] == default_place
     finally:
         await _cleanup(eq_id, req_id)
 

@@ -3,7 +3,8 @@ from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import event
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, with_loader_criteria
 
 from app.core.database import Base
 
@@ -76,7 +77,16 @@ class BorrowRequest(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    # ซ่อนประวัติแทนการลบถาวร (24 ก.ย. 69 — SKGRent ข้อ 3) — ไม่ว่าง = ถูกซ่อน หายจากทุกหน้าจอ/สถิติผ่าน
+    # listener ท้ายไฟล์ แต่แถวยังอยู่ กู้คืนได้ และเลขคำขอไม่หาย · ลบจริงได้ทางเดียวคือสคริปต์บนเครื่อง
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     student = relationship("User", foreign_keys=[student_id], back_populates="borrow_requests_as_student")
+    deleter = relationship("User", foreign_keys=[deleted_by])
     approver = relationship("User", foreign_keys=[approved_by], back_populates="borrow_requests_as_approver")
     receiver = relationship("User", foreign_keys=[returned_by])
     # selectin เสมอ: handover_by_name ถูกอ่านตอน serialize ทุก response (รายการ/แจ้งเตือน/PDF) — lazy-load ใน
@@ -146,12 +156,13 @@ class BorrowRequest(Base):
             return override
         if not self.student:
             return None
-        from app.utils.study_year import compute_study_year
+        from app.utils.study_year import compute_study_year, display_label
         # role != "student" ถือเป็นบุคลากรเสมอ (กฎเดียวกับ users_service.attach_study_year — ดูที่นั่น)
         # แม้ enrollment_year จะยังค้างอยู่จากตอนเป็นนักศึกษาก่อนถูกเลื่อนสิทธิ์เป็น admin/superadmin
         # (แก้ตามรีวิวรอบ 3, MINOR-1 — เดิม fallback นี้ไม่เช็ค role เลย โชว์ "ปีที่ 4" ผิดๆ ให้แอดมิน)
         enrollment_year = self.student.enrollment_year if self.student.role == "student" else None
-        return compute_study_year(enrollment_year, self.student.study_years or 4).label
+        info = compute_study_year(enrollment_year, self.student.study_years or 4)
+        return display_label(self.student.role == "student", self.student.enrollment_year, info)
 
     @student_year_label.setter
     def student_year_label(self, value: str | None) -> None:
@@ -164,3 +175,16 @@ class BorrowRequest(Base):
     @property
     def receiver_name(self) -> str | None:
         return self.receiver.full_name if self.receiver else None
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _hide_deleted_requests(state) -> None:
+    """ตัดคำขอที่ถูกซ่อน (deleted_at) ออกจาก **ทุก** ORM select ที่แตะ BorrowRequest — รวม join/exists/relationship
+
+    จุดเดียวแทนการไล่ใส่ WHERE ~30 query (ลืมที่เดียว = คำขอที่ซ่อนโผล่ในสถิติหรือหน้าจอ) · ที่ต้องเห็นของที่ซ่อน
+    (หน้า "ที่ซ่อนไว้" / กู้คืน) ใส่ `.execution_options(include_deleted=True)` เอง · query ของ BorrowItem ล้วน
+    ที่ไม่ join คำขอ (กระทบยอดสต็อก/ประวัติความเสียหาย) ยังเห็นของจริงตามตั้งใจ — ของเสียหายเกิดขึ้นจริง
+    """
+    if state.is_select and not state.execution_options.get("include_deleted", False):
+        state.statement = state.statement.options(with_loader_criteria(
+            BorrowRequest, lambda cls: cls.deleted_at.is_(None), include_aliases=True))

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { settingsApi } from '../../api/settingsApi.js'
@@ -18,13 +18,24 @@ import PartsPanel from '../../components/equipment/PartsPanel.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { daysSinceTH, formatAge, formatDate, formatMoney, todayTH } from '../../utils/formatDate.js'
 import DateInput from '../../components/common/DateInput.jsx'
-import { downloadCsv, fetchAllPages } from '../../utils/csv.js'
+import { downloadBlob, downloadCsv, fetchAllPages } from '../../utils/csv.js'
 
 const today = () => todayTH()
 
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
 
-const EMPTY_FORM = { code: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
+// รหัสในร่างนำเข้า — รายการใหม่ที่ยังไม่มีรหัสได้คีย์ชั่วคราว "NEW:…" จาก backend (ระบบออก DT-x จริงตอนบันทึก)
+function ImportCode({ row }) {
+  const pending = row.code?.startsWith('NEW:')
+  return (
+    <>
+      {pending ? <span className="font-sans text-gray-400">ระบบออกให้</span> : row.code}
+      {row.asset_number && <span className="block text-[10px] text-gray-400">ครุภัณฑ์ {row.asset_number}</span>}
+    </>
+  )
+}
+
+const EMPTY_FORM = { code: '', asset_number: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
 
 // แบ่งฟอร์มตาม "ความเสี่ยง/วงจรชีวิต" ไม่ใช่ "รายละเอียด vs อื่นๆ" (เฟส 8, feedback ข้อ 15)
 // ข้อมูลประจำตัว = แก้ได้อิสระ · สถานะ = เป็น action ที่ต้องมีเหตุผล · ทะเบียน/การเงิน = กระทบตัวเลขย้อนหลัง
@@ -148,21 +159,6 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const removeImage = (url) => setForm((f) => ({ ...f, image_urls: f.image_urls.filter((u) => u !== url) }))
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-  // พิมพ์/วางรหัสครบ 15 หลัก (นับเฉพาะตัวเลข) ตอนเพิ่มใหม่ → เดาประเภทเป็น "ครุภัณฑ์" ให้อัตโนมัติ (แค่ค่าเริ่มต้น
-  // แนะนำ ไม่ล็อก dropdown ยังกดเปลี่ยนเป็นวัสดุ/วัสดุสิ้นเปลืองได้ปกติ) — เฉพาะตอนสร้างใหม่ ไม่แตะของเดิมตอนแก้ไข
-  const setCode = (e) => {
-    const code = e.target.value
-    setForm((f) => {
-      const next = { ...f, code }
-      // แปลงเข้า durable อัตโนมัติ ต้องเคลียร์ unit เดิม (ที่กรอกไว้ตอนยังเป็นวัสดุสิ้นเปลือง) ทิ้งเหมือนกับ
-      // ตอนเปลี่ยน dropdown เอง (setItemType) ไม่งั้น unit ค้างที่ไม่มีความหมายกับครุภัณฑ์หลุดไปด้วย
-      if (!isEdit && code.replace(/\D/g, '').length === 15) {
-        next.item_type = 'durable'
-        next.unit = ''
-      }
-      return next
-    })
-  }
   // เปลี่ยนออกจาก consumable แล้ว unit เดิม (ที่กรอกไว้ตอนเป็นวัสดุสิ้นเปลือง) ไม่มีความหมายแล้ว — เคลียร์ทิ้ง
   const setItemType = (e) => setForm((f) => ({
     ...f, item_type: e.target.value, unit: e.target.value === 'consumable' ? f.unit : '',
@@ -183,7 +179,8 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
     if (form.category_ids.length === 0) return ['identity', 'เลือกหมวดหมู่อย่างน้อย 1 หมวด']
     if (!isEdit && form.image_urls.length === 0) return ['identity', 'แนบรูปอุปกรณ์อย่างน้อย 1 รูป']
     if (!form.name?.trim()) return ['identity', 'กรอกชื่ออุปกรณ์']
-    if (form.item_type !== 'consumable' && !form.code?.trim()) return ['identity', 'กรอกรหัสอุปกรณ์']
+    // สร้างใหม่เว้นรหัสได้ (ระบบออก DT-D/M/C ให้) — แก้ไขห้ามล้างรหัสทิ้ง
+    if (isEdit && !form.code?.trim()) return ['identity', 'กรอกรหัสอุปกรณ์']
     if (!isEdit && !form.unit_value) return ['finance', 'กรอกมูลค่าแท้จริง / ราคาที่ซื้อ']
     if (!isEdit && !form.acquired_at) return ['finance', 'กรอกวันที่ได้มา']
     if (statusChanged && !form.status_reason?.trim()) return ['status', 'ระบุเหตุผลที่เปลี่ยนสถานะอุปกรณ์']
@@ -220,6 +217,8 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         // JSON.stringify ตัดคีย์ทิ้งไปเลย ฝั่ง backend (exclude_unset) จะเห็นเหมือนไม่ได้ส่งมา เลยล้างค่าไม่ได้
         description: form.description || null,
         serial_number: form.serial_number || null,
+        code: form.code?.trim() || (isEdit ? form.code : null),
+        asset_number: (isEdit || form.item_type === 'durable') ? (form.asset_number?.trim() || null) : null,
         location: form.location || null,
         unit: form.unit || null,
         unit_value: form.unit_value === '' || form.unit_value == null ? null : Number(form.unit_value),
@@ -278,9 +277,9 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
           {tab === 'identity' && <>
           {[
-            { label: `รหัสอุปกรณ์${form.item_type === 'consumable' ? '' : ' *'}`, key: 'code',
-              required: form.item_type !== 'consumable', disabled: false,
-              placeholder: form.item_type === 'consumable' ? 'เว้นว่างได้ ระบบจะออกรหัสให้อัตโนมัติ' : undefined },
+            { label: `รหัสอุปกรณ์${isEdit ? ' *' : ''}`, key: 'code', required: isEdit, disabled: false,
+              placeholder: isEdit ? undefined : 'เว้นว่าง = ระบบออกให้ (เช่น DT-D-00001)',
+              tip: 'รหัสที่ระบบใช้อ้างอิงอุปกรณ์ (ติดสติกเกอร์/QR) — คนละอย่างกับเลขครุภัณฑ์ราชการ ซึ่งกรอกที่แท็บ "ทะเบียน & การเงิน"' },
             { label: 'ชื่ออุปกรณ์ *', key: 'name', required: true,
               placeholder: 'เช่น เซ็นเซอร์อุณหภูมิและความชื้น DHT11',
               tip: 'ตั้งชื่อแบบ ประเภท + คุณสมบัติ + รุ่น เช่น «เซ็นเซอร์อุณหภูมิและความชื้น DHT11»\nไม่ใช่ «DHT11» เฉย ๆ — ไม่งั้นคนที่ไม่รู้จักรุ่นค้นหาไม่เจอ (ดู docs/naming-convention.md)' },
@@ -288,7 +287,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
             { label: 'รุ่น (Model)', key: 'model_number', placeholder: 'เช่น DHT11, Latitude 5400 (ไม่บังคับ)',
               tip: 'ชื่อรุ่นที่เหมือนกันทุกชิ้นของรุ่นนี้ — คนละอย่างกับ SN (ไม่ซ้ำรายชิ้น) และรหัสอุปกรณ์ (ระบบออกให้)\nกรอกไว้แล้วค้นด้วยชื่อรุ่นก็เจอ แม้ชื่ออุปกรณ์จะเป็นภาษาไทย' },
             { label: 'SN (Serial Number ผู้ผลิต)', key: 'serial_number', placeholder: 'เลขที่ผู้ผลิตติดมากับเครื่อง (ไม่บังคับ)',
-              tip: 'เลขประจำเครื่องจากผู้ผลิต ไม่ซ้ำกันรายชิ้น — คนละอย่างกับรหัสอุปกรณ์ (ทะเบียนออกให้) และรุ่น (เหมือนกันทุกชิ้น)' },
+              tip: 'เลขประจำเครื่องจากผู้ผลิต ไม่ซ้ำกันรายชิ้น — คนละอย่างกับรหัสอุปกรณ์ (ระบบออกให้) เลขครุภัณฑ์ (ทะเบียนราชการ) และรุ่น (เหมือนกันทุกชิ้น)' },
             { label: 'สถานที่เก็บ', key: 'location', placeholder: 'เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)' },
           ].map(({ label, key, required, disabled, placeholder, tip }) => (
             <div key={key}>
@@ -296,7 +295,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 {label}
                 {tip && <Tooltip text={tip} />}
               </label>
-              <input type="text" required={required} disabled={disabled} value={form[key]} onChange={key === 'code' ? setCode : set(key)}
+              <input type="text" required={required} disabled={disabled} value={form[key]} onChange={set(key)}
                 placeholder={placeholder}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400" />
             </div>
@@ -530,6 +529,16 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 และค่าเสียหายที่เรียกเก็บย้อนหลัง — ถ้าต้องแก้ ให้ยื่น "คำขอแก้ไขข้อมูล" พร้อมเหตุผล
               </p>
             )}
+            {/* เลขครุภัณฑ์มีเฉพาะครุภัณฑ์ — วัสดุไม่มีเลขทะเบียนราชการ ซ่อนช่องไว้ไม่ให้สับสน (ผู้ใช้ขอ 24 ก.ย. 69) */}
+            {form.item_type === 'durable' && <div className="md:col-span-2">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                เลขครุภัณฑ์
+                <Tooltip text={'เลขทะเบียนครุภัณฑ์ของราชการ 15 หลัก เช่น 63-214-237-001-0002 — แยกจากรหัสอุปกรณ์ที่ระบบออกให้\nช่องนี้มีเฉพาะประเภทครุภัณฑ์'} />
+              </label>
+              <input type="text" disabled={!canEditFinance} maxLength={50}
+                value={form.asset_number ?? ''} onChange={set('asset_number')} placeholder="เช่น 63-214-237-001-0002 — พิมพ์ติดกันได้ ระบบใส่ขีดให้"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-500" />
+            </div>}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">มูลค่าแท้จริง / ราคาที่ซื้อ (บาท) *</label>
               <input type="number" min={0} step="0.01" disabled={!canEditFinance}
@@ -944,7 +953,10 @@ export default function EquipmentManagePage() {
   const reloadCategories = () => equipmentApi.listCategories().then(setCategories).catch(() => {})
 
   // ยุบครุภัณฑ์รุ่นเดียวกันหลายหน่วยเป็นแถวเดียว (เหมือนหน้ายืมของนักศึกษา) — กางดูรายหน่วยได้ผ่าน expanded
+  // พิมพ์ค้นทีละตัว = ยิงหลายรอบ — รับเฉพาะคำตอบของรอบล่าสุด ไม่งั้นผลของคำค้นเก่าที่มาช้าทับผลที่ถูก
+  const loadSeq = useRef(0)
   const load = () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     equipmentApi.listGrouped({
       search: search || undefined,
@@ -952,7 +964,8 @@ export default function EquipmentManagePage() {
       item_type: filterType || undefined,
       status: filterStatus || undefined,
       page, page_size: 15,
-    }).then(setData).finally(() => setLoading(false))
+    }).then((res) => { if (seq === loadSeq.current) setData(res) })
+      .finally(() => { if (seq === loadSeq.current) setLoading(false) })
   }
 
   // ส่งออกรายหน่วย (ไม่ใช่รายรุ่นแบบบนจอ) ตามตัวกรองปัจจุบัน — ฝ่ายพัสดุเอาไปเทียบทะเบียน/ทำรายงานต่อใน Excel
@@ -965,10 +978,10 @@ export default function EquipmentManagePage() {
         item_type: filterType || undefined, status: filterStatus || undefined,
       })
       downloadCsv('equipment', [
-        'รหัส', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'สถานที่', 'ประเภท', 'หมวดหมู่', 'สถานะ',
+        'รหัส', 'เลขครุภัณฑ์', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'สถานที่', 'ประเภท', 'หมวดหมู่', 'สถานะ',
         'จำนวนทั้งหมด', 'คงเหลือ', 'หน่วย', 'มูลค่าต่อหน่วย (บาท)', 'วันที่ได้มา', 'มูลค่าตามบัญชี (บาท)',
       ], rows.map((e) => [
-        e.code, e.name, e.manufacturer, e.model_number, e.serial_number, e.location,
+        e.code, e.asset_number, e.name, e.manufacturer, e.model_number, e.serial_number, e.location,
         TYPE_LABEL[e.item_type] ?? e.item_type, e.categories?.map((c) => c.name).join(', '),
         STATUS_LABEL[e.status] ?? e.status, e.quantity_total, e.quantity_available, e.unit,
         e.unit_value, e.acquired_at ? formatDate(e.acquired_at) : '', e.book_value,
@@ -1375,7 +1388,10 @@ export default function EquipmentManagePage() {
                           : <div title="ยังไม่มีรูป — ควรเพิ่มรูปให้ครบ"
                                  className="w-10 h-10 rounded bg-amber-50 border border-amber-300 flex items-center justify-center text-amber-400">🖼</div>}
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{eq.code}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-500">
+                        {eq.code}
+                        {(!grouped || eq.unit_count === 1) && eq.asset_number && <span className="block whitespace-nowrap text-[10px] text-gray-400">ครุภัณฑ์ {eq.asset_number}</span>}
+                      </td>
                       <td className="px-4 py-2.5 font-medium text-gray-800">
                         {eq.name}
                         {grouped && (
@@ -1470,7 +1486,10 @@ export default function EquipmentManagePage() {
                           <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)} />
                         </td>
                         <td className="px-4 py-1.5" />
-                        <td className="px-4 py-1.5 pl-8 font-mono text-xs text-gray-500">{u.code}</td>
+                        <td className="px-4 py-1.5 pl-8 font-mono text-xs text-gray-500">
+                          {u.code}
+                          {u.asset_number && <span className="block text-[10px] text-gray-400">ครุภัณฑ์ {u.asset_number}</span>}
+                        </td>
                         <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>
                           <LocationIcon /> {u.location || 'ไม่ระบุสถานที่'}
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
@@ -1757,7 +1776,7 @@ function ImportModal({ categories, onClose, onDone }) {
           <p className="mt-0.5 text-xs text-gray-500">
             {step === 'draft'
               ? 'นี่คือรายการที่จะถูกบันทึกเข้าระบบและลง log — กด “แก้ไข” เพื่อเติมหมวดหมู่ รูป คำอธิบาย ประเภท/จำนวน ได้เหมือนเพิ่มทีละชิ้น'
-              : 'ไฟล์ Excel: อ่านชีต “คณะเทคโนฯดิจิทัล”, “ครุภัณฑ์ที่ได้รับพระราชทาน” และ “วัสดุ” · รูปถ่าย/PDF ของทะเบียนวัสดุก็ได้ (โหมดทดลอง — อ่านด้วย OCR ต้องตรวจทุกแถวก่อนบันทึก)'}
+              : 'ไฟล์ Excel: อ่านชีต “คณะเทคโนฯดิจิทัล”, “ครุภัณฑ์ที่ได้รับพระราชทาน”, “วัสดุ” และ “SN” (ครุภัณฑ์จับคู่ด้วยเลขครุภัณฑ์) · รูปถ่าย/PDF ของทะเบียนวัสดุก็ได้ (โหมดทดลอง — อ่านด้วย OCR ต้องตรวจทุกแถวก่อนบันทึก)'}
           </p>
         </div>
 
@@ -1768,6 +1787,10 @@ function ImportModal({ categories, onClose, onDone }) {
             <div className="flex items-center gap-3 py-4">
               <input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="flex-1 text-sm" />
+              <button type="button" onClick={async () => downloadBlob(await equipmentApi.importTemplate(), 'แม่แบบนำเข้าอุปกรณ์.xlsx')}
+                className="rounded-full border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                ดาวน์โหลดแม่แบบ
+              </button>
               <button onClick={upload} disabled={!file || busy}
                 className="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">
                 {busy ? 'กำลังอ่านไฟล์…' : 'อ่านไฟล์'}
@@ -1808,7 +1831,7 @@ function ImportModal({ categories, onClose, onDone }) {
                         <td className="px-3 py-2">
                           <span className={`rounded px-1.5 py-0.5 font-medium ${IMPORT_ACTION[r.action].cls}`}>{IMPORT_ACTION[r.action].label}</span>
                         </td>
-                        <td className="px-3 py-2 font-mono text-gray-600">{r.code}</td>
+                        <td className="px-3 py-2 font-mono text-gray-600"><ImportCode row={r} /></td>
                         <td className="px-3 py-2 text-gray-800">{r.name}</td>
                         <td className="px-3 py-2 text-gray-500">
                           {r.action === 'new' && `สถานะ ${IMPORT_STATUS[r.status] ?? r.status}${r.location ? ` · ${r.location}` : ''}${r.serial_number ? ` · SN: ${r.serial_number}` : ''}`}
@@ -1860,7 +1883,7 @@ function ImportModal({ categories, onClose, onDone }) {
                               {IMPORT_ACTION[r.action].log}
                             </span>
                           </td>
-                          <td className="px-2 py-2 font-mono text-gray-600">{r.code}</td>
+                          <td className="px-2 py-2 font-mono text-gray-600"><ImportCode row={r} /></td>
                           <td className="px-2 py-2">
                             {isRetire ? <span className="text-gray-700">{r.name}</span> : (
                               <input value={r.name} disabled={!r.include}

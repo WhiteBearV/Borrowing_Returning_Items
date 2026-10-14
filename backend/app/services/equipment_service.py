@@ -1,10 +1,12 @@
+import io
 import os
 import re
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import TypeVar
 
+from PIL import Image
 from fastapi import HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import ColumnElement, func, or_, select
@@ -170,21 +172,28 @@ def borrowed_days_expr(since: ColumnElement | None = None, until: ColumnElement 
     ขั้นต่ำ 1 วันเหมือนโหมดปกติ (ยืมเช้าคืนบ่ายในช่วงนั้นก็คือของไม่อยู่ในคลัง) — **ผู้เรียกต้องกรองเฉพาะแถวที่
     คาบเกี่ยวช่วงเองด้วย** `overlaps_window()` ไม่งั้นแถวนอกช่วงจะได้ 1 วันจากขั้นต่ำนี้
 
-    ต้อง join BorrowRequest มาก่อนใช้ (ต้องใช้ approved_at เป็นจุดเริ่มนับ)
+    ต้อง join BorrowRequest มาก่อนใช้ (ต้องใช้ approved_at เป็นจุดเริ่มนับ) · แถวที่มาจากการเปลี่ยนตัวระหว่างยืม
+    เริ่มนับจาก BorrowItem.started_at แทน (ดู _item_start)
     """
     end = func.coalesce(BorrowItem.returned_at, func.now())
+    item_start = _item_start()
     if until is not None:
-        start = func.greatest(BorrowRequest.approved_at, since)
+        start = func.greatest(item_start, since)
         return func.greatest(1, func.round(func.extract("epoch", func.least(end, until) - start) / 86400.0))
     if since is None:
-        return func.greatest(1, func.round(func.extract("epoch", end - BorrowRequest.approved_at) / 86400.0))
-    start = func.greatest(BorrowRequest.approved_at, since)
+        return func.greatest(1, func.round(func.extract("epoch", end - item_start) / 86400.0))
+    start = func.greatest(item_start, since)
     return func.greatest(0, func.round(func.extract("epoch", end - start) / 86400.0))
+
+
+def _item_start() -> ColumnElement:
+    """วันที่แถว borrow_item ออกจากคลังจริง — started_at (หน่วยที่มาแทนตอนเปลี่ยนตัว) ไม่งั้น approved_at ของคำขอ"""
+    return func.coalesce(BorrowItem.started_at, BorrowRequest.approved_at)
 
 
 def overlaps_window(since: ColumnElement, until: ColumnElement) -> list[ColumnElement]:
     """เงื่อนไข WHERE: ช่วงที่ของออกจากคลังคาบเกี่ยว [since, until) — ใช้คู่กับ borrowed_days_expr(since, until)"""
-    return [BorrowRequest.approved_at < until, func.coalesce(BorrowItem.returned_at, func.now()) > since]
+    return [_item_start() < until, func.coalesce(BorrowItem.returned_at, func.now()) > since]
 
 
 async def usage_days_map(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
@@ -202,6 +211,7 @@ async def usage_days_map(db: AsyncSession, equipment_ids: list[uuid.UUID]) -> di
             BorrowItem.equipment_id.in_(equipment_ids),
             BorrowItem.item_status != "rejected",
             BorrowRequest.approved_at.is_not(None),
+            BorrowItem.split_from_id.is_(None),  # ส่วนที่คืนก่อน (แตกแถว) — แถวเดิมนับวันให้ทั้งช่วงแล้ว
         )
         .group_by(BorrowItem.equipment_id)
     )).all()
@@ -226,6 +236,7 @@ async def quality_usage_days_map(db: AsyncSession, equipment_ids: list[uuid.UUID
             BorrowItem.equipment_id.in_(equipment_ids),
             BorrowItem.item_status != "rejected",
             BorrowRequest.approved_at.is_not(None),
+            BorrowItem.split_from_id.is_(None),  # ส่วนที่คืนก่อน (แตกแถว) — แถวเดิมนับวันให้ทั้งช่วงแล้ว
             Equipment.quality_baseline_at.is_not(None),
         )
         .group_by(BorrowItem.equipment_id)
@@ -302,6 +313,46 @@ async def quality_low_threshold(db: AsyncSession) -> float:
     """
     row = (await db.execute(select(Setting.value).where(Setting.key == "quality_low_threshold"))).scalar_one_or_none()
     return _safe_float(row, 10.0)
+
+
+async def inspection_status(db: AsyncSession, now: datetime | None = None) -> dict[str, list[Equipment]]:
+    """แยกหน่วยที่ "ต้องมีคนไปตรวจ" ออกเป็น 3 กอง — **จุดเดียว** ใช้ทั้งการ์ด Dashboard และ job แจ้งเตือนรายวัน
+    (scheduler._check_inspection) ไม่งั้นการ์ดนับอย่าง แจ้งเตือนนับอีกอย่าง
+
+    - `low`: ประเมินแล้วและคุณภาพปัจจุบันต่ำกว่า quality_low_threshold
+    - `overdue`: ประเมินครั้งล่าสุดนานเกินรอบ setting `quality_inspect_interval_months` (0 = ปิดรอบตรวจ)
+    - `unassessed`: เปิดติดตามแล้วแต่ยังไม่เคยประเมิน
+
+    เฉพาะรุ่นที่เปิดติดตาม (quality_tracked — เป็นสวิตช์รายรุ่นอยู่แล้ว) และยังไม่ปลดระวาง (ของที่เลิกใช้แล้ว
+    ไม่มีใครต้องไปตรวจ ขึ้นเตือนไว้จะหลอกให้เจ้าหน้าที่เสียเวลา) · หน่วยหนึ่งอยู่ได้ทั้ง low และ overdue
+    """
+    now = now or datetime.now(timezone.utc)
+    rows = (await db.execute(
+        select(Equipment).where(Equipment.quality_tracked == True, Equipment.status != "retired")  # noqa: E712
+        .order_by(Equipment.code)
+    )).scalars().all()
+    out: dict[str, list[Equipment]] = {"low": [], "overdue": [], "unassessed": []}
+    assessed = []
+    for e in rows:
+        (assessed if e.quality_baseline is not None else out["unassessed"]).append(e)
+    if not assessed:
+        return out
+    threshold = await quality_low_threshold(db)
+    months = _safe_int((await db.execute(
+        select(Setting.value).where(Setting.key == "quality_inspect_interval_months"))).scalar_one_or_none(),
+        6, minimum=0)
+    # ponytail: เดือน ≈ 30.44 วัน ไม่ใช้ dateutil — คลาดเคลื่อนไม่เกิน 1-2 วันต่อรอบ ไม่มีผลกับงานตรวจสภาพ
+    cutoff = now - timedelta(days=round(months * 30.44)) if months > 0 else None
+    age_weight, life_default = await quality_settings(db)
+    usage = await quality_usage_days_map(db, [e.id for e in assessed])
+    for e in assessed:
+        cq = current_quality(float(e.quality_baseline), e.quality_baseline_at, e.quality_life_years,
+                             usage.get(e.id, 0), age_weight, life_default, now=now)
+        if cq is not None and cq < threshold:
+            out["low"].append(e)
+        if cutoff and e.quality_baseline_at and e.quality_baseline_at < cutoff:
+            out["overdue"].append(e)
+    return out
 
 
 def _quality_components(
@@ -594,6 +645,14 @@ async def _read_validated(file: UploadFile, allowed_ext: set[str], max_bytes: in
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"File too large (max {limit_mb}MB).")
     _check_magic_bytes(contents, ext)
+    # magic bytes กันไฟล์ปลอมชนิด แต่ไฟล์ 8 ไบต์ที่ขึ้นต้นเหมือน JPEG ก็ผ่าน → รูปแตกบนหน้าเว็บ/ลายเซ็นวางใน PDF ไม่ได้ (R3-08)
+    if ext in ALLOWED_IMAGE_EXT:
+        try:
+            with Image.open(io.BytesIO(contents)) as im:
+                im.verify()
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="ไฟล์รูปเสียหายหรือเปิดไม่ได้ กรุณาเลือกไฟล์ใหม่") from None
     return contents, ext
 
 
@@ -654,7 +713,9 @@ async def get_holders_map(
         )
         .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
         .join(User, BorrowRequest.student_id == User.id)
-        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
+        # ชิ้นที่ไม่อนุมัติในใบที่อนุมัติบางส่วนไม่เคยออกจากคลัง — เดิมขึ้นเป็นผู้ครอบครอง (R2-12)
+        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False),
+               BorrowItem.item_status != "rejected")
         # ไม่มี ORDER BY เดิม DB ไม่การันตีลำดับแถวที่คืนมาเลย — โค้ดที่อ่าน holders[0] เป็น "ตัวแทน" คนเดียว
         # (เช่น _build_group_response, list_equipment) จะได้คนละคนสลับกันไปมาระหว่างการเรียกแต่ละครั้งทั้งที่
         # ข้อมูลไม่ได้เปลี่ยน — เรียงชื่อแล้วตาม BorrowItem.id กันเผื่อชื่อซ้ำ ให้ผลลัพธ์คงที่เสมอ
@@ -738,7 +799,9 @@ async def list_equipment(
         & (Equipment.status == "available")
         & (Equipment.quantity_available > 0)
     )
-    query = query.order_by(borrowable.desc(), Equipment.name)
+    # code (ไม่ซ้ำ) เป็นตัวตัดสินท้าย — ชื่อซ้ำกันเป็นร้อยหน่วย ถ้าไม่มี PostgreSQL คืนลำดับในกลุ่มชื่อเดียวกันต่างกันทุก OFFSET
+    # → เลื่อนหน้าแล้วแถวซ้ำ/หาย และ CSV รายหน่วยขาด 25 หน่วย (R4-01) · **ทุก list ที่แบ่งหน้าต้องจบด้วยคอลัมน์ unique**
+    query = query.order_by(borrowable.desc(), Equipment.name, Equipment.code)
 
     query = query.options(selectinload(Equipment.categories))
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
@@ -821,33 +884,29 @@ async def list_equipment_grouped(
 ) -> PaginatedEquipmentGroup:
     """เหมือน list_equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว
 
-    สเกลคลัง ≤100 รายการตาม CLAUDE.md — ดึงมาทั้งหมดแล้ว group/sort/paginate ด้วย Python พอ
-    ไม่ต้องใช้ window function ให้ซับซ้อนเกินจำเป็น
+    ทำ 2 จังหวะ (R2-13, 1 ต.ค. 69): (1) query เฉพาะคอลัมน์เบา ๆ ของทุกแถวเพื่อจับกลุ่ม/กรอง/เรียง/สรุปยอด
+    (2) โหลด ORM เต็ม + ประกอบการ์ดเฉพาะรุ่นของ "หน้านี้" — เดิมโหลด ORM ทั้งคลัง (1,550 แถว + หมวดหมู่) แล้วสร้าง
+    การ์ดทุกรุ่นก่อนตัดเหลือ 24 ใบ ใช้ CPU ~85 ms ต่อคำขอ บน worker เดียวคน 60 คนเปิดพร้อมกันรอ 6 วินาที
     """
-    query = select(Equipment)
+    light = select(
+        Equipment.id, Equipment.name, Equipment.item_type, Equipment.quantity_total, Equipment.quantity_available,
+        Equipment.is_borrowable, Equipment.status, Equipment.unit_value, Equipment.acquired_at,
+    )
     if category_id:
-        query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
+        light = light.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
-        query = query.where(Equipment.item_type == item_type)
-    # "borrowed" ต้อง filter ที่ "กลุ่มไหนมีหน่วยเข้าเงื่อนไขบ้าง" ไม่ใช่กรองที่ query แถวก่อน
-    # group — ถ้ากรองที่แถวเลย จะดึงมาแค่หน่วยที่เข้าเงื่อนไข แล้วเอาไปรวมยอด quantity_total/available เป็นยอด
-    # ของกลุ่มทำให้ผิด (เช่น Arduino-UNO-R3 มี 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทนที่จะเป็น "41/42" ที่ถูกต้อง)
-    # ต้องดึงทุกหน่วยของกลุ่มมาคำนวณยอดก่อน แล้วค่อยกรองว่าจะโชว์การ์ดไหนทีหลัง
-    # ตัวกรองที่ต้องตัดสินที่ระดับ "กลุ่ม" ไม่ใช่ระดับแถว — เหตุผลเดียวกับ borrowed ด้านบน:
-    # ของกลุ่มเดียวกัน 42 หน่วย ถ้าขาดราคาแค่ 3 หน่วย การกรองที่แถวจะเหลือ 3 หน่วยไปรวมยอดเป็นของทั้งกลุ่ม
+        light = light.where(Equipment.item_type == item_type)
+    # "borrowed"/"no_price"/"no_acquired_at" ต้องตัดสินที่ระดับ "กลุ่ม" ไม่ใช่ระดับแถว — ถ้ากรองที่แถว จะเหลือแค่หน่วย
+    # ที่เข้าเงื่อนไขไปรวมยอดเป็นของทั้งกลุ่ม (Arduino-UNO-R3 42 หน่วย ยืมอยู่ 1 → เห็น "0/1" แทน "41/42")
     group_level = filter_status in ("borrowed", "no_price", "no_acquired_at")
-    query = await _apply_status_filter(db, query, None if group_level else filter_status)
+    light = await _apply_status_filter(db, light, None if group_level else filter_status)
     if search:
-        query = query.where(_search_clause(search))
-    query = query.options(selectinload(Equipment.categories)).order_by(Equipment.code)
+        light = light.where(_search_clause(search))
+    light_rows = (await db.execute(light.order_by(Equipment.code))).all()
 
-    rows = list((await db.execute(query)).scalars().all())
-    await attach_book_values(db, rows)
-    await attach_quality_info(db, rows, viewer)
-
-    groups: dict[tuple, list[Equipment]] = {}
-    for eq in rows:
-        groups.setdefault(_group_key(eq), []).append(eq)
+    groups: dict[tuple, list] = {}
+    for r in light_rows:
+        groups.setdefault((r.id,) if r.item_type == "consumable" else (r.name, r.item_type), []).append(r)
 
     holders_map = await get_holders_map(db)
     if group_level:
@@ -858,37 +917,44 @@ async def list_equipment_grouped(
         }[filter_status]
         groups = {key: members for key, members in groups.items() if any(keep(m) for m in members)}
 
-    cards = [_build_group_response(members, holders_map, viewer) for members in groups.values()]
-    cards.sort(key=lambda c: (not (c.is_borrowable and c.status == "available" and c.quantity_available > 0), c.name))
+    # ตัวเลขชุดเดียวกับที่ _build_group_response คำนวณ — พร้อมยืม = มีหน่วยที่ยืมได้และยังมีของเหลือ
+    def avail(members: list) -> int:
+        return sum(m.quantity_available for m in members if m.is_borrowable and m.status == "available")
 
-    total = len(cards)
-    start = (page - 1) * page_size
-    page_items = cards[start:start + page_size]
-    return PaginatedEquipmentGroup(items=page_items, total=total, page=page, page_size=page_size,
-                                   summary=_summarize_cards(cards))
-
-
-def _summarize_cards(cards: list[EquipmentGroupResponse]) -> EquipmentListSummary:
-    """สรุปจำนวน "ชิ้นจริง" ของผลการค้นหาทั้งหมด แยกตามประเภท
-
-    การ์ด 1 ใบ = 1 รุ่น (ยุบหลายหน่วยแล้ว) ตัวเลขที่ผู้ใช้ต้องเห็นคือจำนวนชิ้นจริง ไม่ใช่จำนวนการ์ด —
-    "187 รายการ" ทำให้เข้าใจผิดว่าคลังมีของแค่ 187 ชิ้น ทั้งที่ยุบมาจากพันกว่าหน่วย (8 ก.ย. 69)
-    คิดจาก cards ที่กรองแล้วในหน่วยความจำ ไม่ต้องยิง query เพิ่ม
-    """
+    ordered = sorted(groups.values(), key=lambda ms: (avail(ms) <= 0, ms[0].name))
     by_type: dict[str, dict[str, int]] = {}
-    for c in cards:
-        acc = by_type.setdefault(c.item_type, {"groups": 0, "pieces": 0, "available": 0})
+    for ms in ordered:
+        acc = by_type.setdefault(ms[0].item_type, {"groups": 0, "pieces": 0, "available": 0})
         acc["groups"] += 1
-        acc["pieces"] += c.quantity_total
-        acc["available"] += c.quantity_available
-    order = {"durable": 0, "material": 1, "consumable": 2}
-    return EquipmentListSummary(
-        groups=len(cards),
+        acc["pieces"] += sum(m.quantity_total for m in ms)
+        acc["available"] += avail(ms)
+    type_order = {"durable": 0, "material": 1, "consumable": 2}
+    summary = EquipmentListSummary(
+        groups=len(ordered),
         pieces=sum(a["pieces"] for a in by_type.values()),
         available=sum(a["available"] for a in by_type.values()),
         by_type=[EquipmentTypeSummary(item_type=t, **a)
-                 for t, a in sorted(by_type.items(), key=lambda kv: order.get(kv[0], 9))],
+                 for t, a in sorted(by_type.items(), key=lambda kv: type_order.get(kv[0], 9))],
     )
+
+    start = (page - 1) * page_size
+    page_groups = ordered[start:start + page_size]
+    page_ids = [m.id for ms in page_groups for m in ms]
+    rows = list((await db.execute(
+        select(Equipment).where(Equipment.id.in_(page_ids))
+        .options(selectinload(Equipment.categories)).order_by(Equipment.code)
+    )).scalars().all()) if page_ids else []
+    await attach_book_values(db, rows)
+    await attach_quality_info(db, rows, viewer)
+    by_id = {r.id: r for r in rows}
+    # แถวที่ถูกลบไประหว่างสอง query ข้ามไป (ไม่ให้ทั้งหน้า 500)
+    page_items = [
+        _build_group_response(members, holders_map, viewer)
+        for members in ([by_id[m.id] for m in ms if m.id in by_id] for ms in page_groups) if members
+    ]
+    return PaginatedEquipmentGroup(items=page_items, total=len(ordered), page=page, page_size=page_size,
+                                   summary=summary)
+
 
 
 async def get_equipment(
@@ -963,35 +1029,65 @@ async def _resolve_categories(db: AsyncSession, category_ids: list[uuid.UUID]) -
     return cats
 
 
-def _generate_consumable_code(name: str, existing_codes: set[str]) -> str:
-    """สร้างรหัสจากชื่ออุปกรณ์ + เลขลำดับ เช่น "ตัวต้านทาน 220 โอห์ม" -> "ตัวต้านทาน 220 โอห์ม-001"
+# รหัสอุปกรณ์ที่ระบบออกให้ (24 ก.ย. 69 — ผู้ใช้เลือกรูปแบบ DT-D-00001) DT = คณะเทคโนโลยีดิจิทัล
+SYSTEM_CODE_PREFIX = {"durable": "DT-D-", "material": "DT-M-", "consumable": "DT-C-"}
 
-    ใช้เมื่อแอดมินไม่กรอกรหัสมาสำหรับวัสดุสิ้นเปลือง (รหัสไม่มีความหมายจริงสำหรับของแบบนี้ เช่น เซ็นเซอร์
-    หลายแบบจำนวนมาก) — อ่านง่ายกว่ารหัสสุ่มล้วน ๆ เห็นชื่อในรหัสได้เลยไม่ต้องเปิดดูชื่อแยก
-    ตัดชื่อให้เหลือพอสำหรับคอลัมน์ String(50) เผื่อเลขลำดับต่อท้าย (-001 = 4 ตัวอักษร)
+
+async def next_system_codes(db: AsyncSession, item_type: str, count: int = 1) -> list[str]:
+    """ออกรหัสระบบถัดไป `count` รหัส — **จุดเดียว** ที่สร้างรหัสให้ของที่ไม่ได้ใส่รหัสมา (สร้างใหม่/restock ครุภัณฑ์/
+    นำเข้าไฟล์) รูปแบบ DT-{D|M|C}-เลขรัน 5 หลัก ต่อจากเลขสูงสุดของ prefix นั้น (เทียบสตริงได้เพราะเติม 0 ครบหลัก)
+
+    ล็อกระดับ transaction ต่อ prefix (pg_advisory_xact_lock) ก่อนอ่านเลขล่าสุด — เดิม max+1 เฉย ๆ แอดมิน 2 คนกดเพิ่ม
+    อุปกรณ์พร้อมกันได้เลขเดียวกัน คนหนึ่งชน unique index เป็น 500 (R3-02) · ล็อกปล่อยเองตอน commit/rollback
     """
-    slug = name.strip()[:44]
-    n = 1
-    while True:
-        candidate = f"{slug}-{n:03d}"
-        if candidate not in existing_codes:
-            return candidate
-        n += 1
+    prefix = SYSTEM_CODE_PREFIX.get(item_type, "DT-M-")
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(prefix))))
+    last = (await db.execute(
+        select(func.max(Equipment.code)).where(Equipment.code.like(f"{prefix}%"))
+    )).scalar_one_or_none()
+    tail = last[len(prefix):] if last else ""
+    start = int(tail) + 1 if tail.isdigit() else 1
+    return [f"{prefix}{n:05d}" for n in range(start, start + count)]
 
 
-def _validate_durable_code(code: str) -> None:
-    """บังคับรหัสครุภัณฑ์ (durable) ต้องเป็นตัวเลข 15 หลักพอดี — นับเฉพาะตัวเลขในสตริง (ตัด "-" ออก)
-
-    เรียกเฉพาะตอน "เปลี่ยนเข้า durable" จาก material/consumable เท่านั้น (create_equipment/update_equipment/
-    bulk_update_equipment) — ไม่ retroactive กับแถวที่เป็น durable อยู่แล้ว เพราะของเดิมที่ import จากทะเบียนจริง
-    หลายตัวใช้รหัสภายในสั้นกว่านี้ (เช่น "212001") ต้องไม่บล็อกการแก้ไขปกติของแถวเหล่านั้น
+def _normalize_asset_number(asset_number: str | None) -> str | None:
+    """พิมพ์เลขครุภัณฑ์ติดกัน 15 หลัก → ใส่ขีดตามรูปแบบทะเบียน 2-3-3-3-4 (63-214-237-001-0002) ให้เอง
+    ไม่งั้นเลขเดียวกันแบบมี/ไม่มีขีดถูกเก็บเป็นคนละค่า — กันซ้ำไม่ได้ และจับคู่กับไฟล์ทะเบียน (มีขีด) ไม่ได้
+    ค่าที่มีตัวอักษรอื่นปน (เช่น "สนว.-65-…" ของพระราชทาน) เก็บตามที่พิมพ์ ไม่แตะ
     """
-    digits = re.sub(r"\D", "", code or "")
+    if not asset_number:
+        return None
+    v = asset_number.strip()
+    if re.fullmatch(r"\d{15}", v):
+        return f"{v[:2]}-{v[2:5]}-{v[5:8]}-{v[8:11]}-{v[11:]}"
+    return v
+
+
+def _validate_asset_number(asset_number: str | None) -> None:
+    """เลขครุภัณฑ์ต้องเป็นตัวเลข 15 หลักพอดี (นับเฉพาะตัวเลข ตัด "-" ออก) — ตรวจเฉพาะตอนกรอก/แก้ผ่านฟอร์ม
+    ไม่ตรวจตอนนำเข้าไฟล์ทะเบียน (ของพระราชทานบางรายการใช้เลขรูปแบบอื่น ต้องรับตามทะเบียนจริง)
+    เดิมกฎนี้บังคับที่ `code` ของครุภัณฑ์ ย้ายมาที่นี่ตั้งแต่แยกเลขครุภัณฑ์ออกจากรหัส (migration 0048)
+    """
+    if not asset_number:
+        return
+    digits = re.sub(r"\D", "", asset_number)
     if len(digits) != 15:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f'เปลี่ยนเป็นครุภัณฑ์ได้เฉพาะรหัสที่เป็นตัวเลข 15 หลักเท่านั้น (รหัส "{code}" มี {len(digits)} หลัก)',
+            detail=f'เลขครุภัณฑ์ต้องเป็นตัวเลข 15 หลัก (เลข "{asset_number}" มี {len(digits)} หลัก)',
         )
+
+
+async def _assert_asset_number_free(db: AsyncSession, asset_number: str | None,
+                                    exclude_id: uuid.UUID | None = None) -> None:
+    """เลขครุภัณฑ์ซ้ำ = 409 — NULL ซ้ำได้ (partial unique index ix_equipment_asset_number_unique)"""
+    if not asset_number:
+        return
+    q = select(Equipment.id).where(Equipment.asset_number == asset_number)
+    if exclude_id:
+        q = q.where(Equipment.id != exclude_id)
+    if (await db.execute(q)).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="เลขครุภัณฑ์นี้มีในระบบแล้ว")
 
 
 def _assert_quality_trackable(item_type: str, quality_tracked: bool | None) -> None:
@@ -1048,18 +1144,12 @@ async def _inherit_quality_from_group(
 
 
 async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate) -> Equipment:
-    """รับของใหม่เข้าทะเบียน — ออกรหัสให้เฉพาะวัสดุสิ้นเปลือง และหน่วยใหม่ของรุ่นที่ติดตามคุณภาพอยู่แล้ว
+    """รับของใหม่เข้าทะเบียน — รหัสว่าง = ระบบออกให้ (DT-D/M/C) ทุกประเภท · หน่วยใหม่ของรุ่นที่ติดตามคุณภาพอยู่แล้ว
     ได้สวิตช์ตามรุ่นอัตโนมัติ (ไม่ copy baseline — ของจริงคนละสภาพ ต้องประเมินแยก)"""
-    code = body.code
-    if not code:
-        if body.item_type != "consumable":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="จำเป็นต้องระบุรหัสอุปกรณ์ (เว้นว่างได้เฉพาะวัสดุสิ้นเปลือง)")
-        existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
-        code = _generate_consumable_code(body.name, existing_codes)
-
-    if body.item_type == "durable":
-        _validate_durable_code(code)
+    code = body.code or (await next_system_codes(db, body.item_type))[0]
+    body.asset_number = _normalize_asset_number(body.asset_number)
+    _validate_asset_number(body.asset_number)
+    await _assert_asset_number_free(db, body.asset_number)
 
     existing = await db.execute(select(Equipment).where(Equipment.code == code))
     if existing.scalar_one_or_none():
@@ -1116,13 +1206,17 @@ def _search_clause(search: str):
         Equipment.model_number.ilike(kw),
         Equipment.manufacturer.ilike(kw),
         Equipment.serial_number.ilike(kw),
+        Equipment.asset_number.ilike(kw),
+        # พิมพ์เลขครุภัณฑ์ไม่มีขีดก็เจอ (เก็บแบบมีขีด)
+        func.replace(Equipment.asset_number, "-", "").ilike(f"%{search.strip().replace('-', '')}%"),
     )
 
 
 # ฟิลด์ที่กระทบตัวเลขย้อนหลัง (ค่าเสื่อม/มูลค่าในใบยืมเก่า/ค่าเสียหายที่เรียกเก็บ) — superadmin เท่านั้น
 # ตามการแบ่งฟอร์มตามความเสี่ยงในเฟส 8 · ตอน "สร้างใหม่" ไม่กั้น เพราะของทุกชิ้นต้องมีราคา+วันที่ได้มา
 # ตั้งแต่แรกอยู่แล้ว (EquipmentCreate บังคับ) คนกรอกคือผู้ดูแลคลังที่รับของเข้าทะเบียน
-FINANCE_FIELDS = ("unit_value", "book_value_override", "acquired_at", "useful_life_years")
+# เลขครุภัณฑ์อยู่ชุดนี้ด้วย (24 ก.ย. 69 — ผู้ใช้กำหนด) เป็นเลขทะเบียนราชการ ผู้ดูแลคลังแก้เองไม่ได้
+FINANCE_FIELDS = ("unit_value", "book_value_override", "acquired_at", "useful_life_years", "asset_number")
 
 
 def _assert_can_edit_finance(admin: User, eq: Equipment, changed: dict) -> None:
@@ -1200,9 +1294,15 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     if "unit_value" in changed and changed["unit_value"] is None:
         changed.pop("unit_value")
     # เช็คสิทธิ์หลัง normalize — ฟอร์มส่งทั้งก้อนทุกครั้ง ค่าที่ไม่ได้แก้จริงต้องไม่ทำให้โดน 403
+    # ใส่ขีดให้เลขครุภัณฑ์ก่อนเช็คสิทธิ์ — ส่งเลขเดิมแบบไม่มีขีดมาต้องไม่นับว่า "แก้"
+    if "asset_number" in changed:
+        changed["asset_number"] = _normalize_asset_number(changed["asset_number"])
     _assert_can_edit_finance(admin, eq, changed)
     if "name" in changed:
         changed["name"] = _normalize_name(changed["name"])
+    if "asset_number" in changed and changed["asset_number"] != eq.asset_number:
+        _validate_asset_number(changed["asset_number"])
+        await _assert_asset_number_free(db, changed["asset_number"], exclude_id=equipment_id)
     if "code" in changed and changed["code"] != eq.code:
         dup_code = await db.execute(
             select(Equipment).where(Equipment.code == changed["code"], Equipment.id != equipment_id)
@@ -1217,11 +1317,6 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         )
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
-
-    # เปลี่ยนเข้า durable (จาก material/consumable) ต้องรหัสครบ 15 หลัก — ใช้ code ใหม่ถ้า request นี้เปลี่ยน code
-    # ด้วย ไม่งั้นใช้ของเดิม (ไม่ retroactive กับแถวที่เป็น durable อยู่แล้ว ดู _validate_durable_code)
-    if changed.get("item_type") == "durable" and eq.item_type != "durable":
-        _validate_durable_code(changed.get("code", eq.code))
 
     # เปิดติดตามคุณภาพได้เฉพาะ durable/material (MINOR-8) — reject เฉพาะตอนคำขอนี้ "ตั้งใจ" ส่ง
     # quality_tracked=True มาตรง ๆ ทับกับรุ่นที่ (จะ) เป็น consumable เท่านั้น (400 ชัดเจน กันไว้แม้ frontend
@@ -1257,6 +1352,11 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     # จึงเห็น diff ของมันด้วยเหมือนกัน แม้จะไม่ propagate ต่อทั้งรุ่นก็ตาม — หน่วยนี้เองยังต้องมี audit)
     field_diffs = audit_service.diff_fields(eq, changed)
     old_status, old_total, old_available = eq.status, eq.quantity_total, eq.quantity_available
+    loaned = await loaned_quantity(db, eq.id)
+    if "quantity_total" in changed and changed["quantity_total"] < loaned:
+        # ลดต่ำกว่าที่ยังอยู่กับผู้ยืม = ยอดเพี้ยนถาวร (คืนมาทีหลังจะเกิน total) — QA-19
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"จำนวนทั้งหมดต้องไม่น้อยกว่าที่ยังถูกยืมอยู่ ({loaned})")
     old_quality_tracked, old_quality_life_years = eq.quality_tracked, eq.quality_life_years
 
     for field, value in changed.items():
@@ -1295,14 +1395,16 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         eq.quantity_available = old_available + (eq.quantity_total - old_total)
     # ลดจำนวนรวมลงต่ำกว่าที่ว่างอยู่ = แอดมินตั้งใจตัดของออกจากคลัง ลดของว่างตามไปด้วย
     # ถ้าไม่ดักไว้จะไปชน CHECK constraint แล้วกลายเป็น 500 แทนที่จะทำสิ่งที่แอดมินตั้งใจ
-    if eq.quantity_available > eq.quantity_total:
-        eq.quantity_available = eq.quantity_total
+    if eq.quantity_available > eq.quantity_total - loaned:
+        eq.quantity_available = eq.quantity_total - loaned
     # หน่วยเดี่ยว (quantity_total==1) เปลี่ยนสถานะกลับเป็น "พร้อมให้ยืม" จากสถานะอื่น (เช่นของหายที่เพิ่งเจอ/
     # ซ่อมเสร็จ) → คืนของว่างให้ครบ เพราะ borrow_service.return_item ตอนของหาย/เสีย (lost/damaged) ปรับ status
     # ให้เป็น unavailable/damaged แต่ตั้งใจไม่คืนสต็อก (quantity_available ค้าง 0) — ถ้าไม่ทำตรงนี้ ไม่มีทางอื่น
     # เลยที่จะทำให้ยืมได้อีกหลังแก้ไข เพราะฟอร์มไม่มีช่องแก้ quantity_available ตรง ๆ
+    # ต้องหักของที่ยังอยู่กับผู้ยืม — แอดมินอาจสลับสถานะเครื่องที่ถูกยืมอยู่ (ผู้ยืมแจ้งว่าเสีย → ซ่อม → พร้อมใช้)
+    # ตั้งเป็น total ตรง ๆ = ปล่อยเครื่องเดียวกันให้คนที่สองยืมซ้อน (QA-18)
     if "status" in changed and old_status != "available" and eq.status == "available" and eq.quantity_total == 1:
-        eq.quantity_available = eq.quantity_total
+        eq.quantity_available = eq.quantity_total - loaned
     # ซ่อมเสร็จกลับมาพร้อมใช้ — จังหวะที่ 3 ของ 4 จังหวะที่ให้ประเมินคุณภาพใหม่ (ดู CLAUDE.md) ใช้เงื่อนไข
     # "สถานะเปลี่ยนออกจาก available เดิม → available ใหม่" แบบเดียวกับจุดดักคืนสต็อกด้านบน แต่ไม่ผูกกับ
     # quantity_total==1 เพราะการประเมินคุณภาพไม่เกี่ยวกับตัวนับสต็อก
@@ -1530,9 +1632,14 @@ async def restock_equipment(
         return [await get_equipment(db, eq.id, viewer=admin)]
 
     # ครุภัณฑ์ หรือวัสดุที่แยกรายชิ้นแล้ว — สร้างหน่วยใหม่แยกรหัส คนละแถวเหมือนของเดิม
+    # ครุภัณฑ์ได้รหัสระบบ DT-D ใหม่ (เดิม +1 จากเลขครุภัณฑ์ = เดาเลขทะเบียนราชการที่ไม่มีจริง) เลขครุภัณฑ์ว่างไว้ให้
+    # superadmin กรอกเมื่อได้เลขจริง · วัสดุคงรูปแบบรหัสเดิม (+1 ต่อท้าย)
     await db.refresh(eq, attribute_names=["categories"])
-    existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
-    new_codes = _generate_split_codes(eq.code, count, existing_codes)
+    if eq.item_type == "durable":
+        new_codes = await next_system_codes(db, "durable", count)
+    else:
+        existing_codes = set((await db.execute(select(Equipment.code))).scalars().all())
+        new_codes = _generate_split_codes(eq.code, count, existing_codes)
     new_rows = []
     for code in new_codes:
         clone = Equipment(
@@ -1567,6 +1674,26 @@ async def restock_equipment(
     return list(result.scalars().all())
 
 
+async def loaned_quantity(db: AsyncSession, equipment_id: uuid.UUID) -> int:
+    """จำนวนของแถวนี้ที่ "ยังอยู่กับผู้ยืม" จริง (คำขออนุมัติแล้ว ยังไม่คืน ไม่นับชิ้นที่ไม่อนุมัติ)
+
+    ใช้เป็นเพดานของ quantity_available = quantity_total − ที่ยืมอยู่ ทุกจุดที่แอดมินตั้งยอดเอง
+    (แก้จำนวนทั้งหมด / สถานะกลับเป็นพร้อมใช้ / ปรับยอดคงเหลือ) — เดิมตั้งเป็น total ตรง ๆ ทำให้เครื่องที่ยังถูกยืมอยู่
+    ถูกอนุมัติให้คนที่สองได้ แล้วคนที่สองรับคืนไม่ได้เพราะชน CHECK constraint (QA-18, 30 ก.ย. 69)
+    """
+    return int((await db.execute(
+        select(func.coalesce(func.sum(BorrowItem.quantity), 0))
+        .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
+        .where(
+            BorrowItem.equipment_id == equipment_id,
+            BorrowItem.returned.is_(False),
+            BorrowItem.item_status != "rejected",
+            BorrowRequest.status == "approved",
+        )
+        .execution_options(include_deleted=True)  # คำขอที่ถูกซ่อนต้องจบแล้วเสมอ แต่ของจริงต้องนับให้ครบไว้ก่อน
+    )).scalar())
+
+
 async def adjust_stock(
     db: AsyncSession, admin: User, equipment_id: uuid.UUID,
     new_available: int, reason: str, photo_urls: list[str],
@@ -1589,6 +1716,12 @@ async def adjust_stock(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"new_available ({new_available}) cannot exceed quantity_total ({eq.quantity_total}).",
+        )
+    loaned = await loaned_quantity(db, eq.id)
+    if new_available > eq.quantity_total - loaned:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ยอดคงเหลือตั้งได้ไม่เกิน {eq.quantity_total - loaned} เพราะยังถูกยืมอยู่ {loaned}",
         )
 
     old_available = eq.quantity_available
@@ -1709,20 +1842,8 @@ async def bulk_update_equipment(
 
     rows = [await get_equipment(db, eq_id, viewer=admin) for eq_id in equipment_ids]  # 404 ถ้ามี id ที่ไม่มีจริง
 
+    # เดิมกรองแถวที่รหัสไม่ครบ 15 หลักออกตอนเปลี่ยนเป็นครุภัณฑ์ — ย้ายกฎไปที่เลขครุภัณฑ์แล้ว (migration 0048)
     failed: list[BulkDeleteFailure] = []
-    if changed.get("item_type") == "durable":
-        valid_rows = []
-        for eq in rows:
-            if eq.item_type != "durable":
-                try:
-                    _validate_durable_code(eq.code)
-                except HTTPException as e:
-                    failed.append(BulkDeleteFailure(equipment_id=eq.id, reason=str(e.detail)))
-                    continue
-            valid_rows.append(eq)
-        rows = valid_rows
-        if not rows:
-            return BulkUpdateResult(updated=[], failed=failed)
 
     # เปิดติดตามคุณภาพได้เฉพาะ durable/material (MINOR-8) — reject ก่อน mutate แถวไหนเลย ถ้าคำขอนี้ตั้งใจ
     # ส่ง quality_tracked=True มาตรง ๆ ทับแถวที่ (จะ) เป็น consumable แม้แค่แถวเดียวในชุดที่เลือกมาพร้อมกัน

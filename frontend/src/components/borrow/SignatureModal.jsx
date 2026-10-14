@@ -40,10 +40,15 @@ export function SignatureModal({ requestId, requestCode, mode = 'handover', onCl
   const staffRef = useRef(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // กันดับเบิลคลิก — setLoading มีผลหลัง re-render แต่ toBlob() เป็น async คลิกที่สองจึงหลุดเข้ามาก่อนปุ่มถูกปิด (QA-23)
+  const busy = useRef(false)
 
   const submit = async () => {
+    if (busy.current) return
+    busy.current = true
     const borrower = await borrowerRef.current?.toBlob()
     if (!borrower) {
+      busy.current = false
       setError('ต้องมีลายเซ็นผู้ยืมก่อนจึงจะบันทึกได้')
       return
     }
@@ -54,6 +59,7 @@ export function SignatureModal({ requestId, requestCode, mode = 'handover', onCl
       onDone()
     } catch (err) {
       setError(err.response?.data?.detail ?? 'บันทึกลายเซ็นไม่สำเร็จ')
+      busy.current = false
       setLoading(false)
     }
   }

@@ -23,12 +23,17 @@ export async function fetchAllPages(listFn, params = {}) {
   return rows
 }
 
-/** ดาวน์โหลดไฟล์ชื่อ `<prefix>-<วันนี้>.csv` */
-export function downloadCsv(prefix, header, rows) {
-  const url = URL.createObjectURL(new Blob([toCsv(header, rows)], { type: 'text/csv;charset=utf-8' }))
+/** บันทึก blob เป็นไฟล์ในเครื่องผู้ใช้ (ใช้ร่วมกันทั้ง CSV และแม่แบบนำเข้า .xlsx) */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${prefix}-${todayTH()}.csv`
+  a.download = filename
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
+/** ดาวน์โหลดไฟล์ชื่อ `<prefix>-<วันนี้>.csv` */
+export function downloadCsv(prefix, header, rows) {
+  downloadBlob(new Blob([toCsv(header, rows)], { type: 'text/csv;charset=utf-8' }), `${prefix}-${todayTH()}.csv`)
 }

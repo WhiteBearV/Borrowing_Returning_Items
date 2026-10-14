@@ -10,5 +10,6 @@ export const eligibleStudentsApi = {
     return api.post('/eligible-students/import', fd,
       { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
   },
+  template: () => api.get('/eligible-students/import/template', { responseType: 'blob' }).then((r) => r.data),
   remove: (id) => api.delete(`/eligible-students/${id}`),
 }

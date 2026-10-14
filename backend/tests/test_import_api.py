@@ -22,11 +22,11 @@ async def cleanup_imported():
     yield
     async with AsyncSessionLocal() as db:
         ids = (await db.execute(
-            select(Equipment.id).where(Equipment.code.in_([CODE_A, CODE_B]))
+            select(Equipment.id).where(Equipment.asset_number.in_([CODE_A, CODE_B]))
         )).scalars().all()
         for eid in ids:
             await db.execute(delete(AuditLog).where(AuditLog.target_id == eid))
-        await db.execute(delete(Equipment).where(Equipment.code.in_([CODE_A, CODE_B])))
+        await db.execute(delete(Equipment).where(Equipment.asset_number.in_([CODE_A, CODE_B])))
         await db.commit()
 
 
@@ -54,14 +54,15 @@ async def test_import_preview_then_commit_selected_rows(client, admin_token, tmp
         )
     assert res.status_code == 200
     draft = res.json()
-    new_rows = {r["code"]: r for r in draft["rows"] if r["action"] == "new"}
+    # คอลัมน์ B ของทะเบียน = เลขครุภัณฑ์ · ของใหม่ยังไม่มีรหัส ได้คีย์ชั่วคราว NEW: ระบบออก DT-D ตอนบันทึก
+    new_rows = {r["asset_number"]: r for r in draft["rows"] if r["action"] == "new"}
     assert CODE_A in new_rows and CODE_B in new_rows
 
     # แอดมินแก้ชื่อ/สถานะในร่าง แล้วตัด CODE_B ออก (ไม่เอาเข้าคลัง)
     res = await client.post(
         f"/equipment/import/{draft['import_id']}/commit",
         json={"filename": "register.xlsx", "rows": [{
-            "code": CODE_A, "action": "new", "name": "ออสซิลโลสโคป Rigol (แก้ชื่อในร่าง)",
+            "code": new_rows[CODE_A]["code"], "action": "new", "name": "ออสซิลโลสโคป Rigol (แก้ชื่อในร่าง)",
             "location": "15399", "status": "damaged", "category": "อุปกรณ์อิเล็กทรอนิกส์/เครื่องมือวัด",
         }]},
         headers=auth(admin_token),
@@ -70,17 +71,18 @@ async def test_import_preview_then_commit_selected_rows(client, admin_token, tmp
     assert res.json()["new"] == 1
 
     async with AsyncSessionLocal() as db:
-        eq = (await db.execute(select(Equipment).where(Equipment.code == CODE_A))).scalar_one()
+        eq = (await db.execute(select(Equipment).where(Equipment.asset_number == CODE_A))).scalar_one()
+        assert eq.code.startswith("DT-D-")
         assert eq.name == "ออสซิลโลสโคป Rigol (แก้ชื่อในร่าง)"  # ใช้ค่าที่แก้ในร่าง ไม่ใช่ค่าจากไฟล์
         assert eq.location == "15399"
         assert eq.status == "damaged" and eq.quantity_available == 0  # ชำรุด → ยืมไม่ได้
         # บรรทัดที่ถูกตัดออกจากร่างต้องไม่เข้าระบบ
-        assert (await db.execute(select(Equipment).where(Equipment.code == CODE_B))).scalar_one_or_none() is None
+        assert (await db.execute(select(Equipment).where(Equipment.asset_number == CODE_B))).scalar_one_or_none() is None
         # ต้องมี audit log ให้ออกใบรับเข้าคลังได้
         log = (await db.execute(
             select(AuditLog).where(AuditLog.target_id == eq.id, AuditLog.action == "create_equipment")
         )).scalar_one()
-        assert log.detail["code"] == CODE_A and log.detail["source"] == "register.xlsx"
+        assert log.detail["code"] == eq.code and log.detail["source"] == "register.xlsx"
 
 
 @pytest.mark.asyncio(loop_scope="session")

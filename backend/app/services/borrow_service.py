@@ -24,14 +24,16 @@ from app.schemas.borrow import (
     BorrowRequestResponse,
     FineEditRequest,
     FineWaiveRequest,
+    HiddenRequestResponse,
     PaginatedBorrowRequests,
     ReturnItemRequest,
+    SwapItemRequest,
 )
 from app.services import audit_service, equipment_service, users_service
 from app.utils.duedate import effective_due_date, fmt_date
 from app.utils.email import send_email
 from app.utils.identity import user_identifier
-from app.utils.roles import STAFF_ROLES, is_staff
+from app.utils.roles import STAFF_ROLES, is_staff, is_superadmin
 
 # กันนักศึกษาพิมพ์วันที่คาดว่าจะคืนเพี้ยน (เช่น อีก 100 ปี) — ไม่ใช่ business rule ที่ต้องปรับตาม
 # settings เป็นแค่ sanity cap กันค่าพิมพ์ผิดหลุดเข้าระบบ
@@ -64,6 +66,15 @@ async def _get_setting_str(db: AsyncSession, key: str, default: str) -> str:
     result = await db.execute(select(Setting).where(Setting.key == key))
     row = result.scalar_one_or_none()
     return row.value if row else default
+
+
+DEFAULT_PICKUP_LOCATION = "ห้องพัสดุ คณะเทคโนโลยีดิจิทัล"   # ตรงกับ migration 0032
+
+
+async def _default_pickup_location(db: AsyncSession) -> str:
+    """สถานที่รับของตั้งต้น (setting `default_pickup_location`) — จุดเดียวที่ฝั่ง backend อ่านคีย์นี้"""
+    return (await _get_setting_str(db, "default_pickup_location", DEFAULT_PICKUP_LOCATION)).strip() \
+        or DEFAULT_PICKUP_LOCATION
 
 
 def _ident(user: User) -> str:
@@ -104,7 +115,15 @@ async def _notify(
     ))
 
 
-async def _load_request(db: AsyncSession, request_id: uuid.UUID) -> BorrowRequest:
+async def _load_request(db: AsyncSession, request_id: uuid.UUID, lock: bool = False) -> BorrowRequest:
+    """โหลดคำขอพร้อมรายการ · `lock=True` = ล็อกแถวคำขอ (FOR UPDATE) **ก่อน**อ่าน ใช้กับทุกจุดที่เช็คสถานะแล้วเขียน
+
+    ไม่ล็อก = สองคำขอพร้อมกันเห็น "pending/ยังไม่คืน/unpaid" ทั้งคู่แล้วผ่านทั้งคู่ (R2-10/11, 1 ต.ค. 69: อนุมัติซ้อน
+    ตัดสต็อกซ้ำ · คืนบางส่วนเกินที่ยืม · จ่าย+ยกเว้นค่าปรับซ้อน) คำขอที่สองจะรอจนคำขอแรก commit แล้วอ่านค่าใหม่
+    ลำดับล็อก: คำขอก่อน อุปกรณ์ (เรียงตาม code) ทีหลังเสมอ — ห้ามสลับ ไม่งั้น deadlock
+    """
+    if lock:
+        await db.execute(select(BorrowRequest.id).where(BorrowRequest.id == request_id).with_for_update())
     result = await db.execute(
         select(BorrowRequest)
         .options(
@@ -121,6 +140,14 @@ async def _load_request(db: AsyncSession, request_id: uuid.UUID) -> BorrowReques
     return req
 
 
+async def _lock_for_signing(db: AsyncSession, req: BorrowRequest) -> None:
+    """ล็อกแถวคำขอแล้วอ่านช่องลายเซ็นใหม่ก่อนเช็ค "เซ็นแล้วหรือยัง" — กันกดบันทึกซ้ำ/ดับเบิลคลิกแล้วเซ็นทับกัน
+    (QA-23, 30 ก.ย. 69: ดับเบิลคลิกเดียวได้ลายเซ็น 2 ครั้ง) คำขอที่สองจะรอจนคำขอแรก commit แล้วเห็นว่าเซ็นแล้ว
+    """
+    await db.execute(select(BorrowRequest.id).where(BorrowRequest.id == req.id).with_for_update())
+    await db.refresh(req, list(SIGNATURE_FIELDS.values()) + ["signature_meta"])
+
+
 def _to_utc(dt: datetime) -> datetime:
     """เวลาที่ผู้ใช้กรอกจากหน้าเว็บไม่มี timezone ติดมา — ถือเป็นเวลาไทยเสมอ แล้วเก็บเป็น UTC
 
@@ -135,7 +162,8 @@ def _to_utc(dt: datetime) -> datetime:
 def _fmt_appoint(dt: datetime | None, location: str | None) -> str:
     """ข้อความนัดหมายในภาษาคน สำหรับแจ้งเตือน/อีเมล เช่น "08/09/2026 เวลา 13:00 น. ที่ ห้องพัสดุ" """
     if not dt:
-        return ""
+        # มีสถานที่แต่ไม่นัดเวลา (จ่ายหน้าเคาน์เตอร์) — ยังต้องบอกที่รับของ เดิมทิ้งสถานที่ไปด้วยจนผู้ยืมไม่รู้จะไปไหน
+        return f"ที่ {location}" if location else ""
     local = dt.astimezone(TZ) if dt.tzinfo else dt.replace(tzinfo=timezone.utc).astimezone(TZ)
     when = f"{local:%d/%m/%Y} เวลา {local:%H:%M} น."
     return f"{when} ที่ {location}" if location else when
@@ -171,7 +199,15 @@ async def create_request(
     # ponytail: admin/อาจารย์ ยืมเชิงจัดการ (ยืมเอง/ยืมแทน) ไม่ติดโควตานักศึกษา
     is_admin = is_staff(current_user)
 
+    # รายการซ้ำชิ้นเดียวกันหลายบรรทัด — เช็คสต็อกทีละบรรทัดจะผ่านทั้งที่ยอดรวมเกิน แล้วไปติดตอนอนุมัติ (QA-08)
+    eq_ids = [i.equipment_id for i in body.items]
+    if len(set(eq_ids)) != len(eq_ids):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="มีอุปกรณ์รายการเดียวกันซ้ำหลายบรรทัด กรุณารวมเป็นบรรทัดเดียวแล้วระบุจำนวน")
+
     if not is_admin:
+        # ล็อกแถวผู้ยืมก่อนนับ — ยื่นพร้อมกันหลายคำขอเคยผ่านโควตาทุกใบเพราะต่างคนต่างนับได้ค่าเดิม (QA-22)
+        await db.execute(select(User.id).where(User.id == current_user.id).with_for_update())
         active_count_result = await db.execute(
             select(func.count(BorrowRequest.id)).where(
                 BorrowRequest.student_id == current_user.id,
@@ -273,6 +309,7 @@ async def create_request(
             equipment_code=eq.code,
             equipment_unit=eq.unit,
             equipment_serial_number=eq.serial_number,
+            equipment_asset_number=eq.asset_number,
         ))
 
     # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
@@ -284,6 +321,12 @@ async def create_request(
         await _notify(db, admin.id, "new_request_admin",
                       f"คำขอยืมใหม่ {req.request_code} จาก {current_user.full_name}",
                       borrow_request_id=req.id)
+
+    # บอกผู้ยืมทันทีว่าขั้นต่อไปคืออะไร/ไปรับที่ไหน — เดิมส่งแล้วเงียบ ผู้ยืมไม่รู้ต้องรอหรือต้องไปไหน (24 ก.ย. 69)
+    pickup_place = await _default_pickup_location(db)
+    await _notify(db, current_user.id, "request_submitted",
+                  f"ส่งคำขอ {req.request_code} แล้ว — รอเจ้าหน้าที่อนุมัติ แล้วไปรับของที่ {pickup_place}",
+                  borrow_request_id=req.id)
 
     # เก็บชื่ออุปกรณ์ลง detail ตั้งแต่ตอนเขียน (ไม่ join ทีหลัง) — ของอาจถูกลบถาวรได้ ประวัติต้องยังอ่านออก
     await audit_service.log_action(db, current_user, "create_request", "borrow_requests", req.id, {
@@ -311,6 +354,15 @@ async def create_request(
             )
         except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้สร้างคำขอไม่สำเร็จ
             print(f"[email] แจ้ง admin {admin.email} ไม่สำเร็จ: {e}")
+    try:
+        await send_email(
+            current_user.email,
+            f"ส่งคำขอยืม {req.request_code} แล้ว",
+            f"<p>ระบบได้รับคำขอยืม <b>{safe_code}</b> แล้ว กรุณารอเจ้าหน้าที่อนุมัติ "
+            f"(ระบบจะแจ้งเตือนเมื่ออนุมัติ) จากนั้นไปรับของที่ <b>{escape(pickup_place)}</b></p>",
+        )
+    except Exception as e:  # ponytail: อีเมลพังไม่ควรทำให้สร้างคำขอไม่สำเร็จ
+        print(f"[email] แจ้งผู้ยืม {current_user.email} ไม่สำเร็จ: {e}")
 
     # โหลด items กลับมาเพื่อ return response
     return await get_request(db, current_user, req.id)
@@ -403,19 +455,23 @@ async def list_requests(
             .where(
                 BorrowItem.borrow_request_id == BorrowRequest.id,
                 # รหัสอุปกรณ์ด้วย — สแกน QR ที่เคาน์เตอร์รับคืนได้แค่รหัส ไม่ใช่ชื่อ
+                # เลขครุภัณฑ์ด้วย — สติกเกอร์ราชการบนตัวเครื่องเป็นเลขครุภัณฑ์ ไม่ใช่รหัสระบบ
                 or_(BorrowItem.equipment_name.ilike(pattern),
-                    BorrowItem.equipment_id.in_(select(Equipment.id).where(Equipment.code.ilike(pattern)))),
+                    BorrowItem.equipment_asset_number.ilike(pattern),
+                    BorrowItem.equipment_id.in_(select(Equipment.id).where(
+                        or_(Equipment.code.ilike(pattern), Equipment.asset_number.ilike(pattern))))),
             )
             .exists()
         )
         # join กับ users เพื่อค้นชื่อ/รหัสนักศึกษา — ระวัง User.student_id (เลขรหัสนักศึกษา, string) คนละตัวกับ
         # BorrowRequest.student_id (UUID FK ไปหา users.id) ห้ามสลับกัน
         query = query.join(User, User.id == BorrowRequest.student_id).where(
+            # เลขคำขอด้วย — เจ้าหน้าที่ถือใบยืมมา หาด้วยเลขหัวกระดาษต้องเจอ (QA-14)
             or_(User.full_name.ilike(pattern), User.student_id.ilike(pattern),
-                User.username.ilike(pattern), has_matching_item)
+                User.username.ilike(pattern), BorrowRequest.request_code.ilike(pattern), has_matching_item)
         )
 
-    query = query.order_by(BorrowRequest.requested_at.desc())
+    query = query.order_by(BorrowRequest.requested_at.desc(), BorrowRequest.id)  # id = ตัวตัดสินท้าย (R4-01)
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
@@ -433,6 +489,11 @@ async def _attach_request_student_year(db: AsyncSession, requests: list[BorrowRe
     ผู้ใช้ แล้วเซ็ตค่ากลับผ่าน property setter (ดู models/borrow_request.py) — เรียกจาก list_requests/
     get_request/create_request (ผ่าน get_request) ทุกจุดที่คืน BorrowRequestResponse ให้ไคลเอนต์
     """
+    # สถานที่รับของที่ผู้ยืมต้องไป — คำขอที่ยังไม่อนุมัติยังไม่มี pickup_location จึงใช้ค่าตั้งต้น
+    # (นักศึกษาอ่าน GET /settings ไม่ได้ ต้องมากับ response)
+    default_place = await _default_pickup_location(db) if requests else None
+    for r in requests:
+        r.pickup_place = r.pickup_location or default_place
     students = [r.student for r in requests if r.student is not None]
     if not students:
         return
@@ -461,7 +522,7 @@ async def cancel_request(
     เก็บลง `cancel_reason` แยกจาก `rejection_reason` (ของแอดมิน) เพราะเป็นคนละคนพูดคนละเรื่อง
     ถ้าใช้ช่องเดียวกันจะอ่านประวัติไม่ออกว่าใครเป็นคนยกเลิก
     """
-    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
+    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id).with_for_update())  # R2-11: กันชนกับอนุมัติ
     req = result.scalar_one_or_none()
     if not req or req.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
@@ -529,7 +590,7 @@ async def approve_request(
     ไม่ตั้ง returned=True ให้ item ใดทั้งสิ้น แม้แต่ consumable —
     แอดมินต้องสรุปผลภายหลังว่าคืนครบ/ใช้หมด/เสียหาย (CLAUDE.md §5)
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
 
     if req.status != "pending":
         raise HTTPException(
@@ -652,14 +713,7 @@ async def approve_request(
         chosen.quantity_available -= item.quantity
         # ล็อกราคาต่อหน่วย + ชื่อ/รหัส/หน่วยนับ ณ วันอนุมัติ — ต้องเป็นค่าของ chosen (หน่วยที่จัดสรรจริง)
         # ไม่ใช่ eq ตัวที่ยื่นไว้ตอนแรก และต้องล็อกไว้เพราะหลังจากนี้แถว equipment อาจถูกแก้ชื่อ/ปลดระวาง/ลบถาวรได้
-        item.unit_value_snapshot = chosen.unit_value
-        # มูลค่าตามบัญชีเดินทุกวัน — ต้อง snapshot ณ วันอนุมัติเหมือนราคาทุน ไม่งั้นพิมพ์ใบยืมใบเดิม
-        # ซ้ำอีกเดือนจะได้ตัวเลขไม่เท่าเดิม (dep_years/dep_salvage อ่านไว้ครั้งเดียวก่อนลูป)
-        item.book_value_snapshot = equipment_service.book_value(chosen, dep_years, dep_salvage)
-        item.equipment_name = chosen.name
-        item.equipment_code = chosen.code
-        item.equipment_unit = chosen.unit
-        item.equipment_serial_number = chosen.serial_number
+        _snapshot_unit(item, chosen, dep_years, dep_salvage)
 
     for item in approved:
         item.item_status = "approved"
@@ -675,6 +729,9 @@ async def approve_request(
         req.pickup_at = _to_utc(body.pickup_at) if body.pickup_at else None
         req.pickup_location = (body.pickup_location or "").strip() or None
         req.pickup_note = (body.pickup_note or "").strip() or None
+    if approved and not req.pickup_location:
+        # ไม่ได้ระบุสถานที่ (กด "ไม่นัด"/อนุมัติแบบไม่ส่ง body) — ผู้ยืมต้องรู้เสมอว่าไปรับที่ไหน
+        req.pickup_location = await _default_pickup_location(db)
     pickup_text = _fmt_appoint(req.pickup_at, req.pickup_location)
 
     reject_summary = " · ".join(f"{i.equipment_name}: {r}" for i, r in rejected)
@@ -760,7 +817,7 @@ async def reject_request(
     db: AsyncSession, admin: User, request_id: uuid.UUID, reason: str
 ) -> None:
     """ปฏิเสธคำขอ พร้อมบันทึกเหตุผล"""
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     if req.status != "pending":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -825,7 +882,7 @@ async def request_renew_item(
     max_renew = await _get_setting_int(db, "max_renew_count")
     max_days_ahead = await _get_setting_int(db, "max_renew_days")
 
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     if not is_staff(current_user) and req.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
     if req.status != "approved":
@@ -850,6 +907,11 @@ async def request_renew_item(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Requested date is too far ahead (max {max_days_ahead} days from today).",
         )
+
+    # ต่อเวลาต้อง "เลื่อนออก" เท่านั้น — เดิมขอวันเร็วกว่ากำหนดเดิมได้ อนุมัติแล้วกำหนดคืนร่นเข้า + เสียสิทธิ์ 1 ครั้ง (R2-08)
+    if requested_date <= effective_due_date(item, req):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="วันที่ขอต่อเวลาต้องหลังวันครบกำหนดคืนเดิม")
 
     item.renew_requested = True
     item.renew_requested_at = datetime.now(timezone.utc)
@@ -893,7 +955,7 @@ async def approve_renew_item(
     db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID
 ) -> None:
     """อนุมัติคำขอต่อเวลา — ขยาย extended_due_date ไปตามวันที่นักศึกษาขอ + นับ renewed_count"""
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     item = _find_item(req, item_id)
     if not item.renew_requested:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No pending renewal request for this item.")
@@ -904,6 +966,10 @@ async def approve_renew_item(
     item.renew_requested = False
     item.renew_requested_at = None
     item.renew_rejected_reason = None
+    # borrow_requests.due_date = วันช้าสุดของทั้งใบ (หัวการ์ด/ใบยืมใช้ค่านี้) — เดิมไม่ขยับตามการต่อเวลา หัวการ์ดจึงยัง
+    # ขึ้นวันเดิมทั้งที่ชิ้นที่ค้างเลื่อนไปแล้ว (R5-05) · ค่าปรับ/การทวงใช้วันรายชิ้นผ่าน effective_due_date ไม่กระทบ
+    if req.due_date is None or item.extended_due_date > req.due_date:
+        req.due_date = item.extended_due_date
 
     await _recompute_overdue(db, req)
 
@@ -933,7 +999,7 @@ async def reject_renew_item(
     db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, reason: str
 ) -> None:
     """ปฏิเสธคำขอต่อเวลา — ไม่แตะ renewed_count/extended_due_date เลย (ไม่นับเป็นครั้งที่ใช้ไป)"""
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     item = _find_item(req, item_id)
     if not item.renew_requested:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No pending renewal request for this item.")
@@ -971,7 +1037,7 @@ async def request_return_items(
     ไม่แตะ returned/quantity_available เลย — การคืนจริงยังต้องผ่าน return_item/return_all_items
     (admin only) เหมือนเดิมทุกประการ ตาม CLAUDE.md ข้อ 5
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     if not is_staff(current_user) and req.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
     if req.status != "approved":
@@ -996,6 +1062,10 @@ async def request_return_items(
         # เผื่อ 1 ชม. ให้คนที่กำลังเดินมาคืน "เมื่อกี้" แต่ห้ามนัดย้อนหลังเป็นวัน ๆ (คิวจะเพี้ยน)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Return appointment must not be in the past.")
+    if appoint_at > datetime.now(timezone.utc) + timedelta(days=365):
+        # พิมพ์ปีผิด (2099) จะไปค้างท้ายคิวคืนของเจ้าหน้าที่ตลอด (QA-21)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="นัดคืนล่วงหน้าได้ไม่เกิน 1 ปี")
 
     now = datetime.now(timezone.utc)
     for item in matched:
@@ -1064,7 +1134,7 @@ async def upload_signed_form(
     ที่เปิดได้ด้วย URL เปล่า = เอกสารที่มีลายเซ็น+ชื่อ+รหัส นศ. หลุดถ้าลิงก์รั่ว) เปิดดูได้ทาง
     get_signed_form() ที่ตรวจสิทธิ์เท่านั้น และตรวจ magic bytes กันไฟล์ปลอมนามสกุลตั้งแต่ตอนรับเข้า
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     _assert_can_see_request(req, current_user)
     # ใบร่างยังไม่มีเลขครุภัณฑ์/วันคืนจริง เซ็นมาก่อนอนุมัติก็ไม่มีความหมาย
     if req.status != "approved":
@@ -1177,7 +1247,8 @@ async def handover_request(
     ฉบับที่ตัวเองเซ็น และวันที่บนใบยืมจะขยับตามการเซ็นครั้งล่าสุด (เอกสารที่พิมพ์ไปแล้วจะไม่ตรงกับในระบบ)
     เซ็นผิดต้องให้ผู้ดูแลระบบล้างค่าในฐานข้อมูลก่อน ซึ่งทิ้งร่องรอยไว้ตรวจได้
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
+    await _lock_for_signing(db, req)
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Can only hand over approved requests.")
@@ -1219,7 +1290,8 @@ async def sign_return(
 
     เซ็นได้ครั้งเดียวเหมือนตอนรับของ (ดูเหตุผลใน handover_request)
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
+    await _lock_for_signing(db, req)
     if not any(i.returned for i in req.items):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="No returned items to sign for yet.")
@@ -1282,12 +1354,16 @@ async def _fine_settings(db: AsyncSession) -> tuple[float, int, float]:
 
 def _compute_fine(
     item: BorrowItem, req: BorrowRequest, condition: str, returned_date: date,
-    rate: float, grace_days: int, cap: float,
+    rate: float, grace_days: int, cap: float, late_already_charged: float = 0.0,
 ) -> dict:
     """คำนวณค่าปรับของอุปกรณ์ 1 ชิ้น ณ วันที่รับคืน — ฟังก์ชันบริสุทธิ์ ไม่แตะ DB (เทสได้ตรง ๆ)
 
     ค่าปรับล่าช้า = (วันที่คืนจริง − วันครบกำหนดที่ใช้จริง − วันผ่อนผัน) × อัตราต่อวัน จำกัดที่เพดาน
     ค่าเสียหาย   = มูลค่าตามบัญชี ณ วันอนุมัติ (book_value_snapshot) เฉพาะสถานะที่ของไม่ได้กลับเข้าคลัง
+
+    คืนบางส่วน: ค่าปรับล่าช้าเป็นของ "รายการเดิม" ก้อนเดียว (อัตรา/เพดานต่อรายการ) — `late_already_charged` คือยอดที่
+    แถวลูกซึ่งคืนไปก่อนหน้าโดนไปแล้ว คิดเพิ่มเฉพาะส่วนต่าง รวมทุกรอบจึงเท่ากับคิดทีเดียว ณ วันคืนชิ้นสุดท้าย
+    ค่าเสียหาย × จำนวนในแถว (book_value_snapshot เป็นมูลค่าต่อหน่วย) — เสีย 2 จาก 10 จ่ายค่า 2 ชิ้น
 
     ใช้ book_value ไม่ใช่ราคาที่ซื้อ เพราะเป็นมูลค่าที่หักค่าเสื่อมตามอายุแล้ว มีที่มาตามระเบียบพัสดุ
     และ **ไม่ใช่** สถิติการใช้งาน (จำนวนครั้ง/วันที่ถูกยืม ในหน้าความคุ้มค่า) ซึ่งเรียกเป็นเงินไม่ได้
@@ -1297,10 +1373,11 @@ def _compute_fine(
     late_amount = round(days_late * rate, 2)
     if cap > 0:
         late_amount = min(late_amount, cap)
+    late_amount = round(max(0.0, late_amount - late_already_charged), 2)
 
     damage_amount = 0.0
     if condition in PHOTO_REQUIRED_CONDITIONS and item.book_value_snapshot is not None:
-        damage_amount = float(item.book_value_snapshot)
+        damage_amount = round(float(item.book_value_snapshot) * item.quantity, 2)
 
     return {
         "days_late": days_late,
@@ -1313,7 +1390,9 @@ def _compute_fine(
             "rate_per_day": rate,
             "grace_days": grace_days,
             "cap": cap or None,
-            "book_value_used": damage_amount or None,
+            "book_value_used": float(item.book_value_snapshot) if damage_amount else None,
+            "quantity": item.quantity,
+            **({"late_already_charged": late_already_charged} if late_already_charged else {}),
         },
     }
 
@@ -1337,6 +1416,60 @@ def _apply_fine(item: BorrowItem, calc: dict, late_override: float | None = None
     return total
 
 
+def _snapshot_unit(item: BorrowItem, chosen: Equipment, dep_years: int, dep_salvage: float) -> None:
+    """ล็อกราคา/ชื่อ/รหัส/หน่วยนับของหน่วยที่จ่ายจริงลงแถว — ใช้ทั้งตอนอนุมัติและตอนเปลี่ยนตัวระหว่างยืม
+
+    ต้องเป็นค่าของ chosen (หน่วยที่จัดสรรจริง) และต้องล็อกไว้เพราะหลังจากนี้แถว equipment อาจถูกแก้ชื่อ/ปลดระวาง/
+    ลบถาวรได้ · มูลค่าตามบัญชีเดินทุกวัน ต้อง snapshot ไว้เหมือนราคาทุน ไม่งั้นพิมพ์ใบยืมใบเดิมซ้ำได้ตัวเลขไม่เท่าเดิม
+    """
+    item.unit_value_snapshot = chosen.unit_value
+    item.book_value_snapshot = equipment_service.book_value(chosen, dep_years, dep_salvage)
+    item.equipment_name = chosen.name
+    item.equipment_code = chosen.code
+    item.equipment_unit = chosen.unit
+    item.equipment_serial_number = chosen.serial_number
+    item.equipment_asset_number = chosen.asset_number
+
+
+def _apply_return_stock(item: BorrowItem, condition: str) -> None:
+    """ผลต่อคลังเมื่อรับของกลับ — ใช้ทั้งรับคืนและเปลี่ยนตัว (หน่วยเดิมกลับเข้าคลังในสภาพที่รับมาจริง)"""
+    if condition in STOCK_RETURN_CONDITIONS:
+        item.equipment.quantity_available += item.quantity
+    elif condition in PHOTO_REQUIRED_CONDITIONS and item.equipment.quantity_total == 1:
+        # แถวนี้แทนหน่วยเดียว (ไม่ใช่ก้อนวัสดุ/สิ้นเปลืองที่ยังไม่แยกรายชิ้น quantity_total>1) — เสีย/สูญหาย/ทิ้ง
+        # แล้วเป็นสถานะจริงของอุปกรณ์ชิ้นนั้นเลย ไม่ใช่แค่ตัวเลขสต็อกลด ไม่งั้น status ค้าง "available" ทั้งที่
+        # ของหายไปแล้วจริง ๆ (เจอบั๊กจริง — quantity_available เหลือ 0 แต่ status ยังขึ้น "พร้อม" ให้ยืม)
+        # quantity_total>1 ไม่แตะ status เพราะแค่หน่วยเดียวในก้อนเสีย ไม่ได้แปลว่าทั้งก้อนเสียหมด
+        item.equipment.status = "unavailable" if condition == "lost" else "damaged"
+
+
+def _late_charged_on_splits(req: BorrowRequest, root: BorrowItem) -> float:
+    """ค่าปรับล่าช้าที่ส่วนคืนก่อนหน้าของรายการนี้ (แถวลูก split_from_id) โดนไปแล้ว — ยอดที่บันทึกจริง รวมที่กรอกทับ"""
+    return sum(float(i.fine_late_amount or 0) for i in req.items if i.split_from_id == root.id)
+
+
+# คอลัมน์ที่แถวลูก (ส่วนที่คืนก่อน) ไม่ได้รับมาจากรายการเดิม — ที่เหลือ (snapshot ราคา/ชื่อ/วันครบกำหนด/การต่อเวลา)
+# ต้องเหมือนเดิมทุกตัว ใบคืน/ค่าปรับของส่วนนั้นจึงอ้างวันและราคาเดียวกับรายการเดิม
+_SPLIT_SKIP_COLUMNS = {"id", "split_from_id", "quantity", "created_at", "updated_at"}
+
+
+def _split_off(req: BorrowRequest, item: BorrowItem, quantity: int) -> BorrowItem:
+    """แตก `quantity` ชิ้นออกจากรายการเป็นแถวใหม่ (ส่วนที่กำลังจะรับคืน) — แถวเดิมคงส่วนที่ยังไม่คืน
+
+    ทำแบบนี้แทนตารางประวัติการคืนแยก เพื่อให้กฎรับคืนเดิมทั้งหมด (สต็อก/ค่าปรับ/รูปหลักฐาน/_all_settled) ใช้กับ
+    ส่วนที่คืนได้ตรง ๆ ไม่ต้องเขียนซ้ำ · แถวเดิมยังเป็นตัวแทน "การยืม 1 ครั้ง" ในสถิติเหมือนก่อนแตก
+    """
+    child = BorrowItem(**{c.key: getattr(item, c.key) for c in BorrowItem.__table__.columns
+                          if c.key not in _SPLIT_SKIP_COLUMNS})
+    child.id = uuid.uuid4()
+    child.split_from_id = item.id
+    child.quantity = quantity
+    child.equipment = item.equipment
+    item.quantity -= quantity
+    req.items.append(child)
+    return child
+
+
 async def return_item(
     db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, body: ReturnItemRequest
 ) -> None:
@@ -1346,8 +1479,9 @@ async def return_item(
     - สถานะที่คืนของเข้าคลัง (ok, returned_full) → เพิ่ม quantity_available กลับ
     - สถานะที่เสียหาย (damaged/lost/discarded) ต้องแนบรูปหลักฐานอย่างน้อย 1 รูป
     - ทุก item สรุปผลครบ → request.status = completed
+    - ส่ง `quantity` น้อยกว่าที่ยืม = คืนบางส่วน (ทยอยคืน / แยกสภาพ เช่น ดี 7 พัง 2 หาย 1 = กด 3 รอบ)
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
 
@@ -1365,6 +1499,14 @@ async def return_item(
     # เสียหาย/สูญหาย/ทิ้ง ต้องมีรูปหลักฐาน
     if body.condition_on_return in PHOTO_REQUIRED_CONDITIONS and not body.damage_photo_urls:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ต้องแนบรูปความเสียหายอย่างน้อย 1 รูป")
+    if body.quantity is not None and body.quantity > item.quantity:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"จำนวนที่คืนเกินจำนวนที่ค้างอยู่ ({item.quantity})")
+
+    root = item
+    late_charged = _late_charged_on_splits(req, root)
+    if body.quantity is not None and body.quantity < item.quantity:
+        item = _split_off(req, item, body.quantity)
 
     now = datetime.now(timezone.utc)
     item.returned = True
@@ -1377,17 +1519,11 @@ async def return_item(
     item.return_appoint_at = None   # คิวนัดคืนต้องหายจากหน้าแอดมินทันทีที่รับของแล้ว
     req.returned_by = admin.id  # ผู้รับคืนล่าสุด — ใบคืนต้องระบุว่าใครรับของมา
 
-    if body.condition_on_return in STOCK_RETURN_CONDITIONS:
-        item.equipment.quantity_available += item.quantity
-    elif body.condition_on_return in PHOTO_REQUIRED_CONDITIONS and item.equipment.quantity_total == 1:
-        # แถวนี้แทนหน่วยเดียว (ไม่ใช่ก้อนวัสดุ/สิ้นเปลืองที่ยังไม่แยกรายชิ้น quantity_total>1) — เสีย/สูญหาย/ทิ้ง
-        # แล้วเป็นสถานะจริงของอุปกรณ์ชิ้นนั้นเลย ไม่ใช่แค่ตัวเลขสต็อกลด ไม่งั้น status ค้าง "available" ทั้งที่
-        # ของหายไปแล้วจริง ๆ (เจอบั๊กจริง — quantity_available เหลือ 0 แต่ status ยังขึ้น "พร้อม" ให้ยืม)
-        # quantity_total>1 ไม่แตะ status เพราะแค่หน่วยเดียวในก้อนเสีย ไม่ได้แปลว่าทั้งก้อนเสียหมด
-        item.equipment.status = "unavailable" if body.condition_on_return == "lost" else "damaged"
+    _apply_return_stock(item, body.condition_on_return)
 
     rate, grace, cap = await _fine_settings(db)
-    calc = _compute_fine(item, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap)
+    calc = _compute_fine(item, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap,
+                         late_charged)
     overriding = body.fine_late_amount_override is not None or body.fine_damage_amount_override is not None
     if overriding:
         _assert_not_own_fine(admin, req)   # รับคืนของตัวเองได้ แต่กรอกทับยอดค่าปรับของตัวเองไม่ได้
@@ -1410,6 +1546,8 @@ async def return_item(
                                    {"request_code": req.request_code,
                                     "item": item.equipment_name,
                                     "condition": body.condition_on_return,
+                                    **({"quantity": item.quantity, "remaining": root.quantity}
+                                       if item is not root else {}),
                                     **({"fine_days_late": item.fine_days_late,
                                         "fine_late_amount": float(item.fine_late_amount),
                                         "fine_damage_amount": float(item.fine_damage_amount)}
@@ -1439,13 +1577,112 @@ async def return_item(
         print(f"[email] แจ้งนักศึกษา {req.student.email} ไม่สำเร็จ: {e}")
 
 
+# คอลัมน์ที่แถวของหน่วยใหม่ (เปลี่ยนตัว) รับต่อจากแถวเดิม — วันครบกำหนด/การต่อเวลา/คำขอต่อเวลาที่ค้างอยู่
+# ต้องตามไปด้วย ("คงวันครบกำหนดเดิม") ส่วนผลรับคืน/ค่าปรับ/นัดคืน/snapshot หน่วย เป็นของหน่วยเดิมเท่านั้น
+_SWAP_CARRY_COLUMNS = (
+    "borrow_request_id", "item_type_snapshot", "quantity", "requested_due_date", "due_date", "item_status",
+    "renewed_count", "extended_due_date", "renew_requested", "renew_requested_at", "renew_requested_date",
+    "renew_reason", "renew_rejected_reason",
+)
+
+
+async def swap_item(
+    db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID, body: SwapItemRequest
+) -> None:
+    """เปลี่ยนตัวระหว่างยืม (SKGRent ข้อ 4) — ของพังกลางทาง ผู้ยืมไม่ต้องคืนใบเดิมแล้วยื่นใหม่
+
+    - แถวเดิมปิดด้วยสภาพที่รับกลับมาจริง (ok/damaged/lost + รูปหลักฐานตามกฎรับคืนเดิม) ผลต่อคลังเหมือนรับคืน
+      ค่าเสียหายคิดตามปกติ แต่ **ไม่คิดค่าปรับล่าช้า** — การยืมยังไม่จบ ความล่าช้าเป็นของรายการนี้ก้อนเดียว
+      ไปคิดตอนคืนหน่วยใหม่ (ไม่งั้นเปลี่ยนตัวหลังเลยกำหนดโดนปรับซ้ำ 2 แถว)
+    - แถวใหม่ (swapped_from_id → แถวเดิม) ได้หน่วยในรุ่นเดียวกันที่เลือกด้วย dispatch_order() เดิม (หรือที่แอดมิน
+      ระบุ) คงวันครบกำหนด/การต่อเวลาเดิม · started_at = ตอนนี้ วันที่ถูกยืมของหน่วยใหม่จึงไม่นับย้อนหลัง
+    - เฉพาะครุภัณฑ์/วัสดุใช้ซ้ำที่ยืม 1 ชิ้นต่อแถว — หลายชิ้นในแถวเดียวให้ใช้คืนบางส่วนแล้วยืมเพิ่ม
+    """
+    req = await _load_request(db, request_id, lock=True)
+    if req.status != "approved":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
+    old = next((i for i in req.items if i.id == item_id), None)
+    if not old:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+    if old.item_status == "rejected" or old.returned:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="รายการนี้ไม่ได้อยู่กับผู้ยืมแล้ว")
+    if old.item_type_snapshot == "consumable" or old.quantity != 1 or old.equipment is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="เปลี่ยนตัวได้เฉพาะครุภัณฑ์/วัสดุใช้ซ้ำที่ยืมทีละ 1 ชิ้น")
+    if body.condition_on_return not in DURABLE_CONDITIONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid condition value for this item type.")
+    if body.condition_on_return in PHOTO_REQUIRED_CONDITIONS and not body.damage_photo_urls:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ต้องแนบรูปความเสียหายอย่างน้อย 1 รูป")
+
+    # ล็อกทั้งรุ่นตามลำดับ code เหมือน approve_request (กัน deadlock + กันจ่ายหน่วยเดียวกันซ้อน) แล้วค่อยเรียง
+    # ลำดับจ่ายของใน memory ด้วย dispatch_order() จุดเดียว — ผู้ยืมคือเจ้าของคำขอ ไม่ใช่แอดมิน
+    eq = old.equipment
+    group = list((await db.execute(
+        select(Equipment)
+        .where(Equipment.name == eq.name, Equipment.item_type == eq.item_type)
+        .order_by(Equipment.code)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalars().all())
+    group = await equipment_service.dispatch_order(db, group, req.student)
+    candidates = [g for g in group if g.id != eq.id and (body.equipment_id is None or g.id == body.equipment_id)]
+    if body.equipment_id and not candidates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"หน่วยที่เลือกไม่ได้อยู่ในรุ่น '{eq.name}'")
+    new_unit = next((g for g in candidates
+                     if g.is_borrowable and g.status == "available" and g.quantity_available >= 1), None)
+    if new_unit is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="หน่วยที่เลือกไม่ว่างแล้ว" if body.equipment_id
+                            else f"ไม่มีหน่วยอื่นของ '{eq.name}' ว่างให้เปลี่ยน")
+
+    now = datetime.now(timezone.utc)
+    # ── ปิดแถวเดิม (รับหน่วยเดิมกลับ) ──
+    old.returned = True
+    old.returned_at = now
+    old.condition_on_return = body.condition_on_return
+    old.damage_note = body.damage_note
+    old.damage_photo_urls = body.damage_photo_urls
+    old.return_requested = False
+    old.return_requested_at = None
+    old.return_appoint_at = None
+    rate, grace, cap = await _fine_settings(db)
+    calc = _compute_fine(old, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap)
+    calc["days_late"], calc["late_amount"] = 0, 0.0
+    calc["basis"] = {**calc["basis"], "swapped": True}
+    _apply_fine(old, calc)
+    _apply_return_stock(old, body.condition_on_return)
+
+    # ── แถวใหม่ (หน่วยที่มาแทน) ──
+    new = BorrowItem(id=uuid.uuid4(), swapped_from_id=old.id, started_at=now,
+                     equipment_id=new_unit.id, equipment=new_unit,
+                     **{c: getattr(old, c) for c in _SWAP_CARRY_COLUMNS})
+    req.items.append(new)   # เข้า session ก่อน query ถัดไป (autoflush) ไม่งั้น backref ของ equipment เตือน
+    old.renew_requested = False   # คำขอต่อเวลาที่ค้างย้ายไปอยู่กับหน่วยใหม่แล้ว
+    dep_years, dep_salvage = await equipment_service._depreciation_settings(db)
+    _snapshot_unit(new, new_unit, dep_years, dep_salvage)
+    new_unit.quantity_available -= 1
+
+    await audit_service.log_action(db, admin, "swap_item", "borrow_items", old.id, {
+        "request_code": req.request_code, "item": old.equipment_name,
+        "from_code": old.equipment_code, "to_code": new.equipment_code,
+        "condition": body.condition_on_return, "reason": body.reason,
+        **({"fine_damage_amount": float(old.fine_damage_amount)} if old.fine_total > 0 else {}),
+    })
+    await _notify(db, req.student_id, "item_swapped",
+                  f"คำขอ {req.request_code}: เปลี่ยน {old.equipment_name} จาก {old.equipment_code} "
+                  f"เป็น {new.equipment_code} แล้ว (กำหนดคืนเดิม)"
+                  + (f" · ค่าเสียหายหน่วยเดิม {old.fine_total:,.2f} บาท" if old.fine_total > 0 else ""),
+                  borrow_request_id=req.id)
+    await db.commit()
+
+
 async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
     """รับคืนครุภัณฑ์ (durable) ทุกชิ้นพร้อมกันแบบสภาพปกติ — admin only
 
     วัสดุสิ้นเปลือง (consumable) ไม่รวมในปุ่มนี้ ต้องสรุปผลทีละชิ้น (คืนครบ/ใช้หมด/เสียหาย)
     request จะ completed ก็ต่อเมื่อทุก item สรุปผลครบแล้วเท่านั้น
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request is not in approved status.")
 
@@ -1464,7 +1701,8 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
             req.returned_by = admin.id
             # คืนสภาพปกติก็ยังโดนค่าปรับได้ถ้าเลยกำหนด — ปุ่มลัดนี้ไม่ใช่ทางหนีค่าปรับ
             fine_total += _apply_fine(
-                item, _compute_fine(item, req, "ok", now.astimezone(TZ).date(), rate, grace, cap))
+                item, _compute_fine(item, req, "ok", now.astimezone(TZ).date(), rate, grace, cap,
+                                    _late_charged_on_splits(req, item)))
 
     # complete เฉพาะเมื่อไม่มี item ค้างสรุป (รวมวัสดุที่ยังไม่ถูกสรุปผล)
     if _all_settled(req):
@@ -1568,6 +1806,9 @@ async def generate_preview_pdf(
             equipment_serial_number=(
                 eq_map[it.equipment_id].serial_number if it.equipment_id in eq_map else None
             ),
+            equipment_asset_number=(
+                eq_map[it.equipment_id].asset_number if it.equipment_id in eq_map else None
+            ),
             equipment_value=(
                 float(eq_map[it.equipment_id].unit_value)
                 if it.equipment_id in eq_map and eq_map[it.equipment_id].unit_value is not None
@@ -1612,10 +1853,17 @@ async def generate_preview_pdf(
     return _gen(req, await _get_setting_str(db, "pdf_value_source", "acquisition"))
 
 
-async def delete_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
-    """ลบประวัติการยืม — อนุญาตเฉพาะ completed / rejected / cancelled"""
-    result = await db.execute(select(BorrowRequest).where(BorrowRequest.id == request_id))
-    req = result.scalar_one_or_none()
+async def hide_request(db: AsyncSession, admin: User, request_id: uuid.UUID, reason: str) -> None:
+    """ซ่อนประวัติการยืม (superadmin) แทนการลบถาวร — เดิม DELETE ลบแถวจริง ประวัติ/เลขคำขอหายเหลือแต่ audit
+    ตอนนี้แถวยังอยู่ หายจากทุกหน้าจอ/สถิติ (listener ใน models/borrow_request.py) กู้คืนได้ด้วย restore_request
+
+    ห้ามซ่อนคำขอที่มีค่าปรับ (ทุกสถานะ ไม่ใช่แค่ค้างชำระ) — รายงานค่าปรับ join คำขอ ซ่อนแล้วยอดที่ปรับ/รับชำระ/
+    ยกเว้นไปจะหายจากรายงานเงินด้วย = ช่องทางกลบเรื่องเงิน
+    """
+    req = (await db.execute(
+        select(BorrowRequest).options(selectinload(BorrowRequest.items)).where(BorrowRequest.id == request_id)
+        .with_for_update(of=BorrowRequest)
+    )).scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
     if req.status not in ("completed", "rejected", "cancelled"):
@@ -1623,14 +1871,49 @@ async def delete_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ลบได้เฉพาะคำขอที่เสร็จสิ้น / ปฏิเสธ / ยกเลิกแล้วเท่านั้น",
         )
-    # log ก่อนลบ — ต้องอ่านค่าจากแถวที่กำลังจะหายไป และการลบประวัติเป็นการกระทำที่ต้องตรวจสอบได้ที่สุด
-    await audit_service.log_action(db, admin, "delete_request", "borrow_requests", req.id, {
-        "request_code": req.request_code, "status": req.status,
+    if any(i.fine_status != "none" for i in req.items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="คำขอนี้มีประวัติค่าปรับ ลบไม่ได้ — ต้องคงไว้ในรายงานค่าปรับ")
+    req.deleted_at = datetime.now(timezone.utc)
+    req.deleted_by = admin.id
+    req.delete_reason = reason
+    await audit_service.log_action(db, admin, "hide_request", "borrow_requests", req.id, {
+        "request_code": req.request_code, "status": req.status, "reason": reason,
     })
-    await db.execute(delete(Notification).where(Notification.borrow_request_id == request_id))
-    await db.execute(delete(BorrowItem).where(BorrowItem.borrow_request_id == request_id))
-    await db.execute(delete(BorrowRequest).where(BorrowRequest.id == request_id))
     await db.commit()
+
+
+async def restore_request(db: AsyncSession, admin: User, request_id: uuid.UUID) -> None:
+    """กู้คืนคำขอที่ถูกซ่อน — กลับไปอยู่ทุกหน้าจอ/สถิติเหมือนเดิม (superadmin)"""
+    req = (await db.execute(
+        select(BorrowRequest).where(BorrowRequest.id == request_id, BorrowRequest.deleted_at.is_not(None))
+        .with_for_update()  # กดกู้คืนซ้ำพร้อมกัน คำขอหลังเจอ 404 ไม่ลง audit ซ้ำ (R4-03)
+        .execution_options(include_deleted=True)
+    )).scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ไม่พบคำขอที่ถูกซ่อนนี้")
+    await audit_service.log_action(db, admin, "restore_request", "borrow_requests", req.id, {
+        "request_code": req.request_code, "hidden_reason": req.delete_reason,
+    })
+    req.deleted_at = req.deleted_by = req.delete_reason = None
+    await db.commit()
+
+
+async def list_hidden_requests(db: AsyncSession) -> list[HiddenRequestResponse]:
+    """รายการคำขอที่ถูกซ่อน (ใหม่สุดก่อน) — ที่เดียวที่ยังเห็นของที่ซ่อนนอกจากหน้า Audit"""
+    rows = (await db.execute(
+        select(BorrowRequest)
+        .options(selectinload(BorrowRequest.student), selectinload(BorrowRequest.deleter))
+        .where(BorrowRequest.deleted_at.is_not(None))
+        .order_by(BorrowRequest.deleted_at.desc())
+        .execution_options(include_deleted=True)
+    )).scalars().all()
+    return [HiddenRequestResponse(
+        id=r.id, request_code=r.request_code, status=r.status,
+        borrower_name=r.student_name, borrower_identifier=r.borrower_identifier,
+        deleted_at=r.deleted_at, deleted_by_name=r.deleter.full_name if r.deleter else None,
+        delete_reason=r.delete_reason,
+    ) for r in rows]
 
 
 async def send_manual_reminder(db: AsyncSession, request_id: uuid.UUID) -> None:
@@ -1702,7 +1985,7 @@ async def update_fine(
     ยอดใหม่แทนที่ของเดิมทั้งคู่ ส่วน fine_basis (อัตรา/วันที่ใช้คำนวณ) คงไว้ตามเดิม
     เพื่อให้ยังเทียบได้ว่าสูตรคิดเท่าไหร่ แล้วคนแก้เป็นเท่าไหร่ ด้วยเหตุผลอะไร
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     _assert_not_own_fine(admin, req)
     item = _load_fine_item(req, item_id)
     if round(body.late_amount, 2) + round(body.damage_amount, 2) <= 0:
@@ -1726,7 +2009,7 @@ async def update_fine(
 
 async def pay_fine(db: AsyncSession, admin: User, request_id: uuid.UUID, item_id: uuid.UUID) -> None:
     """บันทึกว่าชำระค่าปรับแล้ว (เจ้าหน้าที่) — ระบบไม่รับเงินเอง แค่บันทึกว่ารับไว้แล้วเมื่อไหร่โดยใคร"""
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     _assert_not_own_fine(admin, req)
     item = _load_fine_item(req, item_id)
     item.fine_status = "paid"
@@ -1743,13 +2026,21 @@ async def pay_fine(db: AsyncSession, admin: User, request_id: uuid.UUID, item_id
 async def waive_fine(
     db: AsyncSession, superadmin: User, request_id: uuid.UUID, item_id: uuid.UUID, body: FineWaiveRequest
 ) -> None:
-    """ยกเว้นค่าปรับ (superadmin เท่านั้น) — ยอดเดิมยังอยู่ในแถว เปลี่ยนแค่สถานะ
+    """ยกเว้นค่าปรับ — ยอดเดิมยังอยู่ในแถว เปลี่ยนแค่สถานะ
 
     ไม่ล้างยอดเป็น 0 โดยตั้งใจ: รายงานต้องตอบได้ว่า "ยกเว้นไปเท่าไหร่" ไม่ใช่แค่ "ไม่มีค่าปรับ"
+    superadmin ยกเว้นได้ทุกยอด · ผู้ดูแลคลังยกเว้นได้เฉพาะยอดรวมรายการ ≤ setting `fine_waive_limit_admin`
+    (0 = ปิด ตามเดิม) — เคสเล็กจบที่เคาน์เตอร์ ไม่ต้องรอผู้ดูแลระบบ (24 ก.ย. 69 — SKGRent ข้อ 5)
     """
-    req = await _load_request(db, request_id)
+    req = await _load_request(db, request_id, lock=True)
     _assert_not_own_fine(superadmin, req)   # superadmin ยกเว้นค่าปรับของตัวเองก็ไม่ได้ ต้องให้อีกคนทำ
     item = _load_fine_item(req, item_id)
+    if not is_superadmin(superadmin):
+        limit = await _get_setting_float(db, "fine_waive_limit_admin", "0")
+        if limit <= 0 or item.fine_total > limit:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail=f"ยอดเกินเพดานที่ผู้ดูแลคลังยกเว้นได้ ({limit:,.2f} บาท) — ให้ผู้ดูแลระบบสูงสุดยกเว้น"
+                                if limit > 0 else "ยกเว้นค่าปรับได้เฉพาะผู้ดูแลระบบสูงสุด")
     item.fine_status = "waived"
     item.fine_waived_by = superadmin.id
     item.fine_waived_reason = body.reason

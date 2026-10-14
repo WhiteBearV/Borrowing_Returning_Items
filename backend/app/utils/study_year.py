@@ -88,6 +88,16 @@ def compute_study_year(
     return StudyYearInfo(year_level=level, is_retained=retained, remaining_study_years=remaining, label=label)
 
 
+UNKNOWN_YEAR_LABEL = "ไม่ทราบชั้นปี"
+
+
+def display_label(is_student: bool, enrollment_year: int | None, info: StudyYearInfo) -> str:
+    """ป้ายที่โชว์ให้คนอ่าน — นักศึกษาที่ไม่ทราบปีเข้า ≠ บุคลากร (compute_study_year ไม่รู้จัก role จึงคืน
+    "บุคลากร" ทุกครั้งที่ไม่มีปีเข้า ทำให้เจ้าหน้าที่เห็นนักศึกษาเป็นบุคลากรบนคำขอ/หน้าผู้ใช้ — QA-10)
+    ตรงกับกลุ่ม "unknown" ของ year_group_key()"""
+    return UNKNOWN_YEAR_LABEL if is_student and enrollment_year is None else info.label
+
+
 YEAR_GROUP_ORDER = ("1", "2", "3", "4", "retained", "staff", "unknown")
 
 

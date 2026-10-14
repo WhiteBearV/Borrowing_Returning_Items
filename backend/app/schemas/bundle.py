@@ -2,6 +2,8 @@ import uuid
 
 from pydantic import BaseModel, Field
 
+from app.schemas.auth import NonBlank
+
 
 class BundleItemRequest(BaseModel):
     equipment_id: uuid.UUID
@@ -9,7 +11,7 @@ class BundleItemRequest(BaseModel):
 
 
 class BundleCreate(BaseModel):
-    name: str
+    name: NonBlank
     description: str | None = None
     is_active: bool = True
     trigger_equipment_id: uuid.UUID | None = None
@@ -17,7 +19,7 @@ class BundleCreate(BaseModel):
 
 
 class BundleUpdate(BaseModel):
-    name: str | None = None
+    name: NonBlank | None = None
     description: str | None = None
     is_active: bool | None = None
     trigger_equipment_id: uuid.UUID | None = None

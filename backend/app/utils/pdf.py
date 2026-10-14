@@ -2,6 +2,7 @@ import os
 import io
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -20,6 +21,13 @@ _FONT_DIR = Path(__file__).parent / "fonts"
 _REGISTERED = False
 
 # ต้องตรงกับ label ฝั่ง frontend (RegisterPage.jsx / ProfilePage.jsx / UsersPage.jsx)
+def _e(v):
+    """escape ข้อความที่ผู้ใช้กรอกก่อนใส่ Paragraph — ReportLab ตีความ <...>/& เป็น markup ทำให้ข้อความหาย
+    ("สาย <USB-C>" เหลือ "สาย"), แทรกรูปแบบได้ หรือออกเอกสารไม่ได้เลย (QA-06, 30 ก.ย. 69)
+    ข้อความที่ระบบประกอบเอง (<u>, <br/>, &nbsp;) ไม่ต้องผ่านตัวนี้"""
+    return escape(str(v)) if v is not None else None
+
+
 _MAJOR_LABEL = {"comp_eng": "วิศวกรรมคอมพิวเตอร์", "digital_design": "ออกแบบดิจิทัล"}
 
 
@@ -266,16 +274,16 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     if draft:
         elems.append(Paragraph("— ร่าง / ยังไม่ได้รับอนุมัติ —", small_gray))
     if code:
-        elems.append(Paragraph(f"เลขที่คำขอ {code}", small_gray))
+        elems.append(Paragraph(f"เลขที่คำขอ {_e(code)}", small_gray))
     elems.append(Spacer(1, 10))
 
     req_dt = _local(doc_dt)
     time_str = req_dt.strftime("%H:%M") if getattr(req_dt, "hour", None) is not None else "____"
     elems.append(Paragraph(f"วันที่ {d} เดือน {m} พ.ศ. {y} &nbsp;&nbsp; เวลา {time_str} น.", right))
     elems.append(Spacer(1, 4))
-    name = getattr(req, "student_name", None) or "____________________"
+    name = _e(getattr(req, "student_name", None)) or "____________________"
     # อาจารย์/เจ้าหน้าที่ต้องมีรหัสประจำตัวขึ้นบนใบยืมเหมือนกัน ไม่ใช่เว้นว่างเพราะไม่มีรหัสนักศึกษา
-    number = getattr(req, "borrower_identifier", None) or getattr(req, "student_number", None)
+    number = _e(getattr(req, "borrower_identifier", None) or getattr(req, "student_number", None))
     position = _position_th(req)
     # บอกชนิดรหัสกำกับ (feedback อาจารย์) — ดูแล้วรู้ทันทีว่าเลขนี้เป็นของนักศึกษาหรือบุคลากร
     id_kind = "รหัสนักศึกษา" if position == "นักศึกษา" else "รหัสบุคลากร"
@@ -285,10 +293,10 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     major = _MAJOR_LABEL.get(getattr(req, "student_major", None))
     major_part = f"สาขา <u>{major}</u> &nbsp;&nbsp;&nbsp; " if major else ""
     elems.append(Paragraph(f"{major_part}ฝ่ายงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body))
-    contact = getattr(req, "student_email", None)
+    contact = _e(getattr(req, "student_email", None))
     if contact:
         elems.append(Paragraph(f"ช่องทางติดต่อ <u>{contact}</u>", body))
-    purpose = getattr(req, "purpose", None)
+    purpose = _e(getattr(req, "purpose", None))
 
     # รายการที่พิมพ์ลงเอกสาร — ใบยืมพิมพ์เฉพาะชิ้นที่ได้รับอนุมัติ (ชิ้นที่แอดมินไม่อนุมัติไม่เคยออกจากคลัง
     # ถ้าพิมพ์ลงใบที่ผู้ยืมเซ็นรับผิดชอบ = ให้เซ็นรับของที่ไม่เคยได้รับ) ใบคืนสะสมเฉพาะชิ้นที่คืนแล้ว
@@ -305,7 +313,7 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
 
     if is_return:
         elems.append(Paragraph(
-            f"ขอส่งคืนวัสดุ อุปกรณ์ ตามใบยืมเลขที่ <u>{code or '-'}</u> ดังรายการต่อไปนี้", body))
+            f"ขอส่งคืนวัสดุ อุปกรณ์ ตามใบยืมเลขที่ <u>{_e(code) or '-'}</u> ดังรายการต่อไปนี้", body))
         # วันคืนต่างกันรายชิ้นแล้ว การพิมพ์วันเดียวลอย ๆ ตรงหัวจะขัดกับตารางข้างล่างทันที
         due_head = (f"กำหนดคืน <u>{_fmt_date_th(uniq_dues[0])}</u>" if len(uniq_dues) == 1
                     else "กำหนดคืน <u>ตามรายการด้านล่าง</u>" if uniq_dues else "")
@@ -318,12 +326,12 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
             + (f" (เพื่อ {purpose})" if purpose else ""), body))
         # นัดรับของ (เฟส 4) — ใบยืมเป็นเอกสารที่ผู้ยืมถือไปจริง ต้องบอกว่าไปรับที่ไหนเมื่อไหร่
         pickup_at = getattr(req, "pickup_at", None)
-        if pickup_at:
-            where = getattr(req, "pickup_location", None)
-            elems.append(Paragraph(
-                f"นัดรับของ <u>{_fmt_datetime_th(pickup_at)} น.</u>"
-                + (f" &nbsp;&nbsp; สถานที่ <u>{where}</u>" if where else ""), body))
-            note = getattr(req, "pickup_note", None)
+        where = _e(getattr(req, "pickup_location", None))
+        if pickup_at or where:
+            # มีสถานที่แต่ไม่นัดเวลา (จ่ายหน้าเคาน์เตอร์) ก็ต้องพิมพ์สถานที่ ไม่ทิ้งทั้งบรรทัด
+            when = f"นัดรับของ <u>{_fmt_datetime_th(pickup_at)} น.</u> &nbsp;&nbsp; " if pickup_at else ""
+            elems.append(Paragraph(when + (f"สถานที่รับของ <u>{where}</u>" if where else ""), body))
+            note = _e(getattr(req, "pickup_note", None))
             if note:
                 elems.append(Paragraph(f"หมายเหตุการรับของ: {note}", body))
         if len(uniq_dues) > 1:
@@ -359,20 +367,24 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     rows = [header]
     for i, (item, item_due) in enumerate(zip(items, dues), 1):
         itype = getattr(item, "item_type_snapshot", None)
-        unit = getattr(item, "equipment_unit", None) or _DEFAULT_UNIT.get(itype, "ชิ้น")
+        unit = _e(getattr(item, "equipment_unit", None)) or _DEFAULT_UNIT.get(itype, "ชิ้น")
         qty = getattr(item, "quantity", 1)
         # ร่าง/พรีวิว (ยังไม่อนุมัติ): ห้ามโชว์รหัสหน่วยเจาะจง เพราะระบบเลือก "หน่วยว่างที่ได้มาเก่าสุด" ใหม่ทุกครั้ง
         # ที่เรียก ยังไม่ sync กันระหว่างตะกร้า/คำขอ/อนุมัติ รหัสที่เห็นตอนร่างอาจไม่ตรงของจริงตอนอนุมัติ
         # เขียนบอกตรง ๆ ว่า "รออนุมัติ" แทน "-" เฉย ๆ กันผู้ยืมสับสนว่าทำไมไม่มีรหัส
-        code_display = "รออนุมัติ" if draft else (getattr(item, "equipment_code", None) or "-")
+        code_display = "รออนุมัติ" if draft else (_e(getattr(item, "equipment_code", None)) or "-")
+        # เลขครุภัณฑ์ (ทะเบียนราชการ) บรรทัดล่างของรหัสระบบ — เอกสารราชการอ้างเลขนี้ แยกจากรหัสตั้งแต่ migration 0048
+        asset_no = None if draft else _e(getattr(item, "equipment_asset_number", None))
+        if asset_no:
+            code_display += f"<br/><font size=7 color='#555555'>ครุภัณฑ์ {asset_no}</font>"
         # SN (ถ้ามี) ต่อท้ายชื่อในวงเล็บ — ร่างยังไม่รู้ว่าจะได้หน่วยไหนจริง จึงโชว์ "รออนุมัติ" เหมือนคอลัมน์รหัส
-        name_display = getattr(item, "equipment_name", None) or "-"
-        sn = getattr(item, "equipment_serial_number", None)
+        name_display = _e(getattr(item, "equipment_name", None)) or "-"
+        sn = _e(getattr(item, "equipment_serial_number", None))
         if sn:
             name_display += f"(SN:{'รออนุมัติ' if draft else sn})"
         # สเปกที่ติดตั้งอยู่ ณ วันยืม (เฟส 8, ข้อ 17) — กันเคส "ยืมไปมี RAM 16GB คืนมาเหลือ 8GB"
         # เอกสารที่ผู้ยืมเซ็นต้องระบุว่าตอนรับของเครื่องมีอะไรอยู่บ้าง ไม่ใช่แค่ชื่อเครื่อง
-        specs = getattr(item, "equipment_specs", None)
+        specs = _e(getattr(item, "equipment_specs", None))
         if specs:
             name_display += f"<br/><font size=7 color='#555555'>สเปก: {specs}</font>"
         # wordWrap="CJK" = ตัดขึ้นบรรทัดใหม่ได้ทุกตัวอักษร จำเป็นสำหรับไทยและรหัสยาว ๆ:
@@ -438,8 +450,8 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     # ── ลายเซ็น: ใบยืม = ผู้ยืม/ผู้อนุมัติ, ใบคืน = ผู้คืน/ผู้รับคืน (แยกใบกันตามข้อ 1.10) ──
     blank = "(............................................)"
     borrower = f"({name})" if getattr(req, "student_name", None) else blank
-    approver = getattr(req, "approver_name", None)
-    receiver = getattr(req, "receiver_name", None)
+    approver = _e(getattr(req, "approver_name", None))
+    receiver = _e(getattr(req, "receiver_name", None))
     signer = receiver if is_return else approver
     right_name = f"({signer})" if signer else blank
     line = "............................................"
@@ -529,13 +541,13 @@ def generate_repair_pdf(rows: list[dict], requester: str, unit: str = "คณะ
     elems: list = [
         Paragraph("บันทึกข้อความ", title),
         Spacer(1, 8),
-        Paragraph(f"<b>ส่วนงาน</b> {unit} {dots}", body),
+        Paragraph(f"<b>ส่วนงาน</b> {_e(unit)} {dots}", body),
         Paragraph(f"<b>ที่</b> ....................................... <b>วันที่</b> {d} {m} {y}", body),
         Paragraph("<b>เรื่อง</b> ขออนุมัติซ่อมแซมครุภัณฑ์", body),
         Spacer(1, 6),
         Paragraph("<b>เรียน</b> ผู้มีอำนาจอนุมัติวงเงิน", body),
         Spacer(1, 4),
-        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ด้วยหน่วยงาน {unit} "
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ด้วยหน่วยงาน {_e(unit)} "
                   "มีความประสงค์จะขออนุมัติซ่อมแซมครุภัณฑ์ รายละเอียดดังนี้", body),
         Spacer(1, 8),
     ]
@@ -544,10 +556,10 @@ def generate_repair_pdf(rows: list[dict], requester: str, unit: str = "คณะ
     for i, r in enumerate(rows, 1):
         data.append([
             Paragraph(str(i), _style(f"ri{i}", fontSize=9.5, alignment=1)),
-            Paragraph(r.get("name") or "-", _style(f"rn{i}", fontSize=9.5)),
-            Paragraph(r.get("code") or "-", _style(f"rc{i}", fontSize=8.5, alignment=1)),
-            Paragraph(r.get("damage") or "-", _style(f"rd{i}", fontSize=9.5)),
-            Paragraph(r.get("note") or "", _style(f"rm{i}", fontSize=9)),
+            Paragraph(_e(r.get("name")) or "-", _style(f"rn{i}", fontSize=9.5)),
+            Paragraph(_e(r.get("code")) or "-", _style(f"rc{i}", fontSize=8.5, alignment=1)),
+            Paragraph(_e(r.get("damage")) or "-", _style(f"rd{i}", fontSize=9.5)),
+            Paragraph(_e(r.get("note")) or "", _style(f"rm{i}", fontSize=9)),
         ])
     # ไม่เติมแถวว่าง (8 ก.ย. 69) — เอกสารขออนุมัติที่มีบรรทัดว่างต่อท้ายคือช่องให้เติมรายการหลังเซ็น
 
@@ -584,7 +596,7 @@ def generate_repair_pdf(rows: list[dict], requester: str, unit: str = "คณะ
 
     sig = Table([[
         Paragraph(f"ลงชื่อ ........................................ ผู้ขอซ่อม<br/>"
-                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {requester} )<br/>"
+                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {_e(requester)} )<br/>"
                   "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
         Paragraph("ลงชื่อ ........................................ ผู้ตรวจสอบ<br/>"
                   "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(........................................)<br/>"
@@ -652,7 +664,7 @@ def _build_receipt_form(date_from: str, date_to: str, generated_by: str, rows: l
         Paragraph("อ้างอิงใบตรวจรับ ...........................", right),
         Paragraph(f"วันที่ {d} {m} {y}", right),
         Spacer(1, 6),
-        Paragraph(f"ชื่อ-สกุล <u>{generated_by}</u> &nbsp;&nbsp; ตำแหน่ง ......................... "
+        Paragraph(f"ชื่อ-สกุล <u>{_e(generated_by)}</u> &nbsp;&nbsp; ตำแหน่ง ......................... "
                   "&nbsp;&nbsp; หน่วยงาน <u>คณะเทคโนโลยีดิจิทัล</u>", body),
         Paragraph(f"รายการที่นำเข้าคลังระหว่างวันที่ {date_from} ถึง {date_to} "
                   f"รวม {len(rows)} รายการ", small),
@@ -672,12 +684,12 @@ def _build_receipt_form(date_from: str, date_to: str, generated_by: str, rows: l
         amount = price * qty if price is not None and qty is not None else None
         data.append([
             Paragraph(str(i), _style(f"ka{i}", fontSize=9, alignment=1)),
-            Paragraph(str(r.get("name") or "-"), _style(f"kb{i}", fontSize=9)),
+            Paragraph(_e(r.get("name") or "-"), _style(f"kb{i}", fontSize=9)),
             Paragraph(f"{qty} {unit_th}" if qty is not None else "-",
                       _style(f"kc{i}", fontSize=9, alignment=1)),
             Paragraph(_fmt_money(price), _style(f"kp{i}", fontSize=9, alignment=2)) if price is not None else "",
             Paragraph(_fmt_money(amount), _style(f"km{i}", fontSize=9, alignment=2)) if amount is not None else "",
-            Paragraph(str(r.get("code") or "-"), _style(f"kd{i}", fontSize=8.5, alignment=1)),
+            Paragraph(_e(r.get("code") or "-"), _style(f"kd{i}", fontSize=8.5, alignment=1)),
         ])
     data += [["", "", "", "", "", ""]] * max(0, 5 - len(rows))
 
@@ -694,7 +706,7 @@ def _build_receipt_form(date_from: str, date_to: str, generated_by: str, rows: l
 
     sig = Table([[
         Paragraph("ลงชื่อ ........................................ ผู้เบิก<br/>"
-                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {generated_by} )<br/>"
+                  f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {_e(generated_by)} )<br/>"
                   "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;......../......../........", small),
         Paragraph("ลงชื่อ ........................................ ผู้จ่ายครุภัณฑ์<br/>"
                   "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(........................................)<br/>"
@@ -787,13 +799,13 @@ def generate_stock_document_pdf(
         last_val = (r.get("reason") or "-") if is_disposal else _fmt_date(r.get("date"))
         table_rows.append([
             Paragraph(str(i), _style(f"a{i}", fontSize=9, alignment=1)),
-            Paragraph(str(r.get("code") or "-"), _style(f"b{i}", fontSize=9)),
-            Paragraph(str(r.get("name") or "-"), _style(f"c{i}", fontSize=9)),
+            Paragraph(_e(r.get("code") or "-"), _style(f"b{i}", fontSize=9)),
+            Paragraph(_e(r.get("name") or "-"), _style(f"c{i}", fontSize=9)),
             Paragraph(type_th, _style(f"d{i}", fontSize=9, alignment=1)),
             Paragraph(str(r.get("quantity") if r.get("quantity") is not None else "-"),
                       _style(f"e{i}", fontSize=9, alignment=1)),
-            Paragraph(str(r.get("actor") or "-"), _style(f"f{i}", fontSize=9)),
-            Paragraph(str(last_val), _style(f"g{i}", fontSize=9)),
+            Paragraph(_e(r.get("actor") or "-"), _style(f"f{i}", fontSize=9)),
+            Paragraph(_e(last_val), _style(f"g{i}", fontSize=9)),
         ])
 
     col_w = [8 * mm, 30 * mm, W - 8 * mm - 30 * mm - 22 * mm - 15 * mm - 28 * mm - 28 * mm,
@@ -900,7 +912,7 @@ def _sig_cell(label: str, name: str):
         [
             [Paragraph("_" * 30, _style("Line", alignment=1))],
             [Paragraph(label, style_label)],
-            [Paragraph(f"({name})" if name else "", style_name)],
+            [Paragraph(f"({_e(name)})" if name else "", style_name)],
         ],
         colWidths=["100%"],
     )

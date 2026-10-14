@@ -152,7 +152,7 @@ def _register_file(tmp_path, code, name, broken=False):
 async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, admin_token: str, tmp_path):
     h = auth(admin_token)
     code = f"{uuid.uuid4().int % 10**15:015d}"
-    eq_id = await _make_equipment(client, h, code=code, name="ชื่อเดิมในระบบ", location="15310")
+    eq_id = await _make_equipment(client, h, asset_number=code, name="ชื่อเดิมในระบบ", location="15310")
     try:
         path = _register_file(tmp_path, code, "ชื่อใหม่จากทะเบียน", broken=True)
         with open(path, "rb") as f:
@@ -163,7 +163,7 @@ async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, a
             )
         assert res.status_code == 200, res.text
         draft = res.json()
-        row = next(r for r in draft["rows"] if r["code"] == code)
+        row = next(r for r in draft["rows"] if (r.get("asset_number") or "").replace("-", "") == code)
         assert row["action"] == "update"
 
         res = await client.post(
@@ -194,7 +194,7 @@ async def test_import_update_into_tracked_group_inherits_and_logs(
     tracked_name = f"ทดสอบ นำเข้า กลุ่มติดตาม {uuid.uuid4().hex[:6]}"
     code = f"{uuid.uuid4().int % 10**15:015d}"
     g = await _make_equipment(client, h, name=tracked_name)
-    eq_id = await _make_equipment(client, h, code=code)
+    eq_id = await _make_equipment(client, h, asset_number=code)  # ทะเบียนจับคู่ด้วยเลขครุภัณฑ์
     try:
         r = await client.patch(f"/equipment/{g}", headers=h, json={"quality_tracked": True, "quality_life_years": 5})
         assert r.status_code == 200, r.text
@@ -206,7 +206,7 @@ async def test_import_update_into_tracked_group_inherits_and_logs(
             )
         assert res.status_code == 200, res.text
         draft = res.json()
-        row = next(r for r in draft["rows"] if r["code"] == code)
+        row = next(r for r in draft["rows"] if (r.get("asset_number") or "").replace("-", "") == code)
         res = await client.post(f"/equipment/import/{draft['import_id']}/commit",
                                 json={"filename": "register.xlsx", "rows": [row]}, headers=h)
         assert res.status_code == 200, res.text

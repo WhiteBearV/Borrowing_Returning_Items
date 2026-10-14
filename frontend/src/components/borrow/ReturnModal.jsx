@@ -21,6 +21,9 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
   const isConsumable = item.item_type_snapshot === 'consumable'
   const options = isConsumable ? CONSUMABLE_OPTIONS : DURABLE_OPTIONS
   const [condition, setCondition] = useState(options[0].value)
+  // คืนบางส่วน — จำนวนที่คืนรอบนี้ในสภาพที่เลือก ที่เหลือค้างในรายการเดิม (ดี 7 พัง 2 หาย 1 = บันทึก 3 รอบ)
+  const [qty, setQty] = useState(item.quantity)
+  const qtyValid = Number.isInteger(qty) && qty >= 1 && qty <= item.quantity
   const [note, setNote] = useState('')
   const [photos, setPhotos] = useState([])
   const [uploading, setUploading] = useState(false)
@@ -51,7 +54,8 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
       .catch(() => setEqQuality(null))
   }, [condition, item.equipment_id])
   const fine = useMemo(
-    () => previewFine(item, req, condition, settings), [item, req, condition, settings])
+    () => previewFine(item, req, condition, settings, qtyValid ? qty : item.quantity),
+    [item, req, condition, settings, qty, qtyValid])
   const shownLate = lateOverride === '' ? fine.lateAmount : Number(lateOverride) || 0
   const shownDamage = damageOverride === '' ? fine.damageAmount : Number(damageOverride) || 0
   const hasFine = fine.lateAmount > 0 || fine.damageAmount > 0 || shownLate > 0 || shownDamage > 0
@@ -72,6 +76,10 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
   }
 
   const submit = async () => {
+    if (!qtyValid) {
+      setError(`จำนวนที่คืนต้องอยู่ระหว่าง 1–${item.quantity}`)
+      return
+    }
     if (needPhoto && photos.length === 0) {
       setError('กรุณาถ่าย/แนบรูปหลักฐานอย่างน้อย 1 รูป')
       return
@@ -81,6 +89,7 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
     try {
       await borrowApi.returnItem(requestId, item.id, {
         condition_on_return: condition,
+        ...(qty < item.quantity ? { quantity: qty } : {}),
         damage_note: note || undefined,
         damage_photo_urls: photos.length ? photos : undefined,
         fine_late_amount_override: lateOverride === '' ? undefined : Number(lateOverride),
@@ -100,7 +109,24 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
         <h2 className="font-bold text-gray-800">{isConsumable ? 'สรุปผลวัสดุสิ้นเปลือง' : 'ยืนยันรับคืนอุปกรณ์'}</h2>
-        <p className="text-sm text-gray-500">{item.equipment_name ?? item.equipment_id} ×{item.quantity}</p>
+        <p className="text-sm text-gray-500">
+          {item.equipment_name ?? item.equipment_id} ×{item.quantity} {item.equipment_unit ?? ''}
+        </p>
+        {item.quantity > 1 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              จำนวนที่คืนรอบนี้ ({item.equipment_unit ?? 'ชิ้น'})
+            </label>
+            <input type="number" min="1" max={item.quantity} step="1" value={qty}
+              onChange={(e) => setQty(e.target.value === '' ? '' : Number(e.target.value))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            {qtyValid && qty < item.quantity && (
+              <p className="mt-1 text-xs text-gray-500">
+                ที่เหลือ {item.quantity - qty} {item.equipment_unit ?? 'ชิ้น'} ยังค้างในรายการนี้ — กดรับคืนซ้ำได้ (เช่น สภาพอื่น หรือคืนวันหลัง)
+              </p>
+            )}
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">{isConsumable ? 'ผลการใช้งาน' : 'สภาพอุปกรณ์'}</label>
           <select value={condition} onChange={(e) => setCondition(e.target.value)}
@@ -146,7 +172,7 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
         {hasFine && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-2">
             <p className="text-sm font-medium text-amber-800">
-              ค่าปรับที่ระบบคิดได้ {fineMoney(shownLate + shownDamage)} บาท
+              {lateOverride === '' && damageOverride === '' ? 'ค่าปรับที่ระบบคิดได้' : 'ค่าปรับที่จะบันทึก (แก้ยอดแล้ว)'} {fineMoney(shownLate + shownDamage)} บาท
             </p>
             <p className="text-xs text-amber-700 leading-relaxed">
               {fine.daysLate > 0
@@ -154,6 +180,7 @@ export function ReturnModal({ item, req, requestId, onClose, onDone }) {
                 : 'ไม่มีค่าปรับล่าช้า (คืนภายในกำหนด)'}
               {fine.grace > 0 && ` · ผ่อนผัน ${fine.grace} วัน`}
               {fine.cap > 0 && ` · เพดาน ${fineMoney(fine.cap)} บาท`}
+              {fine.alreadyCharged > 0 && ` · หักที่คิดไปแล้วตอนคืนบางส่วน ${fineMoney(fine.alreadyCharged)} บาท`}
               {fine.damageAmount > 0 &&
                 ` · ค่าเสียหายตามมูลค่าทางบัญชี ${fineMoney(fine.damageAmount)} บาท`}
             </p>

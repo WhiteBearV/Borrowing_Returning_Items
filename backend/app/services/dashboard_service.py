@@ -80,7 +80,8 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
     borrowed_out_result = await db.execute(
         select(func.coalesce(func.sum(BorrowItem.quantity), 0))
         .join(BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id)
-        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False))
+        .where(BorrowRequest.status == "approved", BorrowItem.returned.is_(False),
+               BorrowItem.item_status != "rejected")  # ชิ้นที่ไม่อนุมัติไม่เคยออกจากคลัง (R2-12)
     )
 
     # สรุปจำนวนอุปกรณ์ตามประเภท — ix_equipment_item_type มีอยู่แล้ว query นี้ถูกมาก
@@ -166,25 +167,8 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         for g in YEAR_GROUP_ORDER if g in year_group_counts
     ]
 
-    # การ์ดคุณภาพ (เฟส 10) — เฉพาะรุ่นที่เปิดติดตาม quality_tracked และยังไม่ปลดระวาง (ของที่ปลดระวางแล้ว
-    # ไม่มีใครต้องไปตรวจสภาพหรือประเมินต่ออีก ขึ้นเตือนไว้จะหลอกให้เจ้าหน้าที่เสียเวลาไปดูของที่เลิกใช้แล้ว)
-    tracked_rows = (await db.execute(
-        select(Equipment).where(Equipment.quality_tracked == True, Equipment.status != "retired")  # noqa: E712
-    )).scalars().all()
-    threshold = await equipment_service.quality_low_threshold(db)
-    unassessed = [e for e in tracked_rows if e.quality_baseline is None]
-    assessed = [e for e in tracked_rows if e.quality_baseline is not None]
-    quality_low_count = 0
-    if assessed:
-        age_weight, life_default = await equipment_service.quality_settings(db)
-        usage = await equipment_service.quality_usage_days_map(db, [e.id for e in assessed])
-        for e in assessed:
-            cq = equipment_service.current_quality(
-                float(e.quality_baseline), e.quality_baseline_at, e.quality_life_years,
-                usage.get(e.id, 0), age_weight, life_default,
-            )
-            if cq is not None and cq < threshold:
-                quality_low_count += 1
+    # การ์ดคุณภาพ (เฟส 10) + รอบตรวจเช็ค — นับจาก inspection_status() ตัวเดียวกับ job แจ้งเตือนรายวัน
+    inspect = await equipment_service.inspection_status(db)
 
     return DashboardSummaryResponse(
         users_total=users_total,
@@ -194,8 +178,9 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
         users_by_major=[MajorUserCount(major=m, count=c)
                         for m, c in sorted(by_major.items(), key=lambda kv: -kv[1])],
         users_by_year=users_by_year,
-        quality_low_count=quality_low_count,
-        quality_unassessed_count=len(unassessed),
+        quality_low_count=len(inspect["low"]),
+        quality_unassessed_count=len(inspect["unassessed"]),
+        quality_inspect_overdue_count=len(inspect["overdue"]),
         pending_requests=pending_result.scalar() or 0,
         overdue_requests=overdue_result.scalar() or 0,
         low_stock_items=low_stock_result.scalar() or 0,
@@ -257,8 +242,9 @@ async def get_utilization(
     period = date_from is not None and date_to is not None
     # ใช้นิยาม "วันที่ออกจากคลัง" ตัวเดียวกับที่กฎจ่ายของ (dispatch_key) ใช้ — ห้ามเขียนสูตรนับวันซ้ำที่อื่น
     # นับเฉพาะชิ้นที่ของออกจากคลังจริง — ชิ้นที่ถูกปฏิเสธไม่เคยได้ของไป และคำขอที่ยังไม่อนุมัติยังไม่มี approved_at
+    # split_from_id: ส่วนที่คืนก่อน (คืนบางส่วน) เป็นแถวแยก แต่ไม่ใช่การยืมครั้งใหม่ และแถวเดิมนับวันให้ทั้งช่วงแล้ว
     conds = [BorrowItem.equipment_id.is_not(None), BorrowItem.item_status != "rejected",
-             BorrowRequest.approved_at.is_not(None)]
+             BorrowRequest.approved_at.is_not(None), BorrowItem.split_from_id.is_(None)]
     if period:
         since = datetime.combine(date_from, time.min, TZ)
         until = min(datetime.combine(date_to + timedelta(days=1), time.min, TZ), now)
@@ -359,8 +345,10 @@ async def _monthly_usage(
         is_new = BorrowRequest.approved_at >= since
         cnt, days, value = (await db.execute(
             select(
-                func.count(BorrowItem.id).filter(is_new),
-                func.coalesce(func.sum(equipment_service.borrowed_days_expr(since, until)), 0),
+                # แถวลูกจากคืนบางส่วนไม่นับครั้ง/วันซ้ำ แต่ยังนับมูลค่า (quantity ถูกแบ่งไปอยู่ในแถวลูก)
+                func.count(BorrowItem.id).filter(is_new, BorrowItem.split_from_id.is_(None)),
+                func.coalesce(func.sum(equipment_service.borrowed_days_expr(since, until))
+                              .filter(BorrowItem.split_from_id.is_(None)), 0),
                 func.coalesce(func.sum(BorrowItem.quantity * BorrowItem.unit_value_snapshot).filter(is_new), 0),
             )
             .select_from(BorrowItem)

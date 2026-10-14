@@ -46,7 +46,7 @@ async def _delete_user_cascade(uid: uuid.UUID) -> None:
         student_id = (await db.execute(select(User.student_id).where(User.id == uid))).scalar_one_or_none()
         # ลบ FK ที่ชี้มาที่ user ก่อน — ต้องลบ BorrowItem/Notification ที่ชี้มาที่คำขอก่อน ค่อยลบตัวคำขอ (FK order)
         borrow_reqs = (await db.execute(
-            select(BorrowRequest.id).where(BorrowRequest.student_id == uid)
+            select(BorrowRequest.id).where(BorrowRequest.student_id == uid).execution_options(include_deleted=True)
         )).scalars().all()
         for req_id in borrow_reqs:
             await db.execute(delete(Notification).where(Notification.borrow_request_id == req_id))

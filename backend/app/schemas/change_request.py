@@ -3,13 +3,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.auth import NonBlank
+
 
 class ChangeRequestCreate(BaseModel):
     """ผู้ดูแลคลังยื่นคำขอให้ผู้ดูแลระบบสูงสุดแก้ข้อมูลให้"""
     target_table: str = Field(..., max_length=100)      # equipment / users / borrow_requests / อื่น ๆ
     target_id: uuid.UUID | None = None
     target_label: str | None = Field(None, max_length=255)  # ชื่อที่คนอ่านรู้เรื่อง เช่น "NB-001 โน้ตบุ๊ค Dell"
-    reason: str = Field(..., min_length=1)              # ทำไมต้องแก้
+    reason: NonBlank                                    # ทำไมต้องแก้
     detail: str | None = None                           # อยากให้แก้เป็นอะไร (ข้อความล้วน ไม่ใช่คำสั่ง)
 
 

@@ -31,7 +31,7 @@ async def _make_equipment(client: AsyncClient, admin_header: dict) -> str:
 async def _make_approved_request(client: AsyncClient, admin_header: dict, student_header: dict, eq_id: str) -> tuple[str, str]:
     r = await client.post("/borrow-requests", headers=student_header, json={
         "purpose": "ทดสอบระบบ",
-        "requested_due_date": "2028-06-01",
+        "requested_due_date": (date.today() + timedelta(days=1)).isoformat(),  # ใกล้ ๆ — ต่อเวลาต้องหลังวันนี้ (R2-08)
         "items": [{"equipment_id": eq_id, "quantity": 1}],
     })
     assert r.status_code == 201, r.text
@@ -119,6 +119,22 @@ async def test_renew_request_rejects_past_date(client: AsyncClient, admin_token:
             json={"requested_date": past_date, "reason": "ย้อนหลัง"}, headers=h_student,
         )
         assert r.status_code == 400
+    finally:
+        await _cleanup(eq_id, req_id, item_id)
+
+
+async def test_renew_request_rejects_date_not_after_current_due(client: AsyncClient, admin_token: str, student_token: str):
+    """R2-08: ต่อเวลาเป็นวันเดียวกับ/ก่อนกำหนดเดิมไม่ได้ (เดิมผ่าน แล้วอนุมัติ = กำหนดคืนร่นเข้า)"""
+    h_admin, h_student = auth(admin_token), auth(student_token)
+    eq_id = await _make_equipment(client, h_admin)
+    req_id, item_id = await _make_approved_request(client, h_admin, h_student, eq_id)
+    try:
+        same_as_due = (date.today() + timedelta(days=1)).isoformat()
+        r = await client.post(
+            f"/borrow-requests/{req_id}/items/{item_id}/renew-request",
+            json={"requested_date": same_as_due, "reason": "วันเดิม"}, headers=h_student,
+        )
+        assert r.status_code == 400, r.text
     finally:
         await _cleanup(eq_id, req_id, item_id)
 

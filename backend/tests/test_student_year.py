@@ -215,7 +215,7 @@ async def test_register_transfer_generation_requires_transfer_program(
 
     blocked = await client.post("/auth/register", json={
         "full_name": "ทดสอบ เทียบโอนหนึ่ง", "student_id": sid,
-        "email": f"tr{uuid.uuid4().hex[:6]}@student.cdti.ac.th",
+        "email": f"tr{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
         "is_transfer": False,
     })
@@ -224,7 +224,7 @@ async def test_register_transfer_generation_requires_transfer_program(
 
     ok = await client.post("/auth/register", json={
         "full_name": "ทดสอบ เทียบโอนหนึ่ง", "student_id": sid,
-        "email": f"tr{uuid.uuid4().hex[:6]}@student.cdti.ac.th",
+        "email": f"tr{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
         "is_transfer": True, "study_years": 2,
     })
@@ -243,7 +243,7 @@ async def test_register_regular_program_defaults_to_4_years(client: AsyncClient,
     clean_transfer_students.append(sid)
     r = await client.post("/auth/register", json={
         "full_name": "ทดสอบ หลักสูตรปกติ", "student_id": sid,
-        "email": f"reg{uuid.uuid4().hex[:6]}@student.cdti.ac.th",
+        "email": f"reg{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
     })
     assert r.status_code in (200, 201), r.text

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import SwapModal from '../../components/borrow/SwapModal.jsx'
 import { ReturnModal } from '../../components/borrow/ReturnModal.jsx'
 import ReasonModal, { REJECT_REASONS } from '../../components/common/ReasonModal.jsx'
 import { openPdf } from '../../utils/openPdf.js'
@@ -11,8 +12,11 @@ import UnitPickerModal from '../../components/borrow/UnitPickerModal.jsx'
 import { settingsApi } from '../../api/settingsApi.js'
 import { apiErrorMessage } from '../../utils/apiError.js'
 import DateInput from '../../components/common/DateInput.jsx'
+import ItemLineTag from '../../components/borrow/ItemLineTag.jsx'
 
 // ค่าเริ่มต้นช่อง datetime-local = พรุ่งนี้ (ปฏิทินไทย) ตามเวลาใน settings
+// วันคืนที่นักศึกษาขอเลยมาแล้วระหว่างรออนุมัติ (backend ปฏิเสธวันย้อนหลัง) — สตริง YYYY-MM-DD เทียบกันตรง ๆ ได้
+const isPastDue = (item, req) => (item.requested_due_date ?? req.requested_due_date ?? '9999') < todayTH()
 const tomorrowAt = (hhmm = '13:00') => `${todayTH(1)}T${/^\d{2}:\d{2}$/.test(hhmm) ? hhmm : '13:00'}`
 
 // คำขอต้อง "ทำอะไรสักอย่าง" ถ้ายัง pending (รออนุมัติ) หรือ approved ที่มี item แจ้งขอคืนแล้ว/ขอต่อเวลาแล้ว
@@ -30,7 +34,8 @@ export default function BorrowRequestsPage() {
   const [rejectId, setRejectId] = useState(null)
   // คำตัดสินรายชิ้นตอนอนุมัติ (เฟส 3) — { [itemId]: { approved, equipment_id, rejection_reason } }
   // ว่าง = อนุมัติทั้งใบตามวันที่นักศึกษาขอ (พฤติกรรมเดิม) แอดมินแตะเฉพาะแถวที่อยากเปลี่ยน
-  // วันคืนไม่มีให้แก้ที่หน้านี้แล้ว (เผลอปัดโดนแล้วอนุมัติไม่ผ่าน) — API ยังรับ due_date รายชิ้นได้เหมือนเดิม
+  // วันคืนไม่มีให้แก้ที่หน้านี้แล้ว (เผลอปัดโดนแล้วอนุมัติไม่ผ่าน) — ยกเว้นวันที่ขอ "เลยมาแล้ว" ระหว่างรออนุมัติ
+  // (QA-12): ขึ้นปุ่ม "แก้วันคืน" ให้กดเปิดช่องวันที่เอง ไม่งั้นอนุมัติไม่ได้เลย (backend ปฏิเสธวันย้อนหลัง)
   const [decisions, setDecisions] = useState({})
   const [unitPicker, setUnitPicker] = useState(null) // item ที่กำลังเลือกหน่วยจ่ายเอง
   // รหัสหน่วยที่แอดมินเลือกไว้ ({ [itemId]: code }) — แยกจาก decisions เพราะ decisions ถูกส่งขึ้น API ตรง ๆ
@@ -40,6 +45,7 @@ export default function BorrowRequestsPage() {
   const [pickup, setPickup] = useState({ at: '', location: '', note: '' })
   const [defaults, setDefaults] = useState({ location: '', time: '13:00' })
   const [rejectReason, setRejectReason] = useState('')
+  const [swapTarget, setSwapTarget] = useState(null) // { item, req } — เปลี่ยนตัวระหว่างยืม
   const [returnTarget, setReturnTarget] = useState(null) // { requestId, item }
   const [renewRejectTarget, setRenewRejectTarget] = useState(null) // { requestId, item }
   const [renewRejectReason, setRenewRejectReason] = useState('')
@@ -60,7 +66,8 @@ export default function BorrowRequestsPage() {
   useEffect(() => {
     if (rejectId || returnTarget || renewRejectTarget || pickupTarget || editingItems) return
     load(true)
-    const id = setInterval(() => load(false), 4000)
+    // แท็บที่ไม่ได้เปิดดูอยู่ไม่ต้อง poll — Prod เปิดทิ้งไว้ 24/7 หลายเครื่องยิงเซิร์ฟเวอร์ฟรี ๆ ทุก 4 วิ (QA รอบ 2)
+    const id = setInterval(() => { if (!document.hidden) load(false) }, 4000)
     return () => clearInterval(id)
   }, [page, rejectId, returnTarget, renewRejectTarget, pickupTarget, editingItems])
 
@@ -93,7 +100,22 @@ export default function BorrowRequestsPage() {
     }).catch(() => {})
   }, [])
 
+  // ตรวจก่อนเปิดโมดัลนัดรับ — เดิมตรวจตอนกดยืนยันในโมดัล ข้อความ error เลยไปอยู่หลังฉากมืด (QA-25)
+  const decisionError = (req) => {
+    for (const i of req.items) {
+      const d = decisions[i.id]
+      if (d && !d.approved && !(d.rejection_reason ?? '').trim()) return 'กรุณาระบุเหตุผลของรายการที่ไม่อนุมัติ'
+      if ((d ? d.approved : true) && isPastDue(i, req) && !(d?.due_date && d.due_date >= todayTH())) {
+        return `วันคืนที่ขอของ "${i.equipment_name}" เลยมาแล้ว — กด "แก้วันคืน" แล้วเลือกวันใหม่ก่อนอนุมัติ`
+      }
+    }
+    return ''
+  }
+
   const openPickup = (req) => {
+    const err = decisionError(req)
+    setActionError(err)
+    if (err) return
     setPickup({ at: tomorrowAt(defaults.time), location: defaults.location, note: '' })
     setPickupTarget(req)
   }
@@ -104,11 +126,13 @@ export default function BorrowRequestsPage() {
   const approve = async (req) => {
     const items = req.items
       .filter((i) => decisions[i.id])
-      .map((i) => ({ item_id: i.id, ...decisions[i.id] }))
+      // due_date ว่าง (กดแก้วันคืนแล้วเปลี่ยนใจติ๊กไม่อนุมัติ) ห้ามส่ง — API ตีเป็นวันที่ผิดรูปแบบ 422
+      .map((i) => ({ item_id: i.id, ...decisions[i.id], due_date: decisions[i.id].due_date || undefined }))
     // ไม่อนุมัติต้องมีเหตุผล — บอกที่หน้าจอก่อนยิง ไม่ต้องรอ 400 กลับมา
-    const missing = items.find((i) => !i.approved && !(i.rejection_reason ?? '').trim())
-    if (missing) {
-      setActionError('กรุณาระบุเหตุผลของรายการที่ไม่อนุมัติ')
+    const err = decisionError(req)
+    if (err) {
+      setPickupTarget(null)
+      setActionError(err)
       return
     }
     setActionError('')
@@ -234,7 +258,7 @@ export default function BorrowRequestsPage() {
                                     )}
                                     {item.equipment_name ?? item.equipment_id}
                                   </span>
-                                  <span className="text-gray-400 shrink-0">×{item.quantity}</span>
+                                  <span className="text-gray-400 shrink-0">×{item.quantity} {item.equipment_unit ?? ''}</span>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3 text-xs">
                                   <label className="flex items-center gap-1.5 text-gray-600">
@@ -246,7 +270,22 @@ export default function BorrowRequestsPage() {
                                     />
                                     อนุมัติรายการนี้
                                   </label>
-                                  {ok ? (
+                                  {ok && d?.due_date !== undefined ? (
+                                    <span className="flex items-center gap-1.5 text-gray-600">
+                                      กำหนดคืนใหม่
+                                      <DateInput type="date" min={todayTH()} value={d.due_date}
+                                        onChange={(e) => setDecision(item.id, { due_date: e.target.value })}
+                                        className="rounded border border-amber-300 px-2 py-0.5" />
+                                    </span>
+                                  ) : ok && isPastDue(item, req) ? (
+                                    <span className="flex items-center gap-2 text-red-600">
+                                      วันคืนที่ขอ {formatDate(item.requested_due_date ?? req.requested_due_date)} เลยมาแล้ว
+                                      <button type="button" onClick={() => setDecision(item.id, { due_date: '' })}
+                                        className="rounded-full border border-red-300 px-2 py-0.5 hover:bg-red-50">
+                                        แก้วันคืน
+                                      </button>
+                                    </span>
+                                  ) : ok ? (
                                     // อ่านอย่างเดียว — เดิมเป็นช่องวันที่ที่เผลอปัดโดนแล้วอนุมัติไม่ผ่าน
                                     // (ล้างค่า = ส่งวันว่างไป 422 / เลื่อนไปอดีต = 400) วันคืนใช้ที่นักศึกษาขอมา
                                     <span className="text-gray-600">
@@ -351,7 +390,8 @@ export default function BorrowRequestsPage() {
                               <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                                 <div className="min-w-0">
                                   <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
-                                  <span className="ml-2 text-gray-400">×{item.quantity}</span>
+                                  <span className="ml-2 text-gray-400">×{item.quantity} {item.equipment_unit ?? ''}</span>
+                                  <ItemLineTag item={item} items={req.items} className="ml-2" />
                                   {item.return_requested && (
                                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
                                       นัดคืน {item.return_appoint_at ? formatDateTime(item.return_appoint_at) : 'แล้ว'}
@@ -359,12 +399,20 @@ export default function BorrowRequestsPage() {
                                     </span>
                                   )}
                                 </div>
-                                <button
-                                  onClick={() => setReturnTarget({ requestId: req.id, item, req })}
-                                  className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
-                                >
-                                  {isConsumable ? 'สรุปผล' : 'รับคืน'}
-                                </button>
+                                <div className="flex shrink-0 gap-1.5">
+                                  {!isConsumable && item.quantity === 1 && (
+                                    <button onClick={() => setSwapTarget({ item, req })}
+                                      className="shrink-0 text-xs rounded-lg bg-amber-50 text-amber-700 px-3 py-1 hover:bg-amber-100 font-medium">
+                                      เปลี่ยนตัว
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setReturnTarget({ requestId: req.id, item, req })}
+                                    className="shrink-0 text-xs rounded-lg bg-primary-50 text-primary-600 px-3 py-1 hover:bg-primary-100 font-medium"
+                                  >
+                                    {isConsumable ? 'สรุปผล' : 'รับคืน'}
+                                  </button>
+                                </div>
                               </div>
                             )
                           })}
@@ -415,6 +463,7 @@ export default function BorrowRequestsPage() {
                             <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                               <div className="min-w-0">
                                 <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
+                                <ItemLineTag item={item} items={req.items} className="ml-2" />
                                 <p className="text-xs text-gray-400 mt-0.5">
                                   ขอเลื่อนถึง {formatDate(item.renew_requested_date)} — {item.renew_reason}
                                 </p>
@@ -555,6 +604,11 @@ export default function BorrowRequestsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {swapTarget && (
+        <SwapModal item={swapTarget.item} req={swapTarget.req}
+          onClose={() => setSwapTarget(null)} onDone={() => { setSwapTarget(null); load() }} />
       )}
 
       {returnTarget && (

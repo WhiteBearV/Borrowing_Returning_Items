@@ -1,10 +1,11 @@
+import asyncio
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,16 +20,22 @@ from app.utils.roles import STAFF_ROLES
 from app.utils.study_year import academic_year, compute_study_year, enrollment_year_from_student_id
 
 
-async def register(db: AsyncSession, body: RegisterRequest) -> None:
-    """ลงทะเบียนผู้ใช้ใหม่ ตรวจสอบ email domain และส่งลิงก์ยืนยัน email"""
+async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]:
+    """ลงทะเบียนผู้ใช้ใหม่ ตรวจสอบ email domain และส่งลิงก์ยืนยัน email
+
+    คืนสถานะจริงของบัญชี (ต้องยืนยันอีเมลไหม / รออนุมัติไหม) ให้หน้าเว็บบอกขั้นถัดไปได้ถูก — เดิมหน้าเว็บบอก
+    "ส่งลิงก์ยืนยันแล้ว" เสมอ ทั้งที่บางคนต้องรอเจ้าหน้าที่อนุมัติ หรือระบบยืนยันอีเมลให้อัตโนมัติ (R5-02)
+    """
+    # อีเมลไม่สนตัวพิมพ์ — เดิม QA.Y1@… สมัครซ้ำกับ qa.y1@… ได้เป็นคนละบัญชี (QA-15)
+    body.email = body.email.strip().lower()
     domain = body.email.split("@")[-1]
     if domain not in settings.allowed_email_domains_list:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Email domain '{domain}' is not allowed.",
         )
-    result = await db.execute(select(User).where(User.email == body.email))
-    if result.scalar_one_or_none():
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email))
+    if result.scalars().first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered.")
     result = await db.execute(select(User).where(User.student_id == body.student_id))
     if result.scalar_one_or_none():
@@ -72,7 +79,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> None:
         student_id=body.student_id,
         email=body.email,
         phone=body.phone,
-        password_hash=hash_password(body.password),
+        password_hash=await asyncio.to_thread(hash_password, body.password),
         role="student",
         major=major,
         approval_status=approval_status,
@@ -118,6 +125,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> None:
     await db.commit()
 
     await send_verification_email(body.email, token_str)
+    return {"email_verified": settings.DEV_AUTO_VERIFY_EMAIL, "approval_status": approval_status}
 
 
 async def verify_email(db: AsyncSession, token: str) -> None:
@@ -150,12 +158,12 @@ async def login(db: AsyncSession, body: LoginRequest) -> TokenResponse:
             or_(
                 User.student_id == body.identifier,
                 User.username == body.identifier,
-                User.email == body.identifier,
+                func.lower(User.email) == body.identifier.strip().lower(),
             )
         )
     )
-    user = result.scalar_one_or_none()
-    if not user or not verify_password(body.password, user.password_hash):
+    user = result.scalars().first()
+    if not user or not await asyncio.to_thread(verify_password, body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
     if not user.email_verified:
         raise HTTPException(
@@ -189,7 +197,8 @@ async def refresh_token(db: AsyncSession, token: str) -> TokenResponse:
     user_id = payload.get("sub")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user or not user.is_active:
+    # approval_status ด้วย — บัญชีที่ถูกปฏิเสธหลังเคยล็อกอินเคยต่ออายุ token ได้เรื่อย ๆ ถึง 7 วัน (QA-16)
+    if not user or not user.is_active or user.approval_status != "approved":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or disabled.")
 
     access = create_access_token(str(user.id), extra={"role": user.role})
@@ -198,8 +207,8 @@ async def refresh_token(db: AsyncSession, token: str) -> TokenResponse:
 
 async def forgot_password(db: AsyncSession, email: str) -> None:
     """ส่งลิงก์ reset password ทาง email — ถ้า email ไม่มีในระบบก็ไม่บอก (ป้องกัน user enumeration)"""
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
+    result = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
+    user = result.scalars().first()
     if not user:
         return  # ponytail: silent return ป้องกัน user enumeration
 
@@ -226,7 +235,7 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
 
     user_result = await db.execute(select(User).where(User.id == auth_token.user_id))
     user = user_result.scalar_one()
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, new_password)  # bcrypt ~100 ms — ไม่บล็อก event loop (R2-13)
     auth_token.used_at = datetime.now(timezone.utc)
     await db.commit()
 

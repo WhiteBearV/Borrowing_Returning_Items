@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr tesseract-ocr-tha poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ติดตั้งจากไฟล์ล็อก (เวอร์ชันเดียวกับที่ผ่านเทส) ไม่ใช่ requirements.txt ที่เป็น >= — ไม่งั้น build ใหม่ได้ไลบรารีรุ่นที่ไม่เคยทดสอบ
+# (30 ก.ย. 69 ได้ SQLAlchemy 2.1 ที่ไม่ติดตั้ง greenlet ให้ → backend import ไม่ผ่าน ระบบล่ม)
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY . .
 

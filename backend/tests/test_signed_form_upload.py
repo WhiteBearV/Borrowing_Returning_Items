@@ -81,7 +81,7 @@ async def test_upload_signed_form_stores_file_and_allows_reupload(
 
         # อัปใหม่ = ทับของเดิม (เอกสารที่มีผลคือฉบับล่าสุดเสมอ)
         r2 = await client.post(f"/borrow-requests/{req['id']}/signed-form", headers=auth(student_token),
-                               files={"file": ("signed2.jpg", b"\xff\xd8\xff fake photo", "image/jpeg")})
+                               files={"file": ("signed2.jpg", _real_jpeg(), "image/jpeg")})
         assert r2.status_code == 200
         name2 = r2.json()["signed_form_file"]
         files_made.append(name2)
@@ -105,7 +105,7 @@ async def test_upload_signed_form_rejects_bad_type_and_other_students(
         # คำขอของคนอื่น: นักศึกษาอีกคนอัปทับไม่ได้ (เอกสารต้องเป็นของเจ้าของคำขอเท่านั้น)
         from app.core.security import create_access_token, hash_password
         async with AsyncSessionLocal() as db:
-            db.add(User(id=other_id, email=f"other-{other_id.hex[:6]}@student.cdti.ac.th",
+            db.add(User(id=other_id, email=f"other-{other_id.hex[:6]}@cdti.ac.th",
                         username=f"other{other_id.hex[:6]}", full_name="นักศึกษาอีกคน",
                         student_id=f"6{other_id.hex[:9]}"[:10], password_hash=hash_password("x"),
                         role="student", is_active=True, email_verified=True))
@@ -144,7 +144,7 @@ async def test_signed_form_download_checks_permission(
 
         from app.core.security import create_access_token, hash_password
         async with AsyncSessionLocal() as db:
-            db.add(User(id=other_id, email=f"other-{other_id.hex[:6]}@student.cdti.ac.th",
+            db.add(User(id=other_id, email=f"other-{other_id.hex[:6]}@cdti.ac.th",
                         username=f"other{other_id.hex[:6]}", full_name="นักศึกษาอีกคน",
                         student_id=f"6{other_id.hex[:9]}"[:10], password_hash=hash_password("x"),
                         role="student", is_active=True, email_verified=True))
@@ -178,3 +178,12 @@ async def test_signed_form_rejects_content_that_does_not_match_extension(
         assert body["signed_form_file"] is None, "ไฟล์ที่ถูกปฏิเสธต้องไม่ถูกบันทึกลงคำขอ"
     finally:
         await _cleanup(req["id"], [test_equipment.id], [])
+
+
+def _real_jpeg() -> bytes:
+    """รูป JPEG จริงขนาด 2×2 — ตั้งแต่ R3-08 ระบบเปิดรูปตรวจจริง ไฟล์ที่มีแค่ส่วนหัวถูกปฏิเสธ"""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(buf, "JPEG")
+    return buf.getvalue()

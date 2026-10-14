@@ -27,12 +27,15 @@ export const ACTION_LABEL = {
   update_user_role: 'เปลี่ยนระดับสิทธิ์',
   create_change_request: 'ยื่นคำขอแก้ไขข้อมูล',
   decide_change_request: 'ตัดสินคำขอแก้ไขข้อมูล',
-  delete_request: 'ลบประวัติการยืม',
+  delete_request: 'ลบประวัติการยืม (ถาวร — ก่อน 24 ก.ย. 69)',
+  hide_request: 'ลบประวัติการยืม (ซ่อน กู้คืนได้)',
+  restore_request: 'กู้คืนประวัติการยืม',
   approve_request: 'อนุมัติคำขอ',
   reject_request: 'ปฏิเสธคำขอ',
   approve_renew: 'อนุมัติต่อเวลา',
   reject_renew: 'ปฏิเสธต่อเวลา',
   confirm_return: 'รับคืนอุปกรณ์',
+  swap_item: 'เปลี่ยนตัวอุปกรณ์ระหว่างยืม',
   // ค่าปรับ (เฟส 6) — ทุกการแตะตัวเลขที่เรียกเงินต้องอ่านออกว่าใครทำอะไรเพราะอะไร
   update_fine: 'แก้ยอดค่าปรับ',
   pay_fine: 'บันทึกชำระค่าปรับ',
@@ -87,7 +90,11 @@ export const FIELD_LABEL = {
   // key แบบ flat ที่ action อื่นใช้
   quantity: 'จำนวน',
   reason: 'เหตุผล',
-  added: 'จำนวนที่เพิ่ม',
+  hidden_reason: 'เหตุผลที่เคยซ่อน',
+  from_code: 'หน่วยเดิม',
+  to_code: 'หน่วยใหม่',
+  remaining: 'ยังค้างคืน',
+  added: 'จำนวนที่เพิ่ม',  // ใช้ทั้งเติมสต็อกและนำเข้ารายชื่อ — เคยประกาศซ้ำ 2 ป้าย ตัวหลังทับตัวแรก (QA-01)
   new_codes: 'รหัสใหม่',
   split_into: 'แยกเป็นรหัส',
   old_available: 'คงเหลือเดิม',
@@ -97,7 +104,6 @@ export const FIELD_LABEL = {
   source: 'นำเข้าจากไฟล์',
   count: 'จำนวนรายการ',
   delta: 'จำนวนที่ปรับ (+/-)',
-  added: 'เพิ่มใหม่',
   updated: 'อัปเดต',
   approval_status: 'สถานะการอนุมัติ',
   generation: 'รุ่น / หมู่เรียน',
@@ -106,6 +112,10 @@ export const FIELD_LABEL = {
   pickup: 'นัดรับของ',
   equipment_ids: 'รายการที่แก้',
   request_code: 'เลขคำขอ',
+  appointment: 'นัดคืน',
+  student_name: 'ผู้ยืม',
+  target_label: 'รายการที่ขอแก้',
+  target_table: 'ประเภทข้อมูล',
   due_date: 'กำหนดคืน',
   condition: 'สภาพเมื่อคืน',
   item: 'รายการ',
@@ -250,7 +260,8 @@ export function detailLines(detail) {
   if (!detail) return []
   if (detail.changes) {
     return Object.entries(detail.changes).map(([field, [from, to]]) => ({
-      field, label: fieldLabel(field), from: fmtVal(from, field), to: fmtVal(to, field),
+      // แก้ settings: คีย์ใน changes คือชื่อ key ดิบ (max_active_requests_per_student) — หัวรายการบอกชื่อไทยแล้ว (QA-04)
+      field, label: field === detail.setting ? 'ค่า' : fieldLabel(field), from: fmtVal(from, field), to: fmtVal(to, field),
     }))
   }
   // "ผลกับทั้งรุ่น" ตอนแก้ quality_tracked/quality_life_years (update_equipment/bulk_update_equipment) —

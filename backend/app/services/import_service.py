@@ -118,6 +118,41 @@ def _status_from(normal: object, broken: object, worn: object, lost: object) -> 
     return "available", 1
 
 
+# คีย์ชั่วคราวของรายการใหม่ที่ยังไม่มีรหัส (ครุภัณฑ์ใหม่จากทะเบียน / วัสดุที่เว้นรหัส) — commit_import แทนด้วย
+# รหัสระบบจริงจาก equipment_service.next_system_codes · หน้าเว็บแสดงเป็น "ระบบออกให้"
+NEW_KEY_PREFIX = "NEW:"
+
+
+def _cell(r: tuple, idx: int | None) -> str | None:
+    return (_clean(r[idx]) or None) if idx is not None and idx < len(r) else None
+
+
+def _find_sn_col(ws) -> int | None:
+    """หาคอลัมน์ SN จากหัวตาราง (แถว 1–4) — มีในแม่แบบของระบบ ไฟล์ทะเบียนราชการจริงไม่มี = ไม่อ่าน SN"""
+    for r in ws.iter_rows(min_row=1, max_row=4, values_only=True):
+        for i, c in enumerate(r):
+            if isinstance(c, str) and ("sn" in c.lower().split() or "serial" in c.lower() or c.strip().upper().startswith("SN")):
+                return i
+    return None
+
+
+def resolve_keys(
+    rows: list[dict[str, Any]], sn_updates: dict[str, str], existing: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    """จับคู่แถวครุภัณฑ์ (มีแต่เลขครุภัณฑ์) กับรหัสระบบเดิมผ่าน asset_number — ไม่เจอ = รายการใหม่ (คีย์ NEW:)
+    และรวม SN จากคอลัมน์ในชีตทะเบียน/วัสดุเข้า sn_updates · ชีต SN ใส่เลขครุภัณฑ์แทนรหัสได้
+    แก้ rows ในที่ แล้วคืน sn_updates ที่คีย์เป็นรหัสระบบแล้ว (ส่งต่อ diff_rows เหมือนเดิม)
+    """
+    by_asset = {eq["asset_number"]: code for code, eq in existing.items() if eq.get("asset_number")}
+    for row in rows:
+        if row.get("asset_number") and not row["code"]:
+            row["code"] = by_asset.get(row["asset_number"]) or f"{NEW_KEY_PREFIX}{row['asset_number']}"
+        sn = row.pop("_sn", None)
+        if sn:
+            sn_updates[row["code"]] = sn
+    return {by_asset.get(k, k): v for k, v in sn_updates.items()}
+
+
 def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, str]]:
     """อ่านไฟล์ทะเบียน คืน (รายการที่มีเลขครุภัณฑ์, รายการที่ไม่มีเลข — ข้ามไป, SN จากชีตเสริม "SN")
 
@@ -133,27 +168,45 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
 
     def add(code: str, name: str, loc: str, st: str, qa: int, sheet: str, seq: str,
             item_type: str = "durable", qty: int = 1, unit: str | None = None,
-            unit_value: float | None = None, acquired_at: date | None = None) -> None:
-        if not code or code == "-":
-            skipped.append({"sheet": sheet, "seq": seq, "name": name, "reason": "ไม่มีเลขครุภัณฑ์/รหัส"})
+            unit_value: float | None = None, acquired_at: date | None = None,
+            asset_number: str | None = None, sn: str | None = None) -> None:
+        if code == "-":
+            code = ""
+        # เลขครุภัณฑ์ติดกัน 15 หลักใส่ขีดรูปแบบเดียวกับที่ฟอร์มเก็บ ไม่งั้นไฟล์ที่พิมพ์ไม่มีขีดจับคู่ของเดิมไม่เจอ
+        asset_number = None if asset_number == "-" else equipment_service._normalize_asset_number(asset_number)
+        if item_type == "durable" and not asset_number:
+            skipped.append({"sheet": sheet, "seq": seq, "name": name, "reason": "ไม่มีเลขครุภัณฑ์"})
             return
+        if not code and not asset_number:
+            # วัสดุไม่ใส่รหัสมา = ให้ระบบออกรหัส DT-M/DT-C ตอนบันทึก — คีย์ชั่วคราวผูกกับตำแหน่งแถวในไฟล์
+            # (preview กับ commit อ่านไฟล์เดียวกันได้คีย์ตรงกันเสมอ)
+            code = f"{NEW_KEY_PREFIX}{sheet}-{seq}"
+        if sn and item_type != "durable" and qty != 1:
+            skipped.append({"sheet": sheet, "seq": seq, "name": name,
+                            "reason": "SN ใช้ได้เฉพาะแถวจำนวน 1 — นำเข้ารายการแต่ไม่ใส่ SN"})
+            sn = None
         rows.append({
-            "code": code, "name": name, "location": loc or None,
+            "code": code, "asset_number": asset_number or None, "_sn": sn or None,
+            "name": name, "location": loc or None,
             "status": st, "quantity_available": qa, "category": _categorize(name, code, item_type),
             "item_type": item_type, "quantity_total": qty, "unit": unit,
             "unit_value": unit_value, "acquired_at": acquired_at,
         })
 
     if "คณะเทคโนฯดิจิทัล" in wb.sheetnames:
+        sn_col = _find_sn_col(wb["คณะเทคโนฯดิจิทัล"])
         for r in wb["คณะเทคโนฯดิจิทัล"].iter_rows(min_row=5, values_only=True):
             name = _clean(r[2])
             if not name or name == "รวมทั้งสิ้น":
                 continue
             st, qa = _status_from(r[5], r[6], r[7], r[8])
-            add(_clean(r[1]), name, _clean(r[11]) or _clean(r[16]), st, qa, "คณะ", _clean(r[0]),
-                unit_value=_money(r[3]), acquired_at=_as_date(r[4]))
+            # คอลัมน์ B = เลขครุภัณฑ์ (ไม่ใช่รหัสระบบอีกต่อไป — แยกกันตั้งแต่ migration 0048)
+            add("", name, _clean(r[11]) or _clean(r[16]), st, qa, "คณะ", _clean(r[0]),
+                unit_value=_money(r[3]), acquired_at=_as_date(r[4]), asset_number=_clean(r[1]),
+                sn=_cell(r, sn_col))
 
     if "ครุภัณฑ์ที่ได้รับพระราชทาน" in wb.sheetnames:
+        sn_col_royal = _find_sn_col(wb["ครุภัณฑ์ที่ได้รับพระราชทาน"])
         for r in wb["ครุภัณฑ์ที่ได้รับพระราชทาน"].iter_rows(min_row=5, values_only=True):
             name = _clean(r[1])
             if not name or name == "รวมทั้งสิ้น":
@@ -162,11 +215,11 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
             # "ไม่พบครุภัณฑ์" ในหมายเหตุ = หาตัวจริงไม่เจอ → ยืมไม่ได้
             if "ไม่พบครุภัณฑ์" in _clean(r[15]):
                 st, qa = "unavailable", 0
-            add(_clean(r[8]), name, _clean(r[9]), st, qa, "พระราชทาน", _clean(r[0]),
-                unit_value=_money(r[5]))
+            add("", name, _clean(r[9]), st, qa, "พระราชทาน", _clean(r[0]),
+                unit_value=_money(r[5]), asset_number=_clean(r[8]), sn=_cell(r, sn_col_royal))
 
     # ชีต "วัสดุ" (ทางเลือก) — วัสดุไม่มีในทะเบียนคุมทรัพย์สิน จึงใช้ชีตแยกรูปแบบง่าย ๆ
-    # header แถว 1: รหัส | รายการ | ประเภท | หน่วยนับ | จำนวน | สถานที่จัดเก็บ
+    # header แถว 1: รหัส (ว่างได้) | รายการ | ประเภท | หน่วยนับ | จำนวน | สถานที่จัดเก็บ | ราคาต่อหน่วย | SN
     if "วัสดุ" in wb.sheetnames:
         for i, r in enumerate(wb["วัสดุ"].iter_rows(min_row=2, values_only=True), 2):
             name = _clean(r[1]) if len(r) > 1 else ""
@@ -176,10 +229,11 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
             qty = int(r[4] or 0) if len(r) > 4 else 0
             add(_clean(r[0]), name, _clean(r[5]) if len(r) > 5 else "",
                 "available" if qty > 0 else "unavailable", qty, "วัสดุ", str(i),
-                item_type=item_type, qty=qty, unit=_clean(r[3]) or None)
+                item_type=item_type, qty=qty, unit=_clean(r[3]) or None,
+                unit_value=_money(r[6]) if len(r) > 6 else None, sn=_cell(r, 7))
 
     # ชีต "SN" (ทางเลือก) — SN จากผู้ผลิต ไม่มีในทะเบียนคุมทรัพย์สิน/ชีตวัสดุ จึงเสริมมาแยกต่างหาก
-    # header แถว 1: รหัส | SN — update-only จับคู่ด้วยรหัสที่มีอยู่แล้วในระบบเท่านั้น (ดู diff_rows)
+    # header แถว 1: รหัส หรือ เลขครุภัณฑ์ | SN — update-only จับคู่กับของที่มีอยู่แล้วในระบบเท่านั้น (ดู diff_rows)
     sn_updates: dict[str, str] = {}
     if "SN" in wb.sheetnames:
         for r in wb["SN"].iter_rows(min_row=2, values_only=True):
@@ -264,7 +318,12 @@ def diff_rows(
     # เสนอปลดระวางได้ก็ต่อเมื่อไฟล์นี้มีรายการทะเบียน/วัสดุจริง (rows ไม่ว่าง) — ไฟล์ที่มีแต่ชีต "SN" ล้วน
     # (rows ว่าง) ไม่ใช่ทะเบียนฉบับเต็ม ถ้าไม่กันไว้ตรงนี้จะเข้าใจผิดว่าครุภัณฑ์ทุกชิ้นในระบบหายไปจากไฟล์
     # แล้วเสนอปลดระวางทั้งดุ้น ทั้งที่ไฟล์นี้ไม่ได้พูดถึงทะเบียนเลย
-    if rows:
+    # ไฟล์ที่เป็น "ทะเบียนฉบับเต็ม" เท่านั้นถึงเสนอปลดระวาง — แม่แบบ/ไฟล์เพิ่มของไม่กี่ชิ้น (24 ก.ย. 69) ไม่ใช่ทะเบียนทั้งเล่ม
+    # ถ้าไม่กันจะเสนอปลดระวางครุภัณฑ์ทุกชิ้นที่ไม่อยู่ในไฟล์ (เจอจริงตอนทดสอบแม่แบบ: 712 รายการ)
+    # ponytail: เกณฑ์ "จับคู่ได้ ≥ ครึ่งหนึ่งของครุภัณฑ์ที่ใช้งานอยู่" — ทะเบียนจริงจับคู่ได้เกือบทั้งหมด ไฟล์เพิ่มของได้ ~0
+    active_durables = [c for c, o in existing.items() if o["item_type"] == "durable" and o["status"] != "retired"]
+    matched = sum(1 for c in active_durables if c in in_file)
+    if rows and active_durables and matched * 2 >= len(active_durables):
         for code, old in existing.items():
             # เฉพาะครุภัณฑ์ที่ยังไม่ปลดระวาง — วัสดุ (material/consumable) ไม่ได้อยู่ในทะเบียนอยู่แล้ว
             if code not in in_file and old["item_type"] == "durable" and old["status"] != "retired":
@@ -336,7 +395,7 @@ async def _load_existing(db: AsyncSession) -> dict[str, dict[str, Any]]:
     return {
         eq.code: {"id": eq.id, "name": eq.name, "location": eq.location, "status": eq.status,
                   "item_type": eq.item_type, "quantity_total": eq.quantity_total,
-                  "serial_number": eq.serial_number,
+                  "serial_number": eq.serial_number, "asset_number": eq.asset_number,
                   "unit_value": float(eq.unit_value) if eq.unit_value is not None else None,
                   "acquired_at": eq.acquired_at}
         for eq in result.scalars().all()
@@ -359,6 +418,20 @@ def _parse_file(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]], 
         rows, skipped = ocr_import.parse_scan(path)
         return rows, skipped, {}
     return parse_workbook(path)
+
+
+def sweep_import_dir(max_age_seconds: int = 86400) -> int:
+    """ลบไฟล์ร่างนำเข้าที่ค้างเกิน 1 วัน (กด "อ่านไฟล์" แล้วไม่ได้บันทึก) — เรียกตอนเซิร์ฟเวอร์เริ่ม (R2-05)
+    ไฟล์ทะเบียนมีราคา/สถานที่ของคณะ ไม่ควรค้างบนดิสก์โดยไม่มีใครรู้"""
+    import time
+    if not os.path.isdir(settings.IMPORT_DIR):
+        return 0
+    removed = 0
+    for entry in os.scandir(settings.IMPORT_DIR):
+        if entry.is_file() and time.time() - entry.stat().st_mtime > max_age_seconds:
+            os.unlink(entry.path)
+            removed += 1
+    return removed
 
 
 def _import_path(import_id: str) -> str | None:
@@ -390,8 +463,17 @@ async def preview_import(db: AsyncSession, file: UploadFile) -> dict[str, Any]:
     with open(path, "wb") as f:
         f.write(contents)
 
-    rows, skipped, sn_updates = _parse_file(path)
+    try:
+        rows, skipped, sn_updates = _parse_file(path)
+    except HTTPException:
+        os.unlink(path)
+        raise
+    except Exception:  # ไฟล์เสีย/ไม่ใช่ชนิดที่นามสกุลบอก (PIL/pypdf โยน error คนละแบบ) — เดิมหลุดเป็น 500 (R2-04)
+        os.unlink(path)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="อ่านไฟล์ไม่สำเร็จ — ไฟล์อาจเสียหายหรือไม่ใช่ชนิดที่ระบุ") from None
     existing = await _load_existing(db)
+    sn_updates = resolve_keys(rows, sn_updates, existing)
     sn_updates, sn_bad = _filter_bad_sn_updates(sn_updates, existing)
     skipped.extend(sn_bad)
     diff = diff_rows(rows, existing, sn_updates)
@@ -459,6 +541,7 @@ async def commit_import(
 
     rows, _, sn_updates = _parse_file(path)
     existing = await _load_existing(db)
+    sn_updates = resolve_keys(rows, sn_updates, existing)
     sn_updates, _sn_bad = _filter_bad_sn_updates(sn_updates, existing)
     allowed = {d["code"]: d for d in diff_rows(rows, existing, sn_updates)}
 
@@ -483,8 +566,11 @@ async def commit_import(
             sn = row.serial_number
             if sn:
                 await _assert_no_sn_conflict(db, sn, None)
+            code = row.code
+            if code.startswith(NEW_KEY_PREFIX):
+                code = (await equipment_service.next_system_codes(db, row.item_type))[0]
             eq = Equipment(
-                code=row.code, name=row.name, item_type=row.item_type,
+                code=code, asset_number=ref.get("asset_number"), name=row.name, item_type=row.item_type,
                 location=row.location, status=row.status,
                 unit=row.unit, description=row.description, serial_number=sn,
                 quantity_total=row.quantity,
@@ -539,10 +625,26 @@ async def commit_import(
 
         # action == update — เขียนทับด้วยค่าที่แอดมินยืนยันในร่าง
         old_status, old_qty = eq.status, eq.quantity_total
+        # จำนวนรวมต่ำกว่าของที่ยังยืมค้าง = กฎเดียวกับฟอร์มแก้ไข (QA-19) — เดิมชน CHECK constraint เป็น 500 (R2-09)
+        if row.quantity < old_qty:
+            loaned = await equipment_service.loaned_quantity(db, eq.id)
+            if row.quantity < loaned:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{eq.code}: จำนวนในไฟล์ ({row.quantity}) น้อยกว่าที่กำลังถูกยืมอยู่ ({loaned}) — รับคืนก่อนหรือแก้จำนวนในร่าง",
+                )
         old_group = (eq.name, eq.item_type)
         old_quality = (eq.quality_tracked, eq.quality_life_years)
         eq.name, eq.location, eq.status = row.name, row.location, row.status
         eq.item_type, eq.quantity_total = row.item_type, row.quantity
+        # ตั้งยอดคงเหลือทันทีคู่กับจำนวนรวม — query ถัดไป (หมวดหมู่/SN) จะ autoflush ถ้ายอดคงเหลือยังเป็นค่าเก่าที่
+        # มากกว่าจำนวนรวมใหม่จะชน CHECK constraint กลางทาง · ขยับตามส่วนต่าง (delta) ไม่ตั้งทับ เพราะการตั้งทับ
+        # (= row.quantity หรือ 0) ทิ้งจำนวนที่ถูกยืมออกไปจริง (เจอบั๊กจริง — นำเข้าซ้ำแล้วค่าคงเหลือเพี้ยนค้างถาวร)
+        if row.status != old_status or row.quantity != old_qty:
+            if row.status == "available":
+                eq.quantity_available = max(0, min(row.quantity, eq.quantity_available + (row.quantity - old_qty)))
+            else:
+                eq.quantity_available = 0
         if row.unit is not None:
             eq.unit = row.unit
         if row.description is not None:
@@ -562,14 +664,6 @@ async def commit_import(
             eq.image_url = row.image_urls[0]
         if row.categories:
             eq.categories = [await _get_or_create_category(db, n, cat_cache) for n in row.categories]
-        # แตะ quantity_available เฉพาะตอนสถานะ/จำนวนรวมเปลี่ยน — ขยับตามส่วนต่าง (delta) ไม่ใช่ตั้งค่าทับ
-        # ตรง ๆ เพราะการตั้งทับ (= row.quantity หรือ 0) จะทิ้งจำนวนที่ถูกยืมออกไปจริงในตอนนั้นไปเลย (เจอบั๊กจริง
-        # — นำเข้าซ้ำแล้วค่าคงเหลือเพี้ยนค้างถาวร ไม่มีช่องแก้ quantity_available ตรง ๆ ที่ไหนให้แก้คืน)
-        if row.status != old_status or row.quantity != old_qty:
-            if row.status == "available":
-                eq.quantity_available = max(0, min(row.quantity, eq.quantity_available + (row.quantity - old_qty)))
-            else:
-                eq.quantity_available = 0
         # ย้ายรุ่น/แปลงเป็น consumable ผ่านไฟล์ทะเบียน → กฎเดียวกับ update_equipment (รีวิวรอบ 4 MINOR ข้อ 5)
         if eq.item_type == "consumable" and eq.quality_tracked:
             eq.quality_tracked, eq.quality_life_years = False, None
@@ -591,4 +685,87 @@ async def commit_import(
         applied["update"] += 1
 
     await db.commit()
+    os.unlink(path)  # บันทึกแล้วไม่ต้องใช้ไฟล์ต้นทางอีก — เดิมค้างใน IMPORT_DIR ตลอดไป (R2-05)
     return applied
+
+
+# ── แม่แบบนำเข้า (24 ก.ย. 69) ────────────────────────────────────────────────────────────────────────────
+# parser อ่านตามชื่อชีต + ตำแหน่งคอลัมน์ตายตัว ถ้าคอลัมน์สลับที่จะไม่ error แต่อ่านค่าผิดเงียบ ๆ — จึงให้ดาวน์โหลด
+# แม่แบบที่หัวตารางตรงกับ parse_workbook เป๊ะ (มีเทส roundtrip กันสองฝั่งเพี้ยน: tests/test_import_templates.py)
+_REGISTER_HEADER = [
+    "ลำดับที่", "เลขครุภัณฑ์", "รายการครุภัณฑ์ (รุ่น/ยี่ห้อ)", "ราคา", "ว/ด/ป ที่รับ", "ปกติ", "ชำรุด",
+    "เสื่อมสภาพ", "สูญหาย (ไม่พบ)", "รายการผิดประเภท", "หน่วยงานรับผิดชอบ", "สถานที่ตั้ง/จัดเก็บ",
+    "หน่วยงานรับผิดชอบ", "ชื่อห้อง", "อาคาร", "ชั้น", "ห้อง", "หมายเหตุ", "SN (ถ้ามี)",
+]
+_MATERIAL_HEADER = ["รหัส (เว้นว่าง = ระบบออกให้)", "รายการ", "ประเภท", "หน่วยนับ", "จำนวน",
+                    "สถานที่จัดเก็บ", "ราคาต่อหน่วย (บาท)", "SN (เฉพาะจำนวน 1)"]
+_EQUIPMENT_HOWTO = [
+    "วิธีใช้แม่แบบนำเข้าอุปกรณ์",
+    "",
+    "ชีต 'คณะเทคโนฯดิจิทัล' = ครุภัณฑ์ (ตามทะเบียนคุมทรัพย์สิน) — เริ่มกรอกแถวที่ 5 ห้ามย้ายคอลัมน์",
+    "  • เลขครุภัณฑ์ บังคับ (ใช้จับคู่กับของเดิมในระบบ) · รหัสอุปกรณ์ระบบออกให้เอง (DT-D-xxxxx)",
+    "  • ใส่ P (หรืออะไรก็ได้) ในคอลัมน์ ปกติ / ชำรุด / เสื่อมสภาพ / สูญหาย ช่องใดช่องหนึ่ง",
+    "  • SN ใส่ท้ายสุด (ถ้ามี)",
+    "ชีต 'วัสดุ' = วัสดุใช้ซ้ำ / วัสดุสิ้นเปลือง — เริ่มกรอกแถวที่ 2",
+    "  • ประเภท: 'วัสดุใช้ซ้ำ' (บอร์ด/คิต ได้ของคืน) หรือ 'วัสดุสิ้นเปลือง' (ใช้หมด)",
+    "  • รหัสเว้นว่างได้ ระบบออก DT-M-xxxxx / DT-C-xxxxx ให้ · ใส่รหัสเดิม = อัปเดตรายการเดิม",
+    "  • ของตัดแบ่งได้ (สายไฟ/เทป) ให้ใช้หน่วยเล็กสุด เช่น สายไฟ 5 เมตร → หน่วยนับ 'ซม.' จำนวน 500",
+    "  • SN ใส่ได้เฉพาะแถวที่จำนวน = 1",
+    "ชีต 'SN' = เติม SN ให้ของที่มีในระบบแล้ว (ใส่รหัสอุปกรณ์หรือเลขครุภัณฑ์ก็ได้)",
+    "",
+    "นำเข้าจากไฟล์จัดซื้อ: คัดลอก รายการ / จำนวน / ราคาต่อหน่วย จากใบขอซื้อ ลงชีต 'วัสดุ' แล้วเติมประเภท+หน่วยนับ",
+    "ลบแถวตัวอย่างก่อนนำเข้าจริง · ไม่ใช้ชีตไหนลบทิ้งได้ · หน้าเว็บจะแสดงร่างให้ตรวจก่อนบันทึกทุกครั้ง",
+]
+
+
+def _xlsx_bytes(wb: "openpyxl.Workbook") -> bytes:
+    import io
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _bold_row(ws, row: int) -> None:
+    from openpyxl.styles import Font, PatternFill
+    for c in ws[row]:
+        if c.value is not None:
+            c.font = Font(bold=True)
+            c.fill = PatternFill("solid", fgColor="DDE8F7")
+
+
+def build_equipment_template() -> bytes:
+    """แม่แบบนำเข้าอุปกรณ์ 4 ชีต — หัวตาราง/แถวเริ่มตรงกับ parse_workbook"""
+    wb = openpyxl.Workbook()
+    howto = wb.active
+    howto.title = "วิธีใช้"
+    for line in _EQUIPMENT_HOWTO:
+        howto.append([line])
+    howto.column_dimensions["A"].width = 110
+
+    reg = wb.create_sheet("คณะเทคโนฯดิจิทัล")
+    reg.append(["สถาบันเทคโนโลยีจิตรลดา"])
+    reg.append(["รายงานทะเบียนคุมทรัพย์สิน"])
+    reg.append(["คณะเทคโนโลยีดิจิทัล"])
+    reg.append(_REGISTER_HEADER)
+    _bold_row(reg, 4)
+    reg.append([1, "69-213-001-001-0001", "โน้ตบุ๊ก Dell Latitude 5440 (ตัวอย่าง — ลบแถวนี้)", 25000,
+                date(2026, 6, 1), "P", None, None, None, None, "คณะเทคโนโลยีดิจิทัล", "15310",
+                None, None, None, None, None, None, "SN-EXAMPLE-001"])
+    for col, w in zip("BCDEL", (22, 50, 12, 14, 16)):
+        reg.column_dimensions[col].width = w
+
+    mat = wb.create_sheet("วัสดุ")
+    mat.append(_MATERIAL_HEADER)
+    _bold_row(mat, 1)
+    mat.append([None, "บอร์ด Arduino UNO R3 (ตัวอย่าง — ลบแถวนี้)", "วัสดุใช้ซ้ำ", "ชิ้น", 1, "15310", 450, "SN-EXAMPLE-002"])
+    mat.append([None, "สายจัมเปอร์ผู้-ผู้ 20 ซม. (ตัวอย่าง — ลบแถวนี้)", "วัสดุสิ้นเปลือง", "เส้น", 40, "15310", 5, None])
+    for col, w in zip("ABCDEFGH", (26, 45, 16, 10, 8, 16, 18, 20)):
+        mat.column_dimensions[col].width = w
+
+    sn = wb.create_sheet("SN")
+    sn.append(["รหัสอุปกรณ์ หรือ เลขครุภัณฑ์", "SN"])
+    _bold_row(sn, 1)
+    sn.append(["DT-D-00001 (ตัวอย่าง — ลบแถวนี้)", "SN-EXAMPLE-003"])
+    sn.column_dimensions["A"].width = 32
+    sn.column_dimensions["B"].width = 24
+    return _xlsx_bytes(wb)

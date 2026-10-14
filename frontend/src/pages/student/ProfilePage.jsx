@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { api } from '../../api/axiosInstance.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+import { fineMoney } from '../../utils/fine.js'
+import { roleLabel } from '../../utils/role.js'
 
 const MAJORS = [
   { value: 'comp_eng', label: 'วิศวกรรมคอมพิวเตอร์' },
@@ -40,7 +42,12 @@ export default function ProfilePage() {
     setSaving(true)
     setError('')
     try {
-      await api.patch('/users/me', { full_name: form.full_name })
+      const fullName = form.full_name.trim()
+      if (!fullName) {
+        setError('กรุณากรอกชื่อ-นามสกุล')
+        return
+      }
+      await api.patch('/users/me', { full_name: fullName })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
@@ -75,8 +82,10 @@ export default function ProfilePage() {
         <div className="space-y-3 pb-4 border-b border-gray-100">
           {[
             ['อีเมล', user?.email],
-            ['รหัสนักศึกษา', user?.student_id ?? '—'],
-            ['Role', user?.role],
+            [user?.student_id || user?.role === 'student' ? 'รหัสนักศึกษา' : 'รหัสบุคลากร', user?.student_id ?? user?.username ?? '—'],
+            ['ระดับสิทธิ์', roleLabel(user?.role)],
+            // ค่าปรับค้างชำระรวม (SKGRent ข้อ 6) — รายละเอียดแต่ละรายการอยู่ในหน้าประวัติการยืม
+            ...(user?.unpaid_fine_total > 0 ? [['ค่าปรับค้างชำระ', `${fineMoney(user.unpaid_fine_total)} บาท`]] : []),
           ].map(([label, val]) => (
             <div key={label} className="flex justify-between text-sm">
               <span className="text-gray-500">{label}</span>

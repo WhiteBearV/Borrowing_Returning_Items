@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { dashboardApi } from '../../api/dashboardApi.js'
+import { settingsApi } from '../../api/settingsApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { formatDate, todayTH } from '../../utils/formatDate.js'
 import { FINE_STATUS, fineMoney } from '../../utils/fine.js'
@@ -26,12 +28,21 @@ const COLUMNS = [
  *  แก้อัตราใน "การตั้งค่า" จึงมีผลกับการรับคืนครั้งถัดไปเท่านั้น ยอดเก่าไม่ขยับ */
 export default function FinesPage() {
   const { user } = useAuthContext()
-  const canWaive = isSuperadmin(user)
+  // ผู้ดูแลคลังยกเว้นได้เฉพาะยอด ≤ fine_waive_limit_admin (backend ตรวจซ้ำ — ที่นี่แค่ซ่อนปุ่ม)
+  const [waiveLimit, setWaiveLimit] = useState(0)
+  useEffect(() => {
+    settingsApi.list()
+      .then((rows) => setWaiveLimit(Number(rows.find((s) => s.key === 'fine_waive_limit_admin')?.value) || 0))
+      .catch(() => {})
+  }, [])
+  const canWaive = (row) => isSuperadmin(user) || (waiveLimit > 0 && row.total <= waiveLimit)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [searchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState('unpaid')
-  const [search, setSearch] = useState('')
+  // ?search= มาจากป้าย "ค้างชำระ" ในหน้าจัดการผู้ใช้
+  const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [sort, setSort] = useState({ key: 'returned_at', desc: true })
   const [dialog, setDialog] = useState(null)   // { mode: 'edit' | 'waive', row }
 
@@ -64,14 +75,6 @@ export default function FinesPage() {
   const toggleSort = (col) =>
     setSort((s) => (s.key === col.key ? { key: col.key, desc: !s.desc } : { key: col.key, desc: !!col.numeric }))
 
-  const markPaid = async (row) => {
-    try {
-      await borrowApi.payFine(row.request_id, row.item_id)
-      load()
-    } catch (e) {
-      setError(e.response?.data?.detail ?? 'บันทึกไม่สำเร็จ')
-    }
-  }
 
   const exportCsv = async () => {
     const blob = await dashboardApi.finesCsv()
@@ -185,10 +188,10 @@ export default function FinesPage() {
                 <td className="px-3 py-2 whitespace-nowrap">
                   {r.status === 'unpaid' && (
                     <div className="flex gap-2 text-xs">
-                      <button onClick={() => markPaid(r)} className="text-emerald-600 hover:underline">รับชำระ</button>
+                      <button onClick={() => setDialog({ mode: 'pay', row: r })} className="text-emerald-600 hover:underline">รับชำระ</button>
                       <button onClick={() => setDialog({ mode: 'edit', row: r })}
                         className="text-gray-500 hover:underline">แก้ยอด</button>
-                      {canWaive && (
+                      {canWaive(r) && (
                         <button onClick={() => setDialog({ mode: 'waive', row: r })}
                           className="text-amber-600 hover:underline">ยกเว้น</button>
                       )}
@@ -209,9 +212,11 @@ export default function FinesPage() {
   )
 }
 
-/** โมดัลแก้ยอด / ยกเว้น — ทั้งสองอย่างบังคับกรอกเหตุผลเพราะเป็นการแตะตัวเลขที่เรียกเงิน */
+/** โมดัลแก้ยอด / ยกเว้น (บังคับเหตุผล — แตะตัวเลขที่เรียกเงิน) / รับชำระ (ยืนยันยอดก่อนบันทึก)
+ * รับชำระเดิมกดแล้วบันทึกทันที — สถานะ paid ย้อนไม่ได้ กดผิดแถวครั้งเดียวต้องแก้ในฐานข้อมูล (QA รอบ 5, R5-06) */
 function FineDialog({ mode, row, onClose, onDone }) {
   const isWaive = mode === 'waive'
+  const isPay = mode === 'pay'
   const [late, setLate] = useState(String(row.late_amount))
   const [damage, setDamage] = useState(String(row.damage_amount))
   const [reason, setReason] = useState('')
@@ -219,11 +224,12 @@ function FineDialog({ mode, row, onClose, onDone }) {
   const [error, setError] = useState('')
 
   const submit = async () => {
-    if (!reason.trim()) return setError('กรุณากรอกเหตุผล')
+    if (!isPay && !reason.trim()) return setError('กรุณากรอกเหตุผล')
     setLoading(true)
     setError('')
     try {
-      if (isWaive) await borrowApi.waiveFine(row.request_id, row.item_id, reason.trim())
+      if (isPay) await borrowApi.payFine(row.request_id, row.item_id)
+      else if (isWaive) await borrowApi.waiveFine(row.request_id, row.item_id, reason.trim())
       else await borrowApi.updateFine(row.request_id, row.item_id, {
         late_amount: Number(late) || 0, damage_amount: Number(damage) || 0, reason: reason.trim(),
       })
@@ -237,7 +243,7 @@ function FineDialog({ mode, row, onClose, onDone }) {
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
-        <h2 className="font-bold text-gray-800">{isWaive ? 'ยกเว้นค่าปรับ' : 'แก้ยอดค่าปรับ'}</h2>
+        <h2 className="font-bold text-gray-800">{isPay ? 'ยืนยันรับชำระค่าปรับ' : isWaive ? 'ยกเว้นค่าปรับ' : 'แก้ยอดค่าปรับ'}</h2>
         <p className="text-sm text-gray-500">
           {row.request_code} · {row.equipment_name}
           <span className="block text-xs text-gray-400">
@@ -246,7 +252,13 @@ function FineDialog({ mode, row, onClose, onDone }) {
               ` (ล่าช้า ${row.days_late} วัน × ${fineMoney(row.basis.rate_per_day)} บาท)`}
           </span>
         </p>
-        {!isWaive && (
+        {isPay && (
+          <p className="text-sm text-gray-700 bg-emerald-50 rounded-lg px-3 py-2">
+            รับเงิน <b>{fineMoney(row.total)} บาท</b> จาก {row.student_name} ({row.student_identifier})
+            <span className="block text-xs text-gray-500">บันทึกแล้วแก้ไขหรือยกเลิกไม่ได้</span>
+          </p>
+        )}
+        {!isWaive && !isPay && (
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-600">
               ค่าปรับล่าช้า
@@ -260,7 +272,7 @@ function FineDialog({ mode, row, onClose, onDone }) {
             </label>
           </div>
         )}
-        <div>
+        <div className={isPay ? 'hidden' : ''}>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             เหตุผล <span className="text-red-500">*</span>
           </label>
@@ -275,8 +287,8 @@ function FineDialog({ mode, row, onClose, onDone }) {
           </button>
           <button onClick={submit} disabled={loading}
             className={`flex-1 rounded-full py-2 text-sm font-semibold text-white disabled:opacity-50
-              ${isWaive ? 'bg-amber-600 hover:bg-amber-700' : 'bg-primary-600 hover:bg-primary-700'}`}>
-            {loading ? 'กำลังบันทึก…' : 'ยืนยัน'}
+              ${isWaive ? 'bg-amber-600 hover:bg-amber-700' : isPay ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-primary-600 hover:bg-primary-700'}`}>
+            {loading ? 'กำลังบันทึก…' : isPay ? 'ยืนยันรับชำระ' : 'ยืนยัน'}
           </button>
         </div>
       </div>

@@ -4,7 +4,7 @@
 สำหรับนักศึกษาและบุคลากรสาขาวิศวกรรมคอมพิวเตอร์และสาขาออกแบบดิจิทัล
 สถาบันเทคโนโลยีจิตรลดา (CDTI)
 
-> **คู่มือนี้คือคู่มือติดตั้งและตั้งค่าหลักของโปรเจกต์** (อัปเดตให้ตรงกับเวอร์ชัน `1da1c22` — 21 ก.ย. 2569)
+> **คู่มือนี้คือคู่มือติดตั้งและตั้งค่าหลักของโปรเจกต์** (อัปเดตล่าสุด 1 ต.ค. 2569 — v2.1, migration ถึง 0048)
 > การเปลี่ยนแปลงของแต่ละเวอร์ชันดูที่ [`PATCH_NOTES.md`](PATCH_NOTES.md)
 
 **สารบัญ**
@@ -62,7 +62,7 @@
 │   │   ├── utils/         # email, pdf (+fonts), qrcode, scheduler, วันที่/ชั้นปี
 │   │   ├── dependencies.py
 │   │   └── main.py
-│   ├── alembic/versions/  # migration 0001 → 0041
+│   ├── alembic/versions/  # migration 0001 → 0049
 │   ├── scripts/           # create_admin.py · backup_db.sh · restore_db.sh · สคริปต์นำเข้าข้อมูล
 │   ├── tests/             # pytest
 │   ├── .env.example       # ตัวอย่าง .env สำหรับ dev
@@ -111,13 +111,17 @@ docker compose up -d db          # PostgreSQL 16 ที่ localhost:5432 (user/
 cd backend
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.lock   # เวอร์ชันเดียวกับที่ผ่านเทส (requirements.txt = รายการหลักที่อ่านง่าย)
 
 cp .env.example .env              # แก้ค่าตามหัวข้อ 4 (อย่างน้อย DATABASE_URL, SECRET_KEY)
 alembic upgrade head               # สร้างตารางทั้งหมด + ค่าเริ่มต้นของ settings
 
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+> โครงสร้างฐานข้อมูลตรงกับโมเดลแล้วตั้งแต่ migration 0049 — ตรวจได้ด้วย `alembic check` (ต้องขึ้น "No new upgrade operations detected")
+> migration ยังเขียนมือเป็นหลัก ถ้าใช้ `--autogenerate` ให้อ่านสคริปต์ที่ได้ทุกบรรทัดก่อนรัน
+
 
 - Swagger UI: `http://localhost:8000/docs`
 - เช็คว่าระบบ + DB พร้อม: `http://localhost:8000/health` → `{"status":"ok"}`
@@ -172,7 +176,7 @@ python scripts/create_admin.py                                              # �
 | `UPLOAD_DIR` | `./uploads` | รูปอุปกรณ์/รูปความเสียหาย (เสิร์ฟสาธารณะที่ `/uploads`) |
 | `PRIVATE_UPLOAD_DIR` | `./private_uploads` | ใบยืมที่เซ็นแล้ว (มีข้อมูลส่วนบุคคล) — **ห้ามชี้ไปในโฟลเดอร์ `UPLOAD_DIR`** |
 | `IMPORT_DIR` | `./import_tmp` | ไฟล์ทะเบียนที่อัปโหลดมานำเข้า (ไฟล์ชั่วคราว ไม่เสิร์ฟสาธารณะ) |
-| `ALLOWED_EMAIL_DOMAINS` | `cdti.ac.th,student.cdti.ac.th` | โดเมนอีเมลที่สมัครได้ (คั่นด้วยจุลภาค) |
+| `ALLOWED_EMAIL_DOMAINS` | `cdti.ac.th` | โดเมนอีเมลที่สมัครได้ (คั่นด้วยจุลภาค) |
 | `DEV_AUTO_VERIFY_EMAIL` | `false` | `true` = สมัครแล้วใช้ได้ทันทีไม่ต้องยืนยันอีเมล · **ห้ามเปิดใน production** |
 | `PYTEST_ALLOW_DB` | `false` | อนุญาตให้ pytest รันกับ DB ที่ชื่อไม่ลงท้าย `_test` (ดูหัวข้อ 9) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | ว่าง | ยังไม่ใช้ (LINE OA เป็น stretch goal) |
@@ -209,7 +213,7 @@ docker compose -f docker-compose.prod.yml up --build -d       # migration รั
 
 ```bash
 docker compose -f docker-compose.prod.yml ps                  # ทุกตัวต้อง Up / healthy
-docker compose -f docker-compose.prod.yml logs --tail=50 backend   # ต้องเห็น alembic ขึ้นถึง 0041 (head)
+docker compose -f docker-compose.prod.yml logs --tail=50 backend   # ต้องเห็น alembic ขึ้นถึง 0049 (head)
 curl -sk https://localhost/api/health                         # {"status":"ok"}
 ```
 

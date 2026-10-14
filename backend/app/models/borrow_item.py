@@ -18,6 +18,19 @@ class BorrowItem(Base):
     equipment_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("equipment.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # คืนบางส่วน (24 ก.ย. 69): รับคืนไม่ครบจำนวน = แตกส่วนที่คืนออกเป็นแถวใหม่ชี้กลับมาที่แถวเดิม แถวเดิมคง
+    # ส่วนที่ยังไม่คืนไว้ (quantity ลดลง) — แถวลูกไม่นับเป็น "การยืม 1 ครั้ง"/วันที่ถูกยืม ในสถิติ (แถวเดิมนับให้
+    # ทั้งช่วงแล้ว) และค่าปรับล่าช้าคิดต่อรายการเดิมรวมกัน ไม่ใช่ต่อแถวลูก (ดู borrow_service.return_item)
+    split_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("borrow_items.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # เปลี่ยนตัวระหว่างยืม (24 ก.ย. 69 — SKGRent ข้อ 4): แถวใหม่ของหน่วยที่มาแทน ชี้กลับแถวของหน่วยเดิม
+    # (ปิดไปด้วยสภาพที่รับคืนจริง) · started_at = วันที่ของออกจากคลังจริงของแถวนี้ — ว่าง = ตั้งแต่ approved_at
+    # ของคำขอ (ทุกแถวปกติ) ใช้ใน equipment_service.borrowed_days_expr() จุดเดียว หน่วยใหม่จึงไม่ถูกนับวันย้อนหลัง
+    swapped_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("borrow_items.id", ondelete="CASCADE"), nullable=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     item_type_snapshot: Mapped[str] = mapped_column(String(20), nullable=False)  # durable / consumable
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # ราคาต่อหน่วย ณ วันอนุมัติ — snapshot ไว้เพราะแอดมินแก้ราคาในคลังได้ ต้นทุนย้อนหลังต้องไม่เปลี่ยนตาม
@@ -32,6 +45,7 @@ class BorrowItem(Base):
     equipment_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     equipment_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     equipment_serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    equipment_asset_number: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เลขครุภัณฑ์ ณ วันยืม
     # วันคืนระดับรายชิ้น (เฟส 3) — นักศึกษาขอแยกชิ้นได้ ค่าว่าง = ใช้วันของทั้งคำขอ
     # requested_due_date = วันที่ขอไว้ตอนยื่น · due_date = วันครบกำหนดจริงหลังแอดมินอนุมัติ
     # อ่านค่าที่ "ใช้จริง" ผ่าน utils.duedate.effective_due_date เท่านั้น ห้าม coalesce เองซ้ำที่อื่น
@@ -72,7 +86,7 @@ class BorrowItem(Base):
     # อัตรา/ผ่อนผัน/เพดาน/มูลค่าตามบัญชีที่ใช้คำนวณ ณ วันนั้น — ที่มาของตัวเลขต้องตรวจสอบย้อนหลังได้
     fine_basis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # none / unpaid / paid / waived — ไล่ทางเดียว: none → unpaid → (paid | waived)
-    fine_status: Mapped[str] = mapped_column(String(20), nullable=False, default="none")
+    fine_status: Mapped[str] = mapped_column(String(20), nullable=False, default="none", index=True)
     fine_waived_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -85,7 +99,9 @@ class BorrowItem(Base):
 
     borrow_request = relationship("BorrowRequest", back_populates="items")
     equipment = relationship("Equipment", back_populates="borrow_items")
-    fine_waiver = relationship("User", foreign_keys=[fine_waived_by])
+    # selectin: property fine_waiver_name ถูกอ่านตอน serialize (นอก async) — lazy-load ธรรมดา = MissingGreenlet 500
+    # ทุกหน้าที่มีรายการที่ถูกยกเว้นค่าปรับ (QA-11, 30 ก.ย. 69) ตั้งที่นี่จุดเดียวครอบทุก query ที่โหลด items
+    fine_waiver = relationship("User", foreign_keys=[fine_waived_by], lazy="selectin")
 
     @property
     def fine_total(self) -> float:

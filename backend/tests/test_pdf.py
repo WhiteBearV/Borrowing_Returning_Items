@@ -460,3 +460,15 @@ def test_borrow_pdf_prints_installed_specs(tmp_path):
     # เก็บไฟล์ไว้ให้เปิดดูด้วยตาได้ (ความกว้างคอลัมน์/บรรทัดล้น เช็คด้วยเทสไม่ได้)
     out = tmp_path / "borrow_with_specs.pdf"
     out.write_bytes(pdf_bytes)
+
+
+def test_user_text_is_escaped_not_markup():
+    """QA-06 (30 ก.ย. 69): ข้อความผู้ใช้ต้องพิมพ์ตามตัวอักษร — เดิม "<USB-C>" หายจากเอกสาร,
+    <font size=40> ขยายตัวอักษรได้ และ <img onerror=...> ทำให้สร้าง PDF ไม่ได้ (paraparser syntax error)"""
+    pdf_mod._REGISTERED = False
+    items = [_Item('สาย <USB-C> & "ต่อ"', "durable", 1, "ok", equipment_code="A<1>")]
+    req = _Req(items=items, purpose='งาน <img src=x onerror="x"> <USB-C>', student_name="นาย <b>ก</b>")
+    for gen in (generate_borrow_pdf, generate_return_pdf, generate_preview_pdf):
+        text = _flat(gen(req))
+        assert "<USB-C>" in text
+        assert "<b>ก</b>" in text

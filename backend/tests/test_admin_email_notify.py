@@ -75,7 +75,10 @@ async def test_admin_borrowing_for_self_does_not_self_notify(
     req = r.json()
 
     out = capsys.readouterr().out
-    assert f"[DEV EMAIL] To: {test_admin.email}" not in out
+    # อีเมล "คำขอยืมใหม่" (แจ้งเจ้าหน้าที่) ต้องไม่ส่งถึงตัวเอง — แต่อีเมลยืนยัน "ส่งคำขอยืม … แล้ว" ถึงผู้ยืม
+    # ส่งถึงตัวเองได้ปกติ (ในฐานะผู้ยืม ตั้งแต่ 24 ก.ย. 69)
+    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: คำขอยืมใหม่" not in out
+    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: ส่งคำขอยืม" in out
     assert "new_request_admin" not in out
 
     async with AsyncSessionLocal() as db:
@@ -120,7 +123,7 @@ async def test_overdue_job_sends_admin_digest_email(
         await db.commit()
 
     capsys.readouterr()  # ล้าง output สะสมจากขั้นตอนก่อนหน้า
-    await _check_overdue()
+    await _check_overdue(only_request_id=uuid.UUID(req["id"]))  # ห้ามยิงทั้งฐาน — DB dev มีคำขอจริง (R2-01)
 
     out = capsys.readouterr().out
     assert f"[DEV EMAIL] To: {test_admin.email}" in out

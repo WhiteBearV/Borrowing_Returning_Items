@@ -8,7 +8,7 @@ from datetime import date
 import openpyxl
 import pytest
 
-from app.services.import_service import _filter_bad_sn_updates, diff_rows, parse_workbook
+from app.services.import_service import _filter_bad_sn_updates, diff_rows, parse_workbook, resolve_keys
 
 
 def _make_register(tmp_path, rows):
@@ -34,35 +34,40 @@ def test_parse_and_diff(tmp_path):
         ("63-001-0003", "จอแสดงผล 27 นิ้ว", "P", None, "15311"),           # ยังไม่มีใน DB
         ("", "โต๊ะไม่มีเลข", "P", None, "5303"),                            # ไม่มีเลข → ข้าม
     ])
-    rows, skipped, _sn = parse_workbook(path)
+    rows, skipped, sn = parse_workbook(path)
     assert len(rows) == 3
     assert len(skipped) == 1
+    # คอลัมน์ B ของทะเบียน = เลขครุภัณฑ์ ไม่ใช่รหัสระบบ (แยกกันตั้งแต่ migration 0048)
+    assert {r["asset_number"] for r in rows} == {"63-001-0001", "63-001-0002", "63-001-0003"}
 
     existing = {
         # unit_value/acquired_at มีค่าอยู่แล้วในระบบ — diff ต้อง "ไม่" เสนอทับด้วยค่าจากไฟล์ (fill-only)
-        "63-001-0001": {"id": 1, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
-                        "status": "available", "item_type": "durable",
-                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
-        "63-001-0002": {"id": 2, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
-                        "status": "available", "item_type": "durable",
-                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
-        "63-999-9999": {"id": 3, "name": "เครื่องเก่าที่หลุดจากทะเบียน", "location": None,
-                        "status": "available", "item_type": "durable"},
+        "DT-D-00001": {"id": 1, "asset_number": "63-001-0001", "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
+                       "location": "15310", "status": "available", "item_type": "durable",
+                       "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
+        "DT-D-00002": {"id": 2, "asset_number": "63-001-0002", "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
+                       "location": "15310", "status": "available", "item_type": "durable",
+                       "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
+        "DT-D-00003": {"id": 3, "asset_number": "63-999-9999", "name": "เครื่องเก่าที่หลุดจากทะเบียน",
+                       "location": None, "status": "available", "item_type": "durable"},
         "SNIPE-500": {"id": 4, "name": "สายไฟ", "location": None,
                       "status": "available", "item_type": "consumable"},
     }
-    by_code = {d["code"]: d for d in diff_rows(rows, existing)}
+    sn = resolve_keys(rows, sn, existing)   # จับคู่ด้วยเลขครุภัณฑ์ → รหัสระบบเดิม
+    by_code = {d["code"]: d for d in diff_rows(rows, existing, sn)}
 
-    assert by_code["63-001-0001"]["action"] == "unchanged"
-    assert by_code["63-001-0002"]["action"] == "update"
-    assert by_code["63-001-0002"]["changes"]["status"] == ["available", "damaged"]
+    assert by_code["DT-D-00001"]["action"] == "unchanged"
+    assert by_code["DT-D-00002"]["action"] == "update"
+    assert by_code["DT-D-00002"]["changes"]["status"] == ["available", "damaged"]
     # ราคาในไฟล์ (1000) เท่ากับของเดิมพอดี แต่ต่อให้ต่างกันก็ต้องไม่ถูกเสนอ เพราะช่องไม่ว่างแล้ว
-    assert "unit_value" not in by_code["63-001-0002"]["changes"]
-    assert "acquired_at" not in by_code["63-001-0002"]["changes"]
-    assert by_code["63-001-0003"]["action"] == "new"
-    assert by_code["63-001-0003"]["category"] == "คอมพิวเตอร์"  # จัดหมวดจากชื่ออัตโนมัติ
+    assert "unit_value" not in by_code["DT-D-00002"]["changes"]
+    assert "acquired_at" not in by_code["DT-D-00002"]["changes"]
+    # เลขครุภัณฑ์ที่ยังไม่มีในระบบ → รายการใหม่ คีย์ชั่วคราว NEW: (ได้รหัส DT-D จริงตอน commit)
+    assert by_code["NEW:63-001-0003"]["action"] == "new"
+    assert by_code["NEW:63-001-0003"]["asset_number"] == "63-001-0003"
+    assert by_code["NEW:63-001-0003"]["category"] == "คอมพิวเตอร์"  # จัดหมวดจากชื่ออัตโนมัติ
     # ครุภัณฑ์ที่หายจากไฟล์ → เสนอปลดระวาง, แต่วัสดุ (ไม่อยู่ในทะเบียน) ต้องไม่โดน
-    assert by_code["63-999-9999"]["action"] == "retire"
+    assert by_code["DT-D-00003"]["action"] == "retire"
     assert "SNIPE-500" not in by_code
 
 
@@ -79,8 +84,10 @@ def test_parse_material_sheet(tmp_path):
     wb.save(path)
 
     rows, skipped, _sn = parse_workbook(str(path))
-    assert len(skipped) == 1  # แถวไม่มีรหัสต้องถูกข้าม ไม่ใช่สร้างของไร้รหัส
+    assert skipped == []
     by_code = {r["code"]: r for r in rows}
+    # เว้นรหัสได้ (24 ก.ย. 69) — ได้คีย์ชั่วคราวตามแถว แล้วระบบออก DT-C จริงตอน commit
+    assert by_code["NEW:วัสดุ-4"]["item_type"] == "consumable"
     assert by_code["MAT-ARD-001"]["item_type"] == "material"
     assert by_code["MAT-ARD-001"]["quantity_total"] == 25
     assert by_code["MAT-ARD-001"]["unit"] == "ชิ้น"
@@ -120,14 +127,15 @@ def test_diff_rows_applies_sn_updates(tmp_path):
     rows, skipped, _sn = parse_workbook(path)
 
     existing = {
-        "63-001-0001": {"id": 1, "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell", "location": "15310",
-                        "status": "available", "item_type": "durable", "quantity_total": 1,
-                        "serial_number": None},
+        "63-001-0001": {"id": 1, "asset_number": "63-001-0001", "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
+                        "location": "15310", "status": "available", "item_type": "durable",
+                        "quantity_total": 1, "serial_number": None},
         "63-999-9999": {"id": 2, "name": "เครื่องที่ไม่อยู่ในไฟล์นี้", "location": None,
                         "status": "available", "item_type": "durable", "quantity_total": 1,
                         "serial_number": "SN-OLD"},
     }
     sn_updates = {"63-001-0001": "SN-NEW-001", "63-999-9999": "SN-NEW-999", "63-777-7777": "SN-ไม่รู้จัก"}
+    sn_updates = resolve_keys(rows, sn_updates, existing)
 
     diff = {d["code"]: d for d in diff_rows(rows, existing, sn_updates)}
     # รหัสที่อยู่ในชีตทะเบียนด้วย → พ่วง serial_number เข้า changes

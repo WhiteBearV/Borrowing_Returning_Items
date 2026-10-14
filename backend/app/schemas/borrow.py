@@ -35,10 +35,13 @@ class BorrowItemResponse(BaseModel):
     # อุปกรณ์ที่ปลดระวาง+ไม่มีการยืมค้าง ลบถาวรได้แล้ว (ดู equipment_service.delete_equipment) —
     # FK เป็น ON DELETE SET NULL ประวัติเก่าจึงมี equipment_id เป็น None ได้ ต้อง Optional ตาม
     equipment_id: uuid.UUID | None
+    split_from_id: uuid.UUID | None = None  # แถวนี้คือส่วนที่คืนไปก่อนของรายการไหน (คืนบางส่วน)
+    swapped_from_id: uuid.UUID | None = None  # แถวนี้คือหน่วยที่มาแทนของแถวไหน (เปลี่ยนตัวระหว่างยืม)
     equipment_name: str | None = None
     equipment_code: str | None = None
     equipment_unit: str | None = None
     equipment_serial_number: str | None = None
+    equipment_asset_number: str | None = None  # เลขครุภัณฑ์ ณ วันยืม (snapshot)
     # ชิ้นส่วนที่ติดตั้งอยู่ ณ ตอนออกเอกสาร (เฟส 8) — เติมโดย borrow_service._attach_equipment_specs
     # เฉพาะตอนสร้าง PDF ใบยืม ไม่ใช่คอลัมน์ใน DB (สเปกเปลี่ยนได้ตลอด อ่านสดตอนพิมพ์)
     equipment_specs: str | None = None
@@ -108,6 +111,7 @@ class BorrowRequestResponse(BaseModel):
     pickup_at: datetime | None = None
     pickup_location: str | None = None
     pickup_note: str | None = None
+    pickup_place: str | None = None   # สถานที่รับของที่ต้องไป (pickup_location หรือค่าตั้งต้น) — ค่าคำนวณ ไม่ใช่คอลัมน์
     # ชื่อไฟล์ใบยืมที่เซ็นแล้ว — ใช้เป็นแค่ "มีไฟล์แล้วหรือยัง" ฝั่งหน้าเว็บ
     # ตัวไฟล์ต้องโหลดผ่าน GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ ไม่มี URL ตรงให้แปะ
     signed_form_file: str | None = None
@@ -129,8 +133,17 @@ class BorrowRequestResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _strip_required(v: str) -> str:
+    """เหตุผลต้องมีตัวอักษรจริง — min_length อย่างเดียวปล่อยช่องว่างล้วนผ่าน (QA-09/QA-13)"""
+    if not v.strip():
+        raise ValueError("กรุณาระบุเหตุผล")
+    return v.strip()
+
+
 class RejectRequest(BaseModel):
-    rejection_reason: str
+    rejection_reason: str = Field(..., min_length=1, max_length=500)
+
+    _not_blank = field_validator("rejection_reason")(_strip_required)
 
 
 class CancelRequest(BaseModel):
@@ -163,14 +176,20 @@ class RenewRequestCreate(BaseModel):
     requested_date: date
     reason: str = Field(..., min_length=1)
 
+    _not_blank = field_validator("reason")(_strip_required)
+
 
 class RenewRejectRequest(BaseModel):
     rejection_reason: str = Field(..., min_length=1)
+
+    _not_blank = field_validator("rejection_reason")(_strip_required)
 
 
 class ReturnItemRequest(BaseModel):
     # durable: ok / damaged / lost ; consumable: returned_full / used_up / discarded
     condition_on_return: str
+    # จำนวนที่คืนรอบนี้ในสภาพนี้ (ไม่ส่ง = คืนทั้งรายการ) — น้อยกว่าที่ยืม = คืนบางส่วน ที่เหลือยังค้างในรายการเดิม
+    quantity: int | None = Field(None, ge=1)
     damage_note: str | None = None
     damage_photo_urls: list[str] | None = None
     # ค่าปรับคิดอัตโนมัติจาก settings ตอนรับคืน — ส่ง 2 ช่องนี้มาเมื่ออยากใช้ยอดอื่นแทนที่ระบบคิดให้
@@ -180,6 +199,23 @@ class ReturnItemRequest(BaseModel):
     # ประเมินคุณภาพใหม่ (ไม่บังคับ) — จังหวะที่ 4 ของ 4 จังหวะให้ประเมิน (ดู CLAUDE.md) มีผลเฉพาะตอนคืนแบบ
     # ชำรุด (condition_on_return == "damaged") และเครื่องเปิดติดตามคุณภาพอยู่เท่านั้น
     quality_after: float | None = Field(None, ge=0, le=100)
+
+
+class SwapItemRequest(BaseModel):
+    """เปลี่ยนตัวระหว่างยืม (SKGRent ข้อ 4) — ปิดหน่วยเดิมด้วยสภาพที่รับกลับมาจริง แล้วจ่ายหน่วยใหม่ในรุ่นเดียวกัน
+    โดยคงวันครบกำหนดเดิม · equipment_id ว่าง = ให้ระบบเลือกด้วยกฎจ่ายของเดิม (dispatch_order)"""
+    condition_on_return: str   # สภาพหน่วยเดิม: ok / damaged / lost
+    damage_note: str | None = None
+    damage_photo_urls: list[str] | None = None
+    reason: str = Field(..., min_length=1, max_length=500)
+    equipment_id: uuid.UUID | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("กรุณาระบุเหตุผลที่เปลี่ยนตัว")
+        return v.strip()
 
 
 class FineEditRequest(BaseModel):
@@ -218,3 +254,27 @@ class PaginatedBorrowRequests(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class HideRequestBody(BaseModel):
+    """ซ่อนประวัติการยืม (superadmin) — บังคับเหตุผล เพราะเป็นการเอาเอกสารออกจากสายตาทุกคน"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("กรุณาระบุเหตุผล")
+        return v.strip()
+
+
+class HiddenRequestResponse(BaseModel):
+    """แถวในหน้า "ประวัติที่ซ่อนไว้" — ข้อมูลพอให้ตัดสินใจกู้คืน ไม่ใช่คำขอเต็ม"""
+    id: uuid.UUID
+    request_code: str
+    status: str
+    borrower_name: str | None = None
+    borrower_identifier: str | None = None
+    deleted_at: datetime
+    deleted_by_name: str | None = None
+    delete_reason: str | None = None

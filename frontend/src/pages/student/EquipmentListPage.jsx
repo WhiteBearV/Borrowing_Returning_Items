@@ -39,7 +39,8 @@ export default function EquipmentListPage() {
     setScanning(false)
     if (equipmentId) return navigate(`/equipment/${equipmentId}`)
     const res = await equipmentApi.list({ search: code, page_size: 5 }).catch(() => null)
-    const exact = res?.items?.find((e) => e.code?.toLowerCase() === code.toLowerCase())
+    // สติกเกอร์ราชการเป็นเลขครุภัณฑ์ ไม่ใช่รหัสระบบ — จับคู่ได้ทั้งสองเลข
+    const exact = res?.items?.find((e) => [e.code, e.asset_number].some((v) => v?.toLowerCase() === code.toLowerCase()))
     exact ? navigate(`/equipment/${exact.id}`) : setSearch(code)
   }
 
@@ -72,11 +73,14 @@ export default function EquipmentListPage() {
   }
 
   useEffect(() => {
+    // ยิงทุกครั้งที่พิมพ์ — คำตอบของคำค้นเก่าที่มาถึงช้าต้องไม่ทับผลล่าสุด
+    let stale = false
     setLoading(true)
     equipmentApi
       .listGrouped({ search: search || undefined, category_id: categoryId || undefined, page, page_size: 12 })
-      .then(setData)
-      .finally(() => setLoading(false))
+      .then((res) => { if (!stale) setData(res) })
+      .finally(() => { if (!stale) setLoading(false) })
+    return () => { stale = true }
   }, [search, categoryId, page])
 
   const isAvailable = (eq) => eq.is_borrowable && eq.status === 'available' && eq.quantity_available > 0
@@ -163,6 +167,7 @@ export default function EquipmentListPage() {
                 </div>
                 {/* ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — ระบบยังไม่การันตีว่าจะได้หน่วยรหัสนี้จริงตอนอนุมัติ */}
                 <p className="text-xs text-gray-400">{TYPE_LABEL[eq.item_type]}{eq.unit_count === 1 ? ` · ${eq.code}` : ''}</p>
+                {eq.unit_count === 1 && eq.asset_number && <p className="text-[10px] text-gray-400">ครุภัณฑ์ {eq.asset_number}</p>}
                 {available ? (
                   <p className="text-xs text-gray-500">เหลือให้ยืม: {eq.quantity_available} {eq.unit ?? 'ชิ้น'}</p>
                 ) : (

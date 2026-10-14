@@ -248,11 +248,17 @@ def parse_file(path: str, filename: str) -> ParsedStudents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"รองรับเฉพาะไฟล์ {', '.join(SUPPORTED_EXTS)}")
     parsed = ParsedStudents()
-    if ext == ".pdf":
-        _parse_text(_text_from_pdf(path), parsed)
-    else:
-        grid = {".xlsx": _grid_from_xlsx, ".xls": _grid_from_xls, ".csv": _grid_from_csv}[ext](path)
-        _parse_grid(grid, parsed)
+    try:
+        if ext == ".pdf":
+            _parse_text(_text_from_pdf(path), parsed)
+        else:
+            grid = {".xlsx": _grid_from_xlsx, ".xls": _grid_from_xls, ".csv": _grid_from_csv}[ext](path)
+            _parse_grid(grid, parsed)
+    except HTTPException:
+        raise
+    except Exception:  # ไฟล์เสีย/ไม่ใช่ชนิดที่นามสกุลบอก — แต่ละไลบรารีโยน error คนละแบบ เดิมหลุดเป็น 500 (R2-04)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="อ่านไฟล์ไม่สำเร็จ — ไฟล์อาจเสียหายหรือไม่ใช่ชนิดที่ระบุ") from None
 
     if not parsed.rows:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
@@ -393,3 +399,44 @@ async def find_eligible(db: AsyncSession, student_id: str | None) -> EligibleStu
     return (await db.execute(
         select(EligibleStudent).where(EligibleStudent.student_id == student_id.strip())
     )).scalar_one_or_none()
+
+
+def build_student_template() -> bytes:
+    """แม่แบบรายชื่อนักศึกษา (หน้าตาเดียวกับไฟล์สำนักทะเบียน) — สาขา/รุ่น/อาจารย์อยู่หัวกระดาษ ตามที่ parse_file อ่าน
+    1 ไฟล์ = 1 อาจารย์ที่ปรึกษา/1 รุ่น (นำเข้าหลายไฟล์ได้ ระบบอัปเดตทับด้วยรหัสนักศึกษา ไม่ล้างของเดิม)
+    """
+    import io
+
+    import openpyxl
+    from openpyxl.styles import Font
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "รายชื่อ"
+    ws.append(["คณะ", "เทคโนโลยีดิจิทัล"])
+    ws.append(["สาขาวิชา", "วิศวกรรมคอมพิวเตอร์", "", "รุ่น 691 หมู่เรียน วค."])
+    ws.append(["อาจารย์ที่ปรึกษา", "ชื่อ-นามสกุลอาจารย์"])
+    ws.append([])
+    ws.append(["ที่", "รหัสนักศึกษา", "ชื่อ-นามสกุล", "สถานะ", "หมายเหตุ"])
+    for c in ws[5]:
+        c.font = Font(bold=True)
+    ws.append([1, "6910301001", "นักศึกษา ตัวอย่างหนึ่ง (ลบแถวนี้)", "10", ""])
+    ws.append([2, "6910301002", "นักศึกษา ตัวอย่างสอง (ลบแถวนี้)", "10", ""])
+    for col, w in zip("ABCDE", (18, 22, 36, 26, 14)):
+        ws.column_dimensions[col].width = w
+    howto = wb.create_sheet("วิธีใช้")
+    for line in (
+        "วิธีใช้แม่แบบรายชื่อนักศึกษา",
+        "",
+        "• หัวกระดาษแถว 1–3: คณะ / สาขาวิชา (+ รุ่น) / อาจารย์ที่ปรึกษา — ใช้กับทุกคนในไฟล์ แก้ค่าในคอลัมน์ B",
+        "• สาขาวิชาต้องมีคำว่า 'วิศวกรรมคอมพิวเตอร์' หรือ 'ออกแบบดิจิทัล' ระบบถึงจะรู้สาขา",
+        "• รุ่นเทียบโอนให้ใส่คำว่า 'ทอ' ในรุ่น เช่น 'รุ่น 691 ทอ.'",
+        "• ตารางเริ่มแถว 6: รหัสนักศึกษา 10 หลัก + ชื่อ-นามสกุล (ใส่หรือไม่ใส่คำนำหน้าก็ได้)",
+        "• 1 ไฟล์ = 1 อาจารย์ที่ปรึกษา — นำเข้าหลายไฟล์ได้ ระบบอัปเดตทับด้วยรหัสนักศึกษา ไม่ลบรายชื่อเดิม",
+        "• ไฟล์ .xls จากสำนักทะเบียนนำเข้าได้ตรง ๆ ไม่ต้องแปลงเป็นแม่แบบนี้",
+    ):
+        howto.append([line])
+    howto.column_dimensions["A"].width = 100
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

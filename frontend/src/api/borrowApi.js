@@ -74,5 +74,10 @@ export const borrowApi = {
   previewPdf: (data) =>
     api.post('/borrow-requests/preview-pdf', data, { responseType: 'blob' }).then((r) => r.data),
   remind: (id) => api.post(`/borrow-requests/${id}/remind`).then((r) => r.data),
-  deleteRequest: (id) => api.delete(`/borrow-requests/${id}`),
+  // ลบ = ซ่อน (กู้คืนได้) บังคับเหตุผล — ลบจริงได้ทางเดียวคือสคริปต์บนเครื่อง (SKGRent ข้อ 3)
+  deleteRequest: (id, reason) => api.delete(`/borrow-requests/${id}`, { data: { reason } }),
+  // เปลี่ยนตัวระหว่างยืม (SKGRent ข้อ 4)
+  swapItem: (id, itemId, data) => api.post(`/borrow-requests/${id}/items/${itemId}/swap`, data).then((r) => r.data),
+  listHidden: () => api.get('/borrow-requests/hidden').then((r) => r.data),
+  restore: (id) => api.post(`/borrow-requests/${id}/restore`),
 }

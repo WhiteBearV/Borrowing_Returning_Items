@@ -107,6 +107,16 @@ async def stock_document(
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
+@router.get("/equipment/import/template")
+async def download_import_template(_: User = Depends(require_admin)) -> Response:
+    """แม่แบบนำเข้าอุปกรณ์ (ครุภัณฑ์ · วัสดุ · SN) — หัวตารางตรงกับตัวอ่านไฟล์"""
+    return Response(
+        content=import_service.build_equipment_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''equipment-import-template.xlsx"},
+    )
+
+
 @router.post("/equipment/import/preview")
 async def import_preview(
     file: UploadFile,

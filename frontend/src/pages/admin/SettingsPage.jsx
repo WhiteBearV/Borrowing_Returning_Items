@@ -11,7 +11,7 @@ const ADMIN_EDITABLE_KEYS = new Set([
   'default_pickup_location', 'default_pickup_time', 'due_soon_notify_days_before',
   'low_stock_threshold_default', 'max_items_per_request', 'max_active_requests_per_student',
   'max_renew_count', 'max_renew_days',
-  'quality_repair_default_drop', 'quality_low_threshold', 'academic_year_start',
+  'quality_repair_default_drop', 'quality_low_threshold', 'quality_inspect_interval_months', 'academic_year_start',
 ])
 
 // จัดกลุ่มให้อ่านง่ายแทนที่จะเรียงตามตัวอักษรของ key
@@ -22,10 +22,10 @@ const GROUPS = [
   { title: 'โควต้าการยืม', keys: [
     'max_items_per_request', 'max_active_requests_per_student', 'max_renew_count', 'max_renew_days'] },
   { title: 'ค่าคุณภาพ · ชั้นปี', keys: [
-    'quality_repair_default_drop', 'quality_low_threshold', 'academic_year_start',
+    'quality_repair_default_drop', 'quality_low_threshold', 'quality_inspect_interval_months', 'academic_year_start',
     'quality_age_weight', 'quality_life_years_default'] },
   { title: 'ค่าปรับ · ค่าเสื่อม · เอกสาร (ผู้ดูแลระบบสูงสุด)', keys: [
-    'fine_per_day_per_item', 'fine_grace_days', 'fine_max_per_item',
+    'fine_per_day_per_item', 'fine_grace_days', 'fine_max_per_item', 'fine_waive_limit_admin',
     'depreciation_years_default', 'depreciation_salvage_value', 'pdf_value_source'] },
 ]
 

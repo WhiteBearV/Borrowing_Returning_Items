@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-from app.schemas.auth import Password, _strip_student_id
+from app.schemas.auth import FullName, Password, _strip_student_id
 
 # รหัสประจำตัวบุคลากร (feedback อาจารย์ — "อินดิเชียรเนม" เช่น 01MNK01) เก็บในคอลัมน์ username เดิม
 # กฎมีข้อเดียวที่จำเป็นจริง: **ห้ามเป็นตัวเลขล้วน** เพราะรหัสนักศึกษาเป็นตัวเลข 10 หลัก ถ้าปนกันจะดูไม่ออกว่า
@@ -43,13 +43,15 @@ class UserResponse(BaseModel):
     is_retained: bool = False
     remaining_study_years: int | None = None
     study_year_label: str = "บุคลากร"
+    # ค่าปรับค้างชำระรวมของผู้ใช้ (SKGRent ข้อ 6) — เติมเฉพาะหน้ารายการผู้ใช้/โปรไฟล์ (attach_unpaid_fines)
+    unpaid_fine_total: float = 0
 
     model_config = {"from_attributes": True}
 
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
-    full_name: str
+    full_name: FullName
     password: Password
     role: str = "student"  # student / admin / superadmin (ดู app/utils/roles.py)
     # บังคับกรอกเมื่อ role ไม่ใช่ student — ดู _require_staff_code ด้านล่าง
@@ -82,7 +84,7 @@ class UserCreateRequest(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    full_name: str | None = None
+    full_name: FullName | None = None
     major: str | None = None
 
 

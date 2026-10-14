@@ -19,8 +19,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", status_code=201)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> dict:
-    await auth_service.register(db, body)
-    return {"detail": "Registration successful. Please verify your email."}
+    result = await auth_service.register(db, body)
+    return {"detail": "Registration successful.", **result}
 
 
 @router.get("/study-year-preview", response_model=StudyYearPreviewResponse)

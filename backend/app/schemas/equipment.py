@@ -1,7 +1,20 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
+from typing import Annotated
+
+from app.schemas.auth import NonBlank
+
+# หน่วยนับว่าง/ช่องว่างล้วน = "ไม่ระบุ" (None) — ไม่เก็บสตริงว่างลงฐาน (R5-03)
+Unit = Annotated[str | None, BeforeValidator(lambda v: (v.strip() or None) if isinstance(v, str) else v)]
+
+# ค่าที่รับได้ตอน "เขียน" เท่านั้น (response ยังเป็น str) — เดิมรับสตริงอะไรก็ได้ item_type="gadget"/status="exploded"
+# เข้า DB แล้วหลุดจากทุกตัวกรอง/ชุดสภาพตอนคืน (QA-20, 30 ก.ย. 69)
+ItemType = Literal["durable", "material", "consumable"]
+EquipmentStatus = Literal["available", "unavailable", "damaged", "under_repair", "retired"]
 
 
 def _blank_sn_to_none(v: str | None) -> str | None:
@@ -29,7 +42,7 @@ class CategoryResponse(BaseModel):
 
 
 class CategoryCreate(BaseModel):
-    name: str
+    name: NonBlank
 
 
 class HolderInfo(BaseModel):
@@ -43,6 +56,7 @@ class HolderInfo(BaseModel):
 class EquipmentResponse(BaseModel):
     id: uuid.UUID
     code: str
+    asset_number: str | None = None  # เลขครุภัณฑ์ (ทะเบียนราชการ) — แยกจาก code ตั้งแต่ migration 0048
     serial_number: str | None = None
     name: str
     manufacturer: str | None = None
@@ -146,6 +160,7 @@ class EquipmentUnitSummary(BaseModel):
     """หน่วยเดียวในกลุ่ม — ให้หน้าจัดการอุปกรณ์กางดูและแก้ไข/ปลดระวางทีละหน่วยได้"""
     id: uuid.UUID
     code: str
+    asset_number: str | None = None
     serial_number: str | None = None
     location: str | None = None
     status: str
@@ -227,7 +242,7 @@ class PartUpdate(BaseModel):
 class PartRemove(BaseModel):
     """ถอดชิ้นส่วนออก — ไม่ลบแถว บันทึกวันที่+เหตุผลไว้เป็นประวัติการอัพเกรด"""
     removed_at: date | None = None  # ไม่ส่ง = วันนี้
-    reason: str = Field(..., min_length=1)
+    reason: NonBlank
 
 
 class EquipmentGroupDetailResponse(EquipmentGroupResponse):
@@ -254,34 +269,35 @@ class EquipmentQualityAssessRequest(BaseModel):
 
 
 class EquipmentCreate(BaseModel):
-    # เว้นว่างได้เฉพาะวัสดุสิ้นเปลือง (consumable) — สร้าง.equipment_service.create_equipment จะออกรหัสให้อัตโนมัติ
-    # จากชื่อ+เลขลำดับ เพราะรหัสไม่มีความหมายจริงสำหรับของแบบนี้ (เช่น เซ็นเซอร์หลายแบบจำนวนมาก)
+    # เว้นว่างได้ทุกประเภท — equipment_service.next_system_codes ออกรหัส DT-D/M/C-xxxxx ให้ (24 ก.ย. 69)
     code: str | None = None
+    asset_number: str | None = Field(None, max_length=50)  # เลขครุภัณฑ์ 15 หลัก (ไม่บังคับ)
     serial_number: str | None = None
-    name: str
+    name: NonBlank
     # ผู้ผลิต/รุ่น (เฟส 8) — ไม่บังคับ แต่ฟอร์มมี helper แนะนำให้แยกชื่อรุ่นออกจากชื่ออุปกรณ์
     manufacturer: str | None = None
     model_number: str | None = None
     category_ids: list[uuid.UUID]
-    item_type: str  # durable / consumable
+    item_type: ItemType  # durable / consumable
     description: str | None = None
     # บังคับรูปอย่างน้อย 1 เฉพาะตอนสร้างใหม่ — ของเดิมจากทะเบียน 704 แถวยังไม่มีรูป
     # ถ้าไปบังคับใน EquipmentUpdate ด้วยจะแก้ข้อมูลของเดิมไม่ได้เลย
     image_urls: list[str] = Field(..., min_length=1)
     location: str | None = None
-    unit: str | None = None
+    unit: Unit = None
     # บังคับกรอกตอนสร้างใหม่ (ของทุกชิ้นต้องมีราคา) — ของเดิมในคลังที่ยังว่างไม่โดนบังคับย้อนหลัง
     # เพราะ EquipmentUpdate ยังปล่อยเป็น optional ไม่งั้นแก้ฟิลด์อื่นของแถวเดิม 128 แถวไม่ได้เลย
     unit_value: float = Field(..., gt=0)
     acquired_at: date  # วันที่ได้มา — บังคับเช่นกัน ฟอร์มใส่ค่าเริ่มต้นเป็นวันนี้ให้
     useful_life_years: int | None = Field(None, gt=0)
     book_value_override: float | None = Field(None, ge=0)
-    quantity_total: int = 1
-    low_stock_threshold: int | None = None
+    quantity_total: int = Field(1, ge=1)  # ติดลบเคยหลุดไปชน CHECK constraint = 500 (QA-19)
+    low_stock_threshold: int | None = Field(None, ge=0)
     is_borrowable: bool = True
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
-    _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)  # ชื่อ generic ใช้กับ code ได้เหมือนกัน
+    _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
+    _normalize_asset_number = field_validator("asset_number", mode="before")(_blank_sn_to_none)  # ชื่อ generic ใช้กับ code ได้เหมือนกัน
 
 
 class RestockRequest(BaseModel):
@@ -291,31 +307,32 @@ class RestockRequest(BaseModel):
 class AdjustStockRequest(BaseModel):
     """ปรับ quantity_available ให้ตรงกับที่นับได้จริง (ต่างจาก restock ที่บวกเพิ่ม — อันนี้ SET ตรง ๆ)"""
     new_available: int = Field(..., ge=0)
-    reason: str = Field(..., min_length=1)
+    reason: NonBlank
     photo_urls: list[str] = []
 
 
 class EquipmentUpdate(BaseModel):
     code: str | None = None
-    item_type: str | None = None
+    asset_number: str | None = Field(None, max_length=50)  # superadmin เท่านั้น (FINANCE_FIELDS)
+    item_type: ItemType | None = None
     serial_number: str | None = None
-    name: str | None = None
+    name: NonBlank | None = None
     manufacturer: str | None = None
     model_number: str | None = None
     category_ids: list[uuid.UUID] | None = None
     description: str | None = None
     image_urls: list[str] | None = None
     location: str | None = None
-    unit: str | None = None
+    unit: Unit = None
     # ส่งมาเป็น null = "ไม่แก้ราคา" ไม่ใช่ "ล้างราคาทิ้ง" (ดู update_equipment) — ของทุกชิ้นต้องมีราคา
     unit_value: float | None = Field(None, gt=0)
     acquired_at: date | None = None
     useful_life_years: int | None = Field(None, gt=0)
     # ส่ง null ที่นี่ล้างค่าได้จริง = กลับไปใช้ค่าที่ระบบคำนวณ (ต่างจาก unit_value ด้านบนโดยตั้งใจ)
     book_value_override: float | None = Field(None, ge=0)
-    quantity_total: int | None = None
-    low_stock_threshold: int | None = None
-    status: str | None = None
+    quantity_total: int | None = Field(None, ge=1)
+    low_stock_threshold: int | None = Field(None, ge=0)
+    status: EquipmentStatus | None = None
     is_borrowable: bool | None = None
     # เปลี่ยนสถานะเป็น action ที่ต้องอธิบายได้ (เฟส 8) — บังคับเฉพาะเมื่อ status เปลี่ยนจริง
     # ("ทำไมเครื่องนี้ถึงกลายเป็นซ่อมอยู่" ต้องตอบได้จาก audit ไม่ใช่เดาจากวันที่)
@@ -331,6 +348,7 @@ class EquipmentUpdate(BaseModel):
 
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
+    _normalize_asset_number = field_validator("asset_number", mode="before")(_blank_sn_to_none)
 
     # quality_tracked ลง Equipment.quality_tracked ซึ่งเป็นคอลัมน์ NOT NULL — ส่ง `null` มาตรง ๆ จะหลุด
     # exclude_unset (นับว่า "ส่งมา") แล้วไปตั้งค่า None ทับคอลัมน์นี้ตอน setattr กลายเป็น 500 IntegrityError
@@ -358,8 +376,8 @@ class ImportRowIn(BaseModel):
     name: str
     serial_number: str | None = None
     location: str | None = None
-    status: str
-    item_type: str = "durable"  # durable / material / consumable
+    status: EquipmentStatus
+    item_type: ItemType = "durable"  # durable / material / consumable
     quantity: int = 1
     unit: str | None = None
     # ราคา/วันที่ได้มาจากไฟล์ทะเบียน — แอดมินแก้ในร่างได้ ไหลเข้าเฉพาะแถวที่ยังว่างใน DB (ดู commit_import)
@@ -416,15 +434,15 @@ class EquipmentBulkUpdate(BaseModel):
     unique constraint และ update_equipment (แก้ทีละหน่วย) ก็แก้ 2 ฟิลด์แรกได้อยู่แล้วโดยไม่กระทบประวัติการยืมเก่า
     (BorrowItem เก็บ snapshot แยก) จึงใช้ตรรกะเดียวกันได้กับหลายแถวพร้อมกัน
     """
-    name: str | None = None
+    name: NonBlank | None = None
     manufacturer: str | None = None
     model_number: str | None = None
-    item_type: str | None = None
+    item_type: ItemType | None = None
     category_ids: list[uuid.UUID] | None = None
     location: str | None = None
     description: str | None = None
     image_urls: list[str] | None = None
-    unit: str | None = None
+    unit: Unit = None
     # ทะเบียน/การเงิน — superadmin เท่านั้น (bulk_update_equipment เช็ค FINANCE_FIELDS) · validator เดียวกับ
     # EquipmentUpdate · 21 ก.ย. 69 เพิ่ม 3 ฟิลด์หลัง: หน้าเว็บส่งมาตลอดแต่ schema ไม่มี pydantic เลยทิ้งเงียบ ๆ
     # (แก้วันที่ได้มา/อายุการใช้งานหลายรายการแล้ว "บันทึกสำเร็จ" ทั้งที่ไม่มีอะไรเปลี่ยน)
@@ -432,8 +450,8 @@ class EquipmentBulkUpdate(BaseModel):
     acquired_at: date | None = None
     useful_life_years: int | None = Field(None, gt=0)
     book_value_override: float | None = Field(None, ge=0)
-    low_stock_threshold: int | None = None
-    status: str | None = None
+    low_stock_threshold: int | None = Field(None, ge=0)
+    status: EquipmentStatus | None = None
     is_borrowable: bool | None = None
     # ค่าคุณภาพ (เฟส 10) — เปิด/ปิดติดตามคุณภาพหรือแก้อายุการใช้งานพร้อมกันหลายหน่วยได้ ปลอดภัยเหมือนฟิลด์อื่น
     # ด้านบน (ไม่มี unique constraint) การประเมินค่าจริง (quality_baseline) แยกไปอยู่ใน BulkUpdateRequest
@@ -468,7 +486,7 @@ class BulkAdjustStockRequest(BaseModel):
     """
     equipment_ids: list[uuid.UUID] = Field(..., min_length=1)
     delta: int
-    reason: str = Field(..., min_length=1)
+    reason: NonBlank
 
 
 class BulkAdjustStockResult(BaseModel):

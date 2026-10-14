@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { equipmentApi } from '../../api/equipmentApi.js'
 import { openPdf } from '../../utils/openPdf.js'
@@ -13,6 +13,7 @@ import { ReturnAppointModal } from '../../components/borrow/ReturnAppointModal.j
 import EmptyState from '../../components/common/EmptyState.jsx'
 import ReasonModal, { CANCEL_REASONS } from '../../components/common/ReasonModal.jsx'
 import { SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
+import ItemLineTag from '../../components/borrow/ItemLineTag.jsx'
 
 const ITEM_CONDITION_LABEL = {
   ok: 'คืนแล้ว', damaged: 'เสียหาย', lost: 'สูญหาย',
@@ -21,6 +22,8 @@ const ITEM_CONDITION_LABEL = {
 
 export default function MyBorrowsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const locState = useLocation().state
+  const submitted = locState?.submitted ? locState : null // มาจากหน้ายื่นคำขอ — แบนเนอร์บอกขั้นต่อไป
   const highlightId = searchParams.get('request')
   const [data, setData] = useState({ items: [], total: 0 })
   const [page, setPage] = useState(1)
@@ -34,6 +37,7 @@ export default function MyBorrowsPage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState('')
   const [categories, setCategories] = useState([])
+  const [loadError, setLoadError] = useState(false)
   const highlightRef = useRef(null)
   // เปิดแถว "approved" ให้อัตโนมัติแค่ตอนโหลดข้อมูลครั้งแรก — poll รอบถัดไปจะไม่ทับแถวที่ผู้ใช้ยุบเอง
   const autoExpandedRef = useRef(false)
@@ -59,7 +63,9 @@ export default function MyBorrowsPage() {
           return next
         })
       }
-    }).finally(() => { if (showLoading) setLoading(false) })
+      setLoadError(false)
+    // โหลดไม่สำเร็จต้องบอกตรง ๆ — เดิมไม่มี catch หน้าเลยขึ้น "ยังไม่มีคำขอยืม" ทั้งที่มีของค้าง (QA-26)
+    }).catch(() => setLoadError(true)).finally(() => { if (showLoading) setLoading(false) })
   }
 
   // poll ทุก 4 วิ mirror BorrowRequestsPage.jsx/NotificationBell.jsx — เห็นสถานะที่แอดมินอัปเดตแล้ว
@@ -68,7 +74,8 @@ export default function MyBorrowsPage() {
   useEffect(() => {
     if (renewTarget) return
     load(true)
-    const id = setInterval(() => load(false), 4000)
+    // แท็บที่ไม่ได้เปิดดูอยู่ไม่ต้อง poll — Prod เปิดทิ้งไว้ 24/7 หลายเครื่องยิงเซิร์ฟเวอร์ฟรี ๆ ทุก 4 วิ (QA รอบ 2)
+    const id = setInterval(() => { if (!document.hidden) load(false) }, 4000)
     return () => clearInterval(id)
   }, [page, renewTarget, filterStatus, filterCategory, filterType])
 
@@ -104,6 +111,7 @@ export default function MyBorrowsPage() {
 
   // ยกเลิกคำขอต้องมีเหตุผล (8 ก.ย. 69) — ของถูกกันไว้ให้แล้ว คนอื่นรอคิวอยู่ ต้องตอบได้ว่าทำไมถึงยกเลิก
   const [cancelTarget, setCancelTarget] = useState(null) // คำขอที่กำลังจะยกเลิก
+  const [cancelledCode, setCancelledCode] = useState(null)
 
   const toggleSelect = (itemId) => {
     setSelectedItems((prev) => {
@@ -144,6 +152,13 @@ export default function MyBorrowsPage() {
   return (
     <div className="px-4 sm:px-6 py-8">
       <h1 className="text-2xl font-light text-gray-800 mb-4">คำขอยืมของฉัน</h1>
+      {/* ซ่อนแบนเนอร์ถ้าคำขอนั้นถูกยกเลิกไปแล้วในหน้านี้ — เดิมยังขึ้น "รอเจ้าหน้าที่อนุมัติ" ค้าง (R5-07) */}
+      {submitted && submitted.submitted !== cancelledCode && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <p className="font-semibold">ส่งคำขอ {submitted.submitted} แล้ว</p>
+          <p>รอเจ้าหน้าที่อนุมัติ (ระบบจะแจ้งเตือนเมื่ออนุมัติ) จากนั้นไปรับของที่ <b>{submitted.pickupPlace ?? 'ห้องพัสดุ'}</b></p>
+        </div>
+      )}
 
       {/* กรองที่ backend ไม่ใช่ในหน้านี้ — รายการถูกแบ่งหน้า กรองฝั่ง client จะได้ผลแค่หน้าที่โหลดมาแล้ว */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -168,6 +183,11 @@ export default function MyBorrowsPage() {
 
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>
+      ) : loadError ? (
+        <EmptyState>
+          โหลดรายการคำขอไม่สำเร็จ —{' '}
+          <button type="button" onClick={() => load(true)} className="text-primary-600 hover:underline">ลองใหม่</button>
+        </EmptyState>
       ) : data.items.length === 0 ? (
         <EmptyState>{filterStatus || filterCategory || filterType ? 'ไม่พบคำขอที่ตรงกับตัวกรอง' : 'ยังไม่มีคำขอยืม'}</EmptyState>
       ) : (
@@ -213,14 +233,20 @@ export default function MyBorrowsPage() {
               {/* Expanded detail */}
               {expanded.has(req.id) && (
                 <div className="border-t px-4 py-3 space-y-3">
-                  {req.pickup_at && req.status === 'approved' && (
+                  {req.status === 'pending' && req.pickup_place && (
+                    <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                      รอเจ้าหน้าที่อนุมัติ — เมื่ออนุมัติแล้วไปรับของที่ <b>{req.pickup_place}</b>
+                    </div>
+                  )}
+                  {(req.pickup_at || req.pickup_location) && req.status === 'approved' && (
                     <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-sm text-blue-800">
-                      <b>นัดรับของ:</b> {formatDateTime(req.pickup_at)}
-                      {req.pickup_location ? ` ที่ ${req.pickup_location}` : ''}
+                      <b>{req.pickup_at ? 'นัดรับของ:' : 'รับของที่:'}</b> {req.pickup_at ? formatDateTime(req.pickup_at) : ''}
+                      {req.pickup_location ? `${req.pickup_at ? ' ที่ ' : ''}${req.pickup_location}` : ''}
                       {req.pickup_note && <p className="text-xs text-blue-600 mt-0.5">{req.pickup_note}</p>}
                     </div>
                   )}
-                  {req.status === 'approved' && !req.signed_form_file && (
+                  {/* เซ็นรับของบนหน้าจอแล้ว = ไม่ต้องเตือนให้ปริ้นไปเซ็นอีก (R5-07) */}
+                  {req.status === 'approved' && !req.signed_form_file && !req.signatures?.includes('handover_borrower') && (
                     <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                       อย่าลืม <b>ปริ้นใบยืมไปลงลายเซ็น</b> แล้วนำมาแสดงตอนรับของ
                       หรืออัปโหลดไฟล์ที่เซ็นแล้วเข้าระบบ (PDF/รูปถ่าย ไม่เกิน 10MB) ที่ส่วน "เอกสาร" ด้านล่าง
@@ -249,7 +275,8 @@ export default function MyBorrowsPage() {
                           )}
                           <div>
                             <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
-                            <span className="ml-2 text-xs text-gray-400">×{item.quantity}</span>
+                            <span className="ml-2 text-xs text-gray-400">×{item.quantity} {item.equipment_unit ?? ''}</span>
+                            <ItemLineTag item={item} items={req.items} className="ml-2" />
                             {item.returned ? (
                               <span className={`ml-2 text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
                                 {ITEM_CONDITION_LABEL[item.condition_on_return] ?? 'คืนแล้ว'}
@@ -260,7 +287,7 @@ export default function MyBorrowsPage() {
                                 {item.return_appoint_location ? ` ที่ ${item.return_appoint_location}` : ''}
                               </span>
                             ) : (
-                              req.status === 'approved' && item.item_type_snapshot === 'consumable' &&
+                              req.status === 'approved' && item.item_status !== 'rejected' && item.item_type_snapshot === 'consumable' &&
                               <span className="ml-2 text-xs text-primary-500">เบิกแล้ว (รอสรุป)</span>
                             )}
                             {item.renewed_count > 0 && (
@@ -448,6 +475,7 @@ export default function MyBorrowsPage() {
           onCancel={() => setCancelTarget(null)}
           onConfirm={async (reason) => {
             await borrowApi.cancel(cancelTarget.id, reason)
+            setCancelledCode(cancelTarget.request_code)
             setCancelTarget(null)
             load(true)
           }}

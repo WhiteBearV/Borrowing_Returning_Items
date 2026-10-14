@@ -5,11 +5,12 @@ import { parseScan } from '../../utils/scan.js'
 // แต่ไม่มีบน iPhone/Firefox/Chrome บน Windows-Linux บางรุ่น → เหลือช่องพิมพ์รหัส (หรือเปิดกล้องมือถือสแกน QR
 // ซึ่งเป็นลิงก์อยู่แล้ว) ถ้าเจ้าหน้าที่ต้องใช้บน iPhone จริงค่อยเพิ่ม lib ถอดรหัส QR (เช่น jsQR) เป็น fallback
 const SUPPORTED = typeof window !== 'undefined' && 'BarcodeDetector' in window
+const UNSUPPORTED_MSG = 'เบราว์เซอร์นี้ (เช่น iPhone) สแกนในหน้าเว็บไม่ได้ — ใช้แอปกล้องของมือถือสแกน QR บนอุปกรณ์แทน (จะเปิดหน้าอุปกรณ์ให้เอง) หรือพิมพ์รหัสในช่องด้านล่าง'
 
 /** โมดัลสแกน QR/บาร์โค้ดด้วยกล้อง — onResult รับ { equipmentId } หรือ { code } (ดู utils/scan.js) */
 export default function QrScanModal({ title = 'สแกน QR อุปกรณ์', onResult, onClose }) {
   const videoRef = useRef(null)
-  const [error, setError] = useState(SUPPORTED ? '' : 'เบราว์เซอร์นี้สแกนด้วยกล้องไม่ได้ — พิมพ์รหัสอุปกรณ์แทน')
+  const [error, setError] = useState(SUPPORTED ? '' : UNSUPPORTED_MSG)
   const [manual, setManual] = useState('')
   // ref กันกล้องปิด-เปิดใหม่ทุกครั้งที่ parent re-render แล้วส่ง onResult ตัวใหม่มา
   const onResultRef = useRef(onResult)
@@ -24,11 +25,16 @@ export default function QrScanModal({ title = 'สแกน QR อุปกร�
     try {
       detector = new window.BarcodeDetector()
     } catch {
-      setError('เบราว์เซอร์นี้สแกนด้วยกล้องไม่ได้ — พิมพ์รหัสอุปกรณ์แทน')
+      setError(UNSUPPORTED_MSG)
       return undefined
     }
 
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+    // http หรือเบราว์เซอร์เก่าไม่มี mediaDevices — เดิม ?. คืน undefined แล้ว .then ระเบิดทั้งโมดัล
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('เปิดกล้องไม่ได้ — ต้องเข้าเว็บผ่าน https หรือพิมพ์รหัสแทน')
+      return undefined
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(async (s) => {
         if (stopped) { s.getTracks().forEach((t) => t.stop()); return }
         stream = s

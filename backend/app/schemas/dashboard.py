@@ -50,6 +50,7 @@ class DashboardSummaryResponse(BaseModel):
     # การ์ดคุณภาพอุปกรณ์ (เฟส 10) — เฉพาะรุ่นที่เปิดติดตาม (quality_tracked) เท่านั้น
     quality_low_count: int = 0          # ประเมินแล้วและต่ำกว่า quality_low_threshold
     quality_unassessed_count: int = 0   # เปิดติดตามแล้วแต่ยังไม่เคยประเมิน
+    quality_inspect_overdue_count: int = 0  # ประเมินล่าสุดนานเกิน quality_inspect_interval_months
 
 
 class UtilizationRow(BaseModel):

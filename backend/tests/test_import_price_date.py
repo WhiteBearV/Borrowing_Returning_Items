@@ -15,10 +15,10 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 from app.models.audit_log import AuditLog
 from app.models.equipment import Equipment
-from app.services.import_service import diff_rows, parse_workbook
+from app.services.import_service import diff_rows, parse_workbook, resolve_keys
 from tests.conftest import auth
 
-CODE = "TESTPRICE-001"
+CODE = "TESTPRICE-001"   # อยู่คอลัมน์เลขครุภัณฑ์ของทะเบียน (asset_number) — รหัสระบบออกให้ตอน commit
 FILE_PRICE = 25000
 FILE_DATE = datetime(2021, 3, 17)
 
@@ -27,10 +27,10 @@ FILE_DATE = datetime(2021, 3, 17)
 async def cleanup_imported():
     yield
     async with AsyncSessionLocal() as db:
-        ids = (await db.execute(select(Equipment.id).where(Equipment.code == CODE))).scalars().all()
+        ids = (await db.execute(select(Equipment.id).where(Equipment.asset_number == CODE))).scalars().all()
         for eid in ids:
             await db.execute(delete(AuditLog).where(AuditLog.target_id == eid))
-        await db.execute(delete(Equipment).where(Equipment.code == CODE))
+        await db.execute(delete(Equipment).where(Equipment.asset_number == CODE))
         await db.commit()
 
 
@@ -58,15 +58,16 @@ def test_parse_workbook_reads_price_and_date(tmp_path):
 def test_diff_fills_only_empty_fields(tmp_path):
     """ช่องว่าง → เสนอเติม · ช่องที่มีค่าแล้ว → ต้องไม่เสนอทับ แม้ค่าในไฟล์จะต่างกัน"""
     rows, _s, _sn = parse_workbook(str(_register_file(tmp_path)))
-    base = {"id": 1, "name": "ออสซิลโลสโคป Rigol DS1054Z", "location": "15311",
+    base = {"id": 1, "asset_number": CODE, "name": "ออสซิลโลสโคป Rigol DS1054Z", "location": "15311",
             "status": "available", "item_type": "durable"}
+    resolve_keys(rows, {}, {"DT-D-00001": base})
 
-    empty = diff_rows(rows, {CODE: {**base, "unit_value": None, "acquired_at": None}})[0]
+    empty = diff_rows(rows, {"DT-D-00001": {**base, "unit_value": None, "acquired_at": None}})[0]
     assert empty["action"] == "update"
     assert empty["changes"]["unit_value"] == [None, float(FILE_PRICE)]
     assert empty["changes"]["acquired_at"] == [None, FILE_DATE.date().isoformat()]
 
-    filled = diff_rows(rows, {CODE: {**base, "unit_value": 111.0, "acquired_at": date(2019, 1, 1)}})[0]
+    filled = diff_rows(rows, {"DT-D-00001": {**base, "unit_value": 111.0, "acquired_at": date(2019, 1, 1)}})[0]
     assert "unit_value" not in filled["changes"]
     assert "acquired_at" not in filled["changes"]
     assert filled["action"] == "unchanged"
@@ -99,8 +100,9 @@ async def test_commit_writes_price_and_date_then_is_idempotent(client, admin_tok
         return r.json()
 
     draft = await _preview()
-    row = next(r for r in draft["rows"] if r["code"] == CODE)
+    row = next(r for r in draft["rows"] if r.get("asset_number") == CODE)
     assert row["action"] == "new"
+    assert row["code"] == f"NEW:{CODE}"   # ยังไม่มีรหัส — ระบบออกให้ตอนบันทึก
     assert row["unit_value"] == float(FILE_PRICE)
     assert row["acquired_at"] == FILE_DATE.date().isoformat()
 
@@ -110,11 +112,12 @@ async def test_commit_writes_price_and_date_then_is_idempotent(client, admin_tok
     assert r.json()["new"] == 1
 
     async with AsyncSessionLocal() as db:
-        eq = (await db.execute(select(Equipment).where(Equipment.code == CODE))).scalar_one()
+        eq = (await db.execute(select(Equipment).where(Equipment.asset_number == CODE))).scalar_one()
+        assert eq.code.startswith("DT-D-")
         assert float(eq.unit_value) == float(FILE_PRICE)
         assert eq.acquired_at == FILE_DATE.date()
 
     # รอบสอง: ไฟล์เดิม ของอยู่ใน DB ครบแล้ว → ต้องเป็น unchanged ไม่ใช่เสนอเติมซ้ำไม่รู้จบ
     draft2 = await _preview()
-    row2 = next(r for r in draft2["rows"] if r["code"] == CODE)
+    row2 = next(r for r in draft2["rows"] if r.get("asset_number") == CODE)
     assert row2["action"] == "unchanged", row2["changes"]

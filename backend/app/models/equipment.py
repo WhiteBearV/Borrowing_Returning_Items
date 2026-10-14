@@ -23,8 +23,11 @@ class Equipment(Base):
     __tablename__ = "equipment"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # รหัสอุปกรณ์ที่ระบบออกให้ (DT-D/M/C-xxxxx — equipment_service.next_system_code) หรือรหัสวัสดุเดิม
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
-    # SN จากผู้ผลิต — คนละอย่างกับ code (เลขครุภัณฑ์/รหัสวัสดุที่ระบบออกเอง) ไม่บังคับกรอก ใช้ตรวจนับของจริง
+    # เลขครุภัณฑ์ตามทะเบียนราชการ — แยกจาก code ตั้งแต่ 24 ก.ย. 69 (migration 0048) ไม่ซ้ำรายชิ้น แก้ได้เฉพาะ superadmin
+    asset_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # SN จากผู้ผลิต — คนละอย่างกับ code (รหัสระบบ) และ asset_number (เลขครุภัณฑ์) ไม่บังคับกรอก ใช้ตรวจนับของจริง
     serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # ผู้ผลิต + รุ่น (เฟส 8) — แยกออกจาก name ตามมาตรฐานการตั้งชื่อครุภัณฑ์ (docs/naming-convention.md)
@@ -86,6 +89,10 @@ class Equipment(Base):
         Index(
             "ix_equipment_serial_number_unique", "serial_number",
             unique=True, postgresql_where=text("serial_number IS NOT NULL"),
+        ),
+        Index(
+            "ix_equipment_asset_number_unique", "asset_number",
+            unique=True, postgresql_where=text("asset_number IS NOT NULL"),
         ),
         # ตาข่ายชั้นสุดท้ายของสต็อก — ถ้ามีเส้นทางไหนหักสต็อกโดยลืมล็อกแถว
         # จะได้ error ทันทีแทนที่จะเป็นสต็อกติดลบเงียบ ๆ (ดู migration 0016)

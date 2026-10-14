@@ -102,6 +102,7 @@ export default function EquipmentDetailPage() {
               {[
                 // ซ่อนรหัสหน่วยเจาะจงถ้ามีมากกว่า 1 หน่วย — spread แบบมีเงื่อนไข เพราะ ['label', undefined] ไม่ falsy
                 ...(eq.unit_count === 1 ? [['รหัสอุปกรณ์', eq.code]] : []),
+                ...(eq.unit_count === 1 && eq.asset_number ? [['เลขครุภัณฑ์', eq.asset_number]] : []),
                 ['ประเภท', TYPE_LABEL[eq.item_type]],
                 // รุ่น/ผู้ผลิต — คนที่รู้จักแต่ชื่อรุ่น ("DHT11") ต้องยืนยันได้ว่าใช่ตัวที่ตามหา
                 ...(eq.model_number ? [['รุ่น', eq.model_number]] : []),

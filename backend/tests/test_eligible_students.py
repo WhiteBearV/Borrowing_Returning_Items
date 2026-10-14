@@ -169,7 +169,7 @@ async def test_register_uses_list_as_source_of_truth(
 
     r = await client.post("/auth/register", json={
         "full_name": "นาย ทดสอบ  ระบบสาม", "student_id": "9910301003",
-        "email": f"stu{uuid.uuid4().hex[:6]}@student.cdti.ac.th",
+        "email": f"stu{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "digital_design", "phone": "0812345678", "pdpa_consent": True,
     })
     assert r.status_code in (200, 201), r.text
@@ -188,7 +188,7 @@ async def test_unknown_student_goes_to_approval_queue(
 ):
     """ไม่อยู่ในรายชื่อ → สมัครได้แต่ล็อกอินไม่ได้จนกว่าแอดมินจะอนุมัติ (ไม่ปิดตาย)"""
     clean_eligible.append("9910309999")
-    email = f"stu{uuid.uuid4().hex[:6]}@student.cdti.ac.th"
+    email = f"stu{uuid.uuid4().hex[:6]}@cdti.ac.th"
     r = await client.post("/auth/register", json={
         "full_name": "ทดสอบ ไม่อยู่ในรายชื่อ", "student_id": "9910309999",
         "email": email, "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
@@ -228,7 +228,7 @@ async def test_name_mismatch_also_queues(client: AsyncClient, admin_token: str, 
                       files={"file": ("a.csv", _csv_bytes([("9910301004", "ทดสอบ ระบบสี่")]), "text/csv")})
     r = await client.post("/auth/register", json={
         "full_name": "คนอื่น ไม่ใช่เจ้าของรหัส", "student_id": "9910301004",
-        "email": f"stu{uuid.uuid4().hex[:6]}@student.cdti.ac.th",
+        "email": f"stu{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
     })
     assert r.status_code in (200, 201), r.text

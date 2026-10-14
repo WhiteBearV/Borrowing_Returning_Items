@@ -57,6 +57,7 @@ export default function UnitPickerModal({ item, selectedId, studentId, studentYe
             >
               <span className="min-w-0">
                 <span className="font-mono text-xs text-gray-500">{u.code}</span>
+                {u.asset_number && <span className="ml-1.5 font-mono text-[10px] text-gray-400">ครุภัณฑ์ {u.asset_number}</span>}
                 {u.id === recommendedId && (
                   <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                     แนะนำสำหรับผู้ยืมนี้

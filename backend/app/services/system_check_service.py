@@ -6,6 +6,7 @@
 
 ทุก query ในไฟล์นี้ต้องเป็น SELECT เท่านั้น — ห้ามมี INSERT/UPDATE/DELETE เด็ดขาด
 """
+import os
 import shutil
 import time
 from datetime import datetime, timedelta, timezone
@@ -15,12 +16,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import engine
 from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
 from app.models.user import User
 from app.services.borrow_service import STOCK_RETURN_CONDITIONS
+from app.utils import perf
 
 # ตารางที่นับจำนวนแถวให้ดู — ชื่อไทยคู่กันเพื่อให้คนที่ไม่ได้เขียนโค้ดอ่านออก
 _COUNTED_TABLES = [
@@ -129,6 +132,8 @@ async def run_checks(db: AsyncSession) -> dict:
         "counts": counts,
         "issues": issues,
         "health": await _health_checks(db),
+        # เส้นทางที่ช้าที่สุดใน 5 นาทีล่าสุด — บอกได้ทันทีว่าหน้าไหนเป็นตัวถ่วง (path เป็นแม่แบบ ไม่มีข้อมูลผู้ใช้)
+        "slowest_endpoints": perf.summary()["slowest"],
         "audit_log_since": oldest_log,
         "uploads_size_mb": _dir_size_mb(settings.UPLOAD_DIR),
         "checked_at": datetime.now(timezone.utc),
@@ -293,4 +298,137 @@ async def _health_checks(db: AsyncSession) -> list[dict]:
                    "status": "ok" if total_pending == 0 else "warn",
                    "value": f"คำขอยืม {pending_req} · ผู้สมัคร {pending_users}",
                    "hint": "" if total_pending == 0 else "มีคนรออยู่ — เข้าหน้าอนุมัติคำขอ/จัดการผู้ใช้"})
+    checks.extend(await _performance_checks(db))
+    return checks
+
+
+# เกณฑ์ "ช้า" ของหน้าตรวจสอบระบบ — ผู้ใช้เริ่มรู้สึกหน่วงที่ราว 1 วินาทีต่อการกด 1 ครั้ง (หน้าเว็บยิงหลาย request)
+API_P95_WARN_MS, API_P95_ERROR_MS = 800, 2500
+LOOP_LAG_WARN_MS, LOOP_LAG_ERROR_MS = 100, 500
+MEM_WARN_AVAILABLE_PCT = 10
+
+
+def _status(value: float, warn: float, error: float) -> str:
+    return "error" if value >= error else "warn" if value >= warn else "ok"
+
+
+def _meminfo() -> dict[str, int]:
+    """อ่าน /proc/meminfo (kB) — เครื่อง Prod เป็น Linux ใน container · ระบบอื่นคืน dict ว่างแล้วข้ามการ์ดนี้"""
+    try:
+        with open("/proc/meminfo") as f:
+            return {k.strip(): int(v.split()[0]) for k, v in (line.split(":", 1) for line in f)}
+    except (OSError, ValueError):
+        return {}
+
+
+def _process_rss_mb() -> float | None:
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+async def _performance_checks(db: AsyncSession) -> list[dict]:
+    """ตัวชี้ว่า "ช้าเพราะอะไร" — แยกให้เห็นว่าคอขวดอยู่ที่แอป / event loop / ฐานข้อมูล / เครื่อง (1 ต.ค. 69)
+
+    อาการหน่วงบน Prod มีสาเหตุได้หลายชั้นและแก้คนละวิธี: API ช้าเอง · loop ถูกบล็อก (worker เดียว) ·
+    connection pool เต็ม · query ค้าง/รอ lock · CPU หรือ RAM ของ VM หมด — การ์ดแต่ละใบตอบทีละชั้น
+    ส่วนชั้นเครือข่าย/nginx วัดจากฝั่งเบราว์เซอร์ (SystemCheckPage) เพราะเซิร์ฟเวอร์มองไม่เห็นเวลาที่เสียระหว่างทาง
+    """
+    checks: list[dict] = []
+    p = perf.summary()
+
+    # 1) ความเร็ว API จริงของทุกคนใน 5 นาทีล่าสุด
+    st = _status(p["p95_ms"], API_P95_WARN_MS, API_P95_ERROR_MS) if p["count"] else "ok"
+    checks.append({
+        "key": "api_speed", "label": f"ความเร็ว API ({p['window_minutes']} นาทีล่าสุด)", "status": st,
+        "value": (f"เฉลี่ย {p['avg_ms']:.0f} ms · 95% ไม่เกิน {p['p95_ms']:.0f} ms" if p["count"] else "ยังไม่มีข้อมูล"),
+        "hint": (f"{p['count']} คำขอ ({p['per_minute']}/นาที) · ช้าสุด {p['max_ms']:.0f} ms · เกิน 1 วินาที {p['slow_over_1s']} ครั้ง"
+                 + (" — ดูตาราง \"เส้นทางที่ช้าที่สุด\" ด้านล่าง" if st != "ok" else "")),
+    })
+    checks.append({
+        "key": "api_errors", "label": f"ข้อผิดพลาดฝั่งเซิร์ฟเวอร์ ({p['window_minutes']} นาทีล่าสุด)",
+        "status": "ok" if p["errors_5xx"] == 0 else "error",
+        "value": f"{p['errors_5xx']} ครั้ง",
+        "hint": "" if p["errors_5xx"] == 0 else "มี request ที่ตอบ 5xx — ดู log ของ backend (docker compose logs backend)",
+    })
+
+    # 2) event loop — worker เดียว ถ้างานใดไม่คืน loop ทุกคนค้างพร้อมกัน
+    st = _status(p["loop_lag_max_ms"], LOOP_LAG_WARN_MS, LOOP_LAG_ERROR_MS)
+    checks.append({
+        "key": "event_loop", "label": "การตอบสนองของเซิร์ฟเวอร์ (event loop)", "status": st,
+        "value": f"หน่วงสูงสุด {p['loop_lag_max_ms']:.0f} ms · เฉลี่ย {p['loop_lag_avg_ms']:.0f} ms",
+        "hint": "" if st == "ok" else "มีงานที่ยึดเซิร์ฟเวอร์ไว้นานจนคำขอของคนอื่นต้องรอ (เช่น สร้าง PDF/นำเข้าไฟล์/ล็อกอินพร้อมกันหลายคน)",
+    })
+
+    # 3) connection pool ของแอป — เต็มแล้วคำขอถัดไปต้องรอคิวจนกว่าจะมีคนคืน
+    pool = engine.pool
+    try:
+        in_use, size = pool.checkedout(), pool.size()
+        overflow = max(0, pool.overflow())
+        checks.append({
+            "key": "db_pool", "label": "การเชื่อมต่อฐานข้อมูลของแอป (pool)",
+            "status": "error" if overflow >= getattr(pool, "_max_overflow", 10) else "warn" if in_use >= size else "ok",
+            "value": f"ใช้อยู่ {in_use} / {size} (ล้นเพิ่ม {overflow})",
+            "hint": "" if in_use < size else "ใช้เต็ม pool — คำขอใหม่ต้องรอคิว ตรวจ query ที่ค้างหรือเพิ่ม pool_size",
+        })
+    except AttributeError:  # pragma: no cover - pool ชนิดที่ไม่มีตัวนับ (เช่น NullPool ตอนเทส)
+        pass
+
+    # 4) ฝั่ง PostgreSQL: จำนวน connection ทั้งเครื่อง + query ที่รันนานสุด + ที่รอ lock
+    try:
+        row = (await db.execute(text("""
+            SELECT (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()),
+                   current_setting('max_connections')::int,
+                   coalesce((SELECT extract(epoch FROM max(now() - query_start)) FROM pg_stat_activity
+                             WHERE datname = current_database() AND state = 'active' AND pid <> pg_backend_pid()), 0),
+                   (SELECT count(*) FROM pg_stat_activity
+                    WHERE datname = current_database() AND wait_event_type = 'Lock')
+        """))).one()
+        conns, max_conns, longest, waiting = int(row[0]), int(row[1]), float(row[2]), int(row[3])
+        checks.append({
+            "key": "db_connections", "label": "การเชื่อมต่อทั้งหมดที่ฐานข้อมูล",
+            "status": "warn" if conns >= max_conns * 0.8 else "ok",
+            "value": f"{conns} / {max_conns}",
+            "hint": "" if conns < max_conns * 0.8 else "ใกล้เต็ม max_connections — มี process อื่นต่อค้างไว้หรือไม่",
+        })
+        busy = "error" if waiting or longest >= 30 else "warn" if longest >= 5 else "ok"
+        checks.append({
+            "key": "db_activity", "label": "คำสั่งที่ค้างในฐานข้อมูล", "status": busy,
+            "value": f"นานสุด {longest:.1f} วินาที · รอ lock {waiting} รายการ",
+            "hint": "" if busy == "ok" else "มี query รันนานหรือรอ lock กันอยู่ — ทุกหน้าที่แตะตารางเดียวกันจะช้าตาม",
+        })
+    except Exception:  # pragma: no cover - สิทธิ์อ่าน pg_stat_activity ถูกจำกัด
+        pass
+
+    # 5) เครื่อง: CPU (load average เทียบจำนวนคอร์) + RAM
+    try:
+        load1, load5, _ = os.getloadavg()
+        cores = os.cpu_count() or 1
+        checks.append({
+            "key": "cpu_load", "label": "ภาระ CPU ของเครื่อง",
+            "status": "error" if load5 >= cores * 2 else "warn" if load5 >= cores else "ok",
+            "value": f"{load1:.2f} (1 นาที) · {load5:.2f} (5 นาที) / {cores} คอร์",
+            "hint": "" if load5 < cores else "งานมากกว่าจำนวนคอร์ — ทุกอย่างบนเครื่องนี้จะช้าลงพร้อมกัน ตรวจว่า VM ได้ CPU พอหรือมีโปรแกรมอื่นแย่ง",
+        })
+    except OSError:  # pragma: no cover
+        pass
+    mem = _meminfo()
+    if mem.get("MemTotal"):
+        avail_pct = mem.get("MemAvailable", 0) / mem["MemTotal"] * 100
+        swap_used_mb = (mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)) / 1024
+        rss = _process_rss_mb()
+        low = avail_pct < MEM_WARN_AVAILABLE_PCT
+        checks.append({
+            "key": "memory", "label": "หน่วยความจำของเครื่อง",
+            "status": "warn" if low or swap_used_mb > 256 else "ok",
+            "value": f"ว่าง {mem.get('MemAvailable', 0) / 1024 / 1024:.1f} / {mem['MemTotal'] / 1024 / 1024:.1f} GB"
+                     + (f" · แอปใช้ {rss:.0f} MB" if rss else ""),
+            "hint": (f"ใช้ swap อยู่ {swap_used_mb:.0f} MB — " if swap_used_mb > 256 else "")
+                    + ("RAM เหลือน้อย เครื่องจะเริ่มใช้ดิสก์แทน RAM ทำให้ช้าทั้งระบบ" if low or swap_used_mb > 256 else ""),
+        })
     return checks

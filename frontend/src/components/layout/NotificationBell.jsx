@@ -67,7 +67,8 @@ export default function NotificationBell() {
     load()
     // ponytail: poll แทน websocket — เดิม 10s รู้สึกหน่วงตอนรอแจ้งเตือนคืนของ/ขอคืน ลดเหลือ 4s
     // (backend เขียน notification ทันทีเมื่อ action เกิด ไม่มี lag ฝั่ง backend เลย เช็คแล้ว)
-    const id = setInterval(load, 4000)
+    // แท็บที่ไม่ได้เปิดดูอยู่: เจ้าหน้าที่ยัง poll ต่อ (ต้องได้ยินเสียงแจ้งเตือนแม้อยู่แท็บอื่น) ผู้ยืมไม่มีเสียง หยุดได้
+    const id = setInterval(() => { if (!document.hidden || STAFF_ROLES.includes(user?.role)) load() }, 4000)
     return () => clearInterval(id)
   }, [user])
 

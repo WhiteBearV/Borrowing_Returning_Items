@@ -55,7 +55,7 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      await authApi.register({
+      const result = await authApi.register({
         full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
         student_id: form.student_id.trim(),
         email: form.email.trim(),
@@ -66,7 +66,7 @@ export default function RegisterPage() {
         is_transfer: form.is_transfer,
         study_years: form.is_transfer ? Number(form.study_years) : 4,
       })
-      setSuccess(true)
+      setSuccess(result ?? {})
     } catch (err) {
       // detail อาจเป็น string (HTTPException) หรือ array ของ Pydantic error object (validation error)
       const detail = err.response?.data?.detail
@@ -80,12 +80,27 @@ export default function RegisterPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-8 text-center">
-          <div className="text-4xl mb-4">📧</div>
-          <h2 className="text-xl font-light text-gray-800 mb-2">ตรวจสอบอีเมลของคุณ</h2>
-          <p className="text-sm text-gray-500 mb-6">
-            เราส่งลิงก์ยืนยันไปที่ <span className="font-medium text-gray-700">{form.email}</span> แล้ว
-            กรุณากดลิงก์ในอีเมลก่อนเข้าสู่ระบบ
-          </p>
+          {/* บอกขั้นถัดไปตามสถานะจริงของบัญชี — เดิมบอกให้เช็คอีเมลเสมอ ผู้สมัครที่ต้องรออนุมัติไม่รู้ตัว (R5-02) */}
+          <div className="text-4xl mb-4">{success.email_verified ? '✅' : '📧'}</div>
+          <h2 className="text-xl font-light text-gray-800 mb-2">
+            {success.email_verified ? 'ลงทะเบียนสำเร็จ' : 'ตรวจสอบอีเมลของคุณ'}
+          </h2>
+          {!success.email_verified && (
+            <p className="text-sm text-gray-500 mb-3">
+              เราส่งลิงก์ยืนยันไปที่ <span className="font-medium text-gray-700">{form.email}</span> แล้ว
+              กรุณากดลิงก์ในอีเมลก่อนเข้าสู่ระบบ
+            </p>
+          )}
+          {success.approval_status === 'pending' ? (
+            <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-6">
+              บัญชีนี้ต้องรอเจ้าหน้าที่อนุมัติก่อนจึงจะเข้าใช้งานได้ (ไม่พบชื่อ/รหัสในรายชื่อที่สาขารับรอง)
+              หากรอนาน กรุณาติดต่อห้องพัสดุ
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 mb-6">
+              {success.email_verified ? 'เข้าสู่ระบบได้เลย' : 'ยืนยันอีเมลแล้วเข้าสู่ระบบได้ทันที'}
+            </p>
+          )}
           <Link to="/login" className="text-primary-600 hover:underline text-sm font-medium">
             กลับไปหน้าเข้าสู่ระบบ
           </Link>
@@ -148,7 +163,7 @@ export default function RegisterPage() {
                 value={form.last_name}
                 onChange={set('last_name')}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="นามสกุล"
+                placeholder="นามสกุล (ไม่มีให้ใส่ -)"
               />
             </div>
           </div>

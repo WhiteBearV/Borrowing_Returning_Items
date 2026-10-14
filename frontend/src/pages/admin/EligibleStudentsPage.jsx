@@ -4,6 +4,7 @@ import ConfirmModal from '../../components/common/ConfirmModal.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import Pagination from '../../components/common/Pagination.jsx'
 import { formatDate } from '../../utils/formatDate.js'
+import { downloadBlob } from '../../utils/csv.js'
 
 const MAJOR_LABEL = { comp_eng: 'วิศวกรรมคอมพิวเตอร์', digital_design: 'ออกแบบดิจิทัล' }
 
@@ -77,6 +78,10 @@ export default function EligibleStudentsPage() {
             {' '}· คนที่ไม่อยู่ในรายชื่อยังสมัครได้ แต่ต้องรอเจ้าหน้าที่อนุมัติที่หน้า "จัดการผู้ใช้"
           </p>
         </div>
+        <button type="button" onClick={async () => downloadBlob(await eligibleStudentsApi.template(), 'แม่แบบรายชื่อนักศึกษา.xlsx')}
+          className="shrink-0 rounded-full border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+          ดาวน์โหลดแม่แบบ
+        </button>
         <label className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold text-white text-center
           ${uploading ? 'bg-gray-400' : 'bg-primary-600 hover:bg-primary-700 cursor-pointer'}`}>
           {uploading ? 'กำลังนำเข้า…' : '+ นำเข้าไฟล์รายชื่อ'}

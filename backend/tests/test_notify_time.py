@@ -5,7 +5,7 @@
 """
 from httpx import AsyncClient
 
-from app.utils.scheduler import DAILY_JOB_IDS, _check_due_soon, _check_overdue, scheduler
+from app.utils.scheduler import DAILY_JOB_IDS, _check_due_soon, _check_inspection, _check_overdue, scheduler
 from tests.conftest import auth
 
 
@@ -16,7 +16,7 @@ async def test_notify_time_superadmin_only_validated_and_reschedules(
     before = next(s for s in (await client.get("/settings", headers=sa)).json()
                   if s["key"] == "notify_time")["value"]
     # เทสไม่ผ่าน lifespan จึงไม่มี job — ลงไว้แบบ pending (scheduler ไม่ได้ start) เพื่อดูว่าถูกเลื่อนจริง
-    for job_id, fn in zip(DAILY_JOB_IDS, (_check_due_soon, _check_overdue)):
+    for job_id, fn in zip(DAILY_JOB_IDS, (_check_due_soon, _check_overdue, _check_inspection), strict=True):
         scheduler.add_job(fn, "cron", hour=0, minute=0, id=job_id, replace_existing=True)
     try:
         assert (await client.patch("/settings/notify_time", headers=auth(admin_token),

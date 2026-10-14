@@ -25,6 +25,7 @@ async def get_me(
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> User:
     await users_service.attach_study_year(db, [current_user])
+    await users_service.attach_unpaid_fines(db, [current_user])
     return current_user
 
 
