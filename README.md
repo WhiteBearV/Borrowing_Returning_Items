@@ -179,7 +179,6 @@ python scripts/create_admin.py                                              # �
 | `ALLOWED_EMAIL_DOMAINS` | `cdti.ac.th` | โดเมนอีเมลที่สมัครได้ (คั่นด้วยจุลภาค) |
 | `DEV_AUTO_VERIFY_EMAIL` | `false` | `true` = สมัครแล้วใช้ได้ทันทีไม่ต้องยืนยันอีเมล · **ห้ามเปิดใน production** |
 | `PYTEST_ALLOW_DB` | `false` | อนุญาตให้ pytest รันกับ DB ที่ชื่อไม่ลงท้าย `_test` (ดูหัวข้อ 9) |
-| `LINE_CHANNEL_ACCESS_TOKEN` | ว่าง | ยังไม่ใช้ (LINE OA เป็น stretch goal) |
 
 **frontend (`frontend/.env`)** มีค่าเดียว: `VITE_API_URL=/api` — ค่านี้ถูกฝังตอน build · production ตั้งให้เองใน `docker-compose.prod.yml`
 

@@ -45,6 +45,9 @@ class UserResponse(BaseModel):
     study_year_label: str = "บุคลากร"
     # ค่าปรับค้างชำระรวมของผู้ใช้ (SKGRent ข้อ 6) — เติมเฉพาะหน้ารายการผู้ใช้/โปรไฟล์ (attach_unpaid_fines)
     unpaid_fine_total: float = 0
+    # ระงับการยืมเพราะยอดค้าง ≥ setting fine_block_threshold (เติมคู่กับ unpaid_fine_total)
+    fine_block_threshold: float = 0
+    fine_blocked: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -128,15 +128,16 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
 
     # ภาพรวมผู้ใช้ — นับเฉพาะบัญชีที่เปิดใช้งานอยู่ (ปิดไปแล้วไม่ใช่ "ผู้ใช้ของระบบ" อีกต่อไป)
     users_rows = (await db.execute(
-        select(User.role, User.major, func.count(User.id))
+        select(User.role, User.major, User.student_id.is_not(None), func.count(User.id))
         .where(User.is_active == True)  # noqa: E712
-        .group_by(User.role, User.major)
+        .group_by(User.role, User.major, User.student_id.is_not(None))
     )).all()
-    users_total = sum(n for _, _, n in users_rows)
-    users_students = sum(n for role, _, n in users_rows if role == "student")
+    # role student ที่ไม่มีรหัสนักศึกษา = อาจารย์/บุคลากรที่ยืมอย่างเดียว นับเป็นบุคลากร (roles.is_student_borrower)
+    users_total = sum(n for *_, n in users_rows)
+    users_students = sum(n for role, _, has_sid, n in users_rows if role == "student" and has_sid)
     by_major: dict[str | None, int] = {}
-    for role, major, n in users_rows:
-        if role == "student":  # สาขามีความหมายกับนักศึกษาเท่านั้น เจ้าหน้าที่ไม่ได้สังกัดสาขา
+    for role, major, has_sid, n in users_rows:
+        if role == "student" and has_sid:  # สาขามีความหมายกับนักศึกษาเท่านั้น เจ้าหน้าที่ไม่ได้สังกัดสาขา
             by_major[major] = by_major.get(major, 0) + n
     pending_users = (await db.execute(
         select(func.count(User.id)).where(User.approval_status == "pending"))).scalar() or 0
@@ -147,7 +148,7 @@ async def get_summary(db: AsyncSession) -> DashboardSummaryResponse:
     year_start = await settings_service.get_academic_year_start(db)
     student_years_rows = (await db.execute(
         select(User.enrollment_year, User.study_years)
-        .where(User.is_active == True, User.role == "student")  # noqa: E712
+        .where(User.is_active == True, User.role == "student", User.student_id.is_not(None))  # noqa: E712
     )).all()
     year_group_counts: dict[str, int] = {}
     for enrollment_year, study_years in student_years_rows:

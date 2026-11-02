@@ -219,6 +219,14 @@ async def create_request(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"You already have {max_active} active requests.",
             )
+        # ระงับการยืมเมื่อค่าปรับค้างถึงเกณฑ์ (2 พ.ย. 69) — เจ้าหน้าที่ไม่ติด เหมือนโควตา
+        await users_service.attach_unpaid_fines(db, [current_user])
+        if current_user.fine_blocked:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"บัญชีถูกระงับการยืมชั่วคราว เพราะมีค่าปรับค้างชำระ {current_user.unpaid_fine_total:,.2f} บาท "
+                       f"(เกณฑ์ {current_user.fine_block_threshold:,.2f} บาท) กรุณาติดต่อเจ้าหน้าที่เพื่อชำระหรือขอยกเว้นค่าปรับ",
+            )
 
     _validate_requested_due_date(body.requested_due_date)
     # วันคืนรายชิ้น (เฟส 3) ต้องผ่านด่านเดียวกับวันของทั้งใบ ไม่งั้นเป็นทางอ้อมข้ามเพดาน

@@ -201,7 +201,7 @@ export default function UsersPage() {
                     {/* บอกชนิดของรหัสให้ชัด (feedback อาจารย์) — เลข 10 หลักคือ นศ. ที่เหลือคือบุคลากร */}
                     {(u.student_id || u.username) && (
                       <span className="block font-sans text-[10px] text-gray-400">
-                        {u.role === 'student' ? 'รหัสนักศึกษา' : 'รหัสบุคลากร'}
+                        {u.student_id ? 'รหัสนักศึกษา' : 'รหัสบุคลากร'}
                       </span>
                     )}
                   </td>
@@ -385,17 +385,19 @@ function AddUserModal({ onClose, onCreated }) {
     setError('')
     setSaving(true)
     // ส่งเฉพาะ field ที่เกี่ยวกับ role นั้น ๆ (ค่าว่าง -> undefined)
+    // 'teacher' ไม่ใช่ role จริง = ผู้ใช้งาน (student) ที่มีรหัสบุคลากรแทนรหัสนักศึกษา → ยืมได้อย่างเดียว
+    const isStudent = form.role === 'student'
     const payload = {
-      role: form.role,
+      role: form.role === 'teacher' ? STUDENT : form.role,
       full_name: `${form.title} ${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
       email: form.email,
       password: form.password,
       phone: form.phone || undefined,
-      student_id: form.role === 'student' ? form.student_id || undefined : undefined,
-      major: form.role === 'student' ? form.major : undefined,
+      student_id: isStudent ? form.student_id || undefined : undefined,
+      major: isStudent ? form.major : undefined,
       // ทุก role ที่ไม่ใช่นักศึกษาต้องมีรหัสประจำตัว (backend บังคับ) — เดิมส่งเฉพาะ admin ทำให้สร้างบัญชี
       // ผู้ดูแลระบบสูงสุดจากหน้านี้แล้วรหัสหายไปเงียบ ๆ
-      username: form.role !== 'student' ? form.username || undefined : undefined,
+      username: !isStudent ? form.username || undefined : undefined,
     }
     try {
       await usersApi.create(payload)
@@ -419,10 +421,10 @@ function AddUserModal({ onClose, onCreated }) {
         {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
 
         <div className="flex gap-2">
-          {[STUDENT, ADMIN].map((r) => (
+          {[STUDENT, 'teacher', ADMIN].map((r) => (
             <button type="button" key={r} onClick={() => setForm({ ...form, role: r })}
               className={`flex-1 rounded-lg py-2 text-sm font-medium border ${form.role === r ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}>
-              {r === 'student' ? 'นักศึกษา' : 'Admin'}
+              {{ student: 'นักศึกษา', teacher: 'อาจารย์ (ยืมอย่างเดียว)' }[r] ?? 'Admin'}
             </button>
           ))}
         </div>

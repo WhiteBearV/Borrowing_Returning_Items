@@ -6,6 +6,9 @@ import { openPdf } from '../../utils/openPdf.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
 import DateInput from '../../components/common/DateInput.jsx'
 import { todayTH } from '../../utils/formatDate.js'
+import FineBlockBanner from '../../components/common/FineBlockBanner.jsx'
+import { useAuthContext } from '../../context/AuthContext.jsx'
+import { isStaff } from '../../utils/role.js'
 
 // วัตถุประสงค์สำเร็จรูป — กดแล้วเติมทั้งข้อความและวันคืนโดยประมาณให้ แต่ผู้ใช้ยังแก้วันเองได้ก่อนส่ง
 // ponytail: const ในไฟล์นี้พอ ยังไม่ต้องทำเป็น setting ให้แอดมินแก้ ถ้าอาจารย์อยากแก้เองค่อยย้ายเข้า settings
@@ -26,6 +29,8 @@ const maxDueDate = () => todayTH(365 * 3)  // backend: date.today() + timedelta(
 export default function BorrowRequestPage() {
   const navigate = useNavigate()
   const { cart, removeItem, updateQuantity, clearCart, purpose, setPurpose } = useCart()
+  const { user } = useAuthContext()
+  const fineBlocked = user?.fine_blocked && !isStaff(user)
   const [dueDate, setDueDate] = useState('')
   // กำหนดวันคืนแยกรายชิ้น (เฟส 3) — ค่าเริ่มต้นคือวันเดียวกันทั้งใบเหมือนเดิม
   // ponytail: state ในหน้านี้พอ ไม่ต้อง persist ลงตะกร้า ผู้ใช้ตั้งวันตอนกำลังจะกดส่งอยู่แล้ว
@@ -178,6 +183,7 @@ export default function BorrowRequestPage() {
 
       {/* 2 คอลัมน์บนจอกว้าง — รายการของฝั่งซ้าย ฟอร์มฝั่งขวา ไม่ต้องเลื่อนลงไปหาปุ่มส่งเมื่อของเยอะ
           จอเล็กยุบเป็นคอลัมน์เดียวตามลำดับเดิม */}
+      <FineBlockBanner />
       <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] items-start">
         {/* Cart items */}
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
@@ -262,7 +268,7 @@ export default function BorrowRequestPage() {
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || fineBlocked}
               className="flex-1 rounded-full bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
             >
               {loading ? 'กำลังส่ง…' : 'ยื่นคำขอ'}

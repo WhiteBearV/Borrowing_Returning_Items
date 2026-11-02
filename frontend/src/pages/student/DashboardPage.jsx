@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
 import { useAuthContext } from '../../context/AuthContext.jsx'
+import FineBlockBanner from '../../components/common/FineBlockBanner.jsx'
 
 export default function DashboardPage() {
   const { user } = useAuthContext()
@@ -23,6 +24,7 @@ export default function DashboardPage() {
         สวัสดี, {user?.full_name ?? '…'}
       </h1>
       <p className="text-sm text-gray-400 mb-8">ระบบยืม-คืนอุปกรณ์</p>
+      <FineBlockBanner />
 
       {/* Bento grid — "กำลังยืมอยู่" เป็น tile หลัก ใหญ่กว่าอีก 2 อันเพราะเป็นสิ่งที่นักศึกษาอยากรู้ที่สุด */}
       <div className="grid grid-cols-3 [grid-auto-flow:dense] auto-rows-[100px] gap-4 mb-8">

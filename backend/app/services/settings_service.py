@@ -97,6 +97,10 @@ def _validate_setting_value(key: str, value: str) -> None:
         if not re.fullmatch(r"\d{1,2}", (value or "").strip()):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="รอบตรวจเช็คต้องเป็นจำนวนเต็มเดือน 0-99 (0 = ไม่ใช้รอบตรวจ)")
+    elif key == "fine_block_threshold":
+        if _num(value) < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="ยอดค้างที่ระงับการยืมต้องไม่ติดลบ (0 = ไม่ระงับ)")
     elif key == "fine_waive_limit_admin":
         if _num(value) < 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,

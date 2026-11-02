@@ -58,8 +58,6 @@ class Settings(BaseSettings):
     # ตั้งไว้เฉพาะ backend/.env ของเครื่อง dev เท่านั้น prod ไม่มีไฟล์นี้ใน image อยู่แล้ว
     PYTEST_ALLOW_DB: bool = False
 
-    # LINE OA
-    LINE_CHANNEL_ACCESS_TOKEN: str = ""
 
     @property
     def allowed_email_domains_list(self) -> list[str]:

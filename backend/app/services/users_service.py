@@ -10,10 +10,11 @@ from app.models.auth_token import AuthToken
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.notification import Notification
+from app.models.setting import Setting
 from app.core.security import hash_password
 from app.models.user import User
 from app.utils.identity import is_student_identifier
-from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, STUDENT, SUPERADMIN, can_manage_user, role_rank
+from app.utils.roles import ALL_ROLES, ROLE_LABEL_TH, STUDENT, SUPERADMIN, can_manage_user, is_student_borrower, role_rank
 from app.utils.study_year import compute_study_year, display_label, year_group_key
 from app.schemas.user import PaginatedUsers, UserCreateRequest, UserUpdateRequest
 
@@ -32,21 +33,25 @@ async def attach_study_year(db: AsyncSession, users: list[User]) -> None:
         return
     start = await settings_service.get_academic_year_start(db)
     for u in users:
-        enrollment_year = u.enrollment_year if u.role == "student" else None
+        is_student = is_student_borrower(u.role, u.student_id)
+        enrollment_year = u.enrollment_year if is_student else None
         info = compute_study_year(enrollment_year, u.study_years or 4, academic_year_start=start)
         u.year_level = info.year_level
         u.is_retained = info.is_retained
         u.remaining_study_years = info.remaining_study_years
-        u.study_year_label = display_label(u.role == "student", u.enrollment_year, info)
+        u.study_year_label = display_label(is_student, u.enrollment_year, info)
 
 
 async def attach_unpaid_fines(db: AsyncSession, users: list[User]) -> None:
     """เติมยอดค่าปรับค้างชำระรวมต่อคน (SKGRent ข้อ 6) — รวมสดจาก borrow_items ด้วย query เดียว ไม่เก็บเป็นคอลัมน์
     ที่ตัวผู้ใช้ (ยอดสะสมแยกเก็บ = ต้องคอย sync ทุกจุดที่แก้ยอด/รับชำระ/ยกเว้น ลืมจุดเดียวตัวเลขเพี้ยนถาวร)
-    ผู้ใช้หลักร้อยคน รวมสดไม่หนัก · ยังไม่บล็อกการยืม (ดู CLAUDE.md) — ถ้าจะบล็อก เรียก query เดียวกันใน create_request
+    ผู้ใช้หลักร้อยคน รวมสดไม่หนัก · เติม `fine_blocked` ด้วย (ยอด ≥ setting `fine_block_threshold`, 0 = ไม่ระงับ)
+    — borrow_service.create_request ใช้ค่านี้บล็อกการยืม และหน้าเว็บใช้ขึ้นแจ้งเตือน (2 พ.ย. 69) จุดเดียวกัน
     """
     if not users:
         return
+    row = (await db.execute(select(Setting.value).where(Setting.key == "fine_block_threshold"))).scalar_one_or_none()
+    threshold = float(row or 0)
     totals = dict((await db.execute(
         select(BorrowRequest.student_id,
                func.sum(func.coalesce(BorrowItem.fine_late_amount, 0) + func.coalesce(BorrowItem.fine_damage_amount, 0)))
@@ -56,6 +61,8 @@ async def attach_unpaid_fines(db: AsyncSession, users: list[User]) -> None:
     )).all())
     for u in users:
         u.unpaid_fine_total = float(totals.get(u.id) or 0)
+        u.fine_block_threshold = threshold
+        u.fine_blocked = threshold > 0 and u.unpaid_fine_total >= threshold
 
 
 def _assert_can_manage(actor: User, target: User) -> None:
@@ -194,7 +201,8 @@ async def list_users(
             # สักกลุ่ม (role != student ถือเป็นบุคลากรเสมอ — กฎเดียวกับ attach_study_year แม้ enrollment_year
             # จะยังค้างจากก่อนถูกเลื่อนสิทธิ์ก็ตาม — year_group_key() รับ is_student ตรง ๆ ไม่ใช่ role)
             return year_group_key(
-                u.role == "student", u.enrollment_year, u.study_years or 4, academic_year_start=start,
+                is_student_borrower(u.role, u.student_id), u.enrollment_year, u.study_years or 4,
+                academic_year_start=start,
             ) == year_group
 
         rows = [u for u in rows if matches(u)]

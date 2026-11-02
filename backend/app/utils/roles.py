@@ -34,6 +34,12 @@ def is_staff(user: User) -> bool:
     return user.role in STAFF_ROLES
 
 
+def is_student_borrower(role: str, student_id: str | None) -> bool:
+    """ผู้ยืมที่เป็นนักศึกษาจริง (มีชั้นปี) — role `student` ที่ไม่มีรหัสนักศึกษาคือบุคลากร/อาจารย์ที่ยืมของอย่างเดียว
+    (2 พ.ย. 69 — ไม่เพิ่ม role ใหม่) **จุดเดียว** ที่ตัดสินเรื่องนี้ ใช้ทั้งป้ายชั้นปี ตัวกรอง และการ์ด Dashboard"""
+    return role == STUDENT and bool(student_id)
+
+
 def is_superadmin(user: User) -> bool:
     return user.role == SUPERADMIN
 

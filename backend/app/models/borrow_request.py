@@ -160,9 +160,11 @@ class BorrowRequest(Base):
         # role != "student" ถือเป็นบุคลากรเสมอ (กฎเดียวกับ users_service.attach_study_year — ดูที่นั่น)
         # แม้ enrollment_year จะยังค้างอยู่จากตอนเป็นนักศึกษาก่อนถูกเลื่อนสิทธิ์เป็น admin/superadmin
         # (แก้ตามรีวิวรอบ 3, MINOR-1 — เดิม fallback นี้ไม่เช็ค role เลย โชว์ "ปีที่ 4" ผิดๆ ให้แอดมิน)
-        enrollment_year = self.student.enrollment_year if self.student.role == "student" else None
+        from app.utils.roles import is_student_borrower
+        is_student = is_student_borrower(self.student.role, self.student.student_id)
+        enrollment_year = self.student.enrollment_year if is_student else None
         info = compute_study_year(enrollment_year, self.student.study_years or 4)
-        return display_label(self.student.role == "student", self.student.enrollment_year, info)
+        return display_label(is_student, self.student.enrollment_year, info)
 
     @student_year_label.setter
     def student_year_label(self, value: str | None) -> None:

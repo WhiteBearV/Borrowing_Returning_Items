@@ -25,7 +25,7 @@ const GROUPS = [
     'quality_repair_default_drop', 'quality_low_threshold', 'quality_inspect_interval_months', 'academic_year_start',
     'quality_age_weight', 'quality_life_years_default'] },
   { title: 'ค่าปรับ · ค่าเสื่อม · เอกสาร (ผู้ดูแลระบบสูงสุด)', keys: [
-    'fine_per_day_per_item', 'fine_grace_days', 'fine_max_per_item', 'fine_waive_limit_admin',
+    'fine_per_day_per_item', 'fine_grace_days', 'fine_max_per_item', 'fine_waive_limit_admin', 'fine_block_threshold',
     'depreciation_years_default', 'depreciation_salvage_value', 'pdf_value_source'] },
 ]
 
