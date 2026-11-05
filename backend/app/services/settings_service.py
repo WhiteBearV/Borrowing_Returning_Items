@@ -32,6 +32,7 @@ ADMIN_EDITABLE_KEYS = {
     "quality_low_threshold",
     "quality_inspect_interval_months",
     "academic_year_start",
+    "show_borrower_names_to_users",
 }
 
 
@@ -115,6 +116,9 @@ def _validate_setting_value(key: str, value: str) -> None:
         except (ValueError, TypeError):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="วันที่เริ่มปีการศึกษาต้องอยู่ในรูปแบบ MM-DD และเป็นวันที่จริง เช่น 06-01")
+    elif key == "show_borrower_names_to_users":
+        if value not in ("true", "false"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ค่าต้องเป็น true หรือ false")
     elif key == "notify_time":
         # ค่าเพี้ยนตรงนี้ = job แจ้งเตือนรายวันเลื่อนไปผิดเวลาเงียบ ๆ (หรือถอยไปค่าเริ่มต้นตอนบูต)
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value or ""):

@@ -1,6 +1,7 @@
 import hashlib
 import os
 import uuid
+from pathlib import Path
 from datetime import date, datetime, timezone, timedelta
 from html import escape
 
@@ -549,19 +550,29 @@ async def cancel_request(
     await db.commit()
 
 
-def _build_item_row_html(item: BorrowItem) -> str:
+def _build_item_row_html(item: BorrowItem, n: int) -> tuple[str, dict | None]:
     """สร้าง HTML แถวรูป+รายละเอียดอุปกรณ์ 1 ชิ้น สำหรับอีเมลอนุมัติคำขอ
 
     ไม่มีรูป (image_url เป็น None หรือ equipment ถูกลบถาวรไปแล้ว — ON DELETE SET NULL) ใช้กล่องเทาแทน
     ไม่อ้างอิงไฟล์ที่ไม่มีอยู่จริงในอีเมล — โชว์รหัสเสมอเมื่อมีค่า รวมวัสดุสิ้นเปลือง (ตรงกับ pdf.py แล้ว)
+
+    รูปแนบเป็น inline (cid:) คืนคู่ (html, attachment) — เดิมใช้ URL ของเซิร์ฟเวอร์ ซึ่งเป็น IP ภายใน/localhost
+    Gmail ดึงรูปไม่ได้ รูปไม่เคยขึ้นจริง (3 พ.ย. 69) · ไฟล์หายจากดิสก์ = กล่อง "ไม่มีรูปภาพ" ไม่ทำให้ส่งไม่ผ่าน
     """
     name = escape(item.equipment_name or "-")
     code = escape(item.equipment_code or "-")
     unit = escape(item.equipment_unit or "ชิ้น")
     image_url = item.equipment.image_url if item.equipment else None
-    if image_url:
+    root = Path(settings.UPLOAD_DIR).resolve()
+    # image_url = "/uploads/<...>" (มีโฟลเดอร์ย่อยได้ เช่น /uploads/equipment/…) — ต้องอยู่ใต้ UPLOAD_DIR เท่านั้น
+    path = (root / image_url.removeprefix("/uploads/")).resolve() if image_url else None
+    attachment = None
+    if path and path.is_relative_to(root) and path.is_file():
+        cid = f"item{n}"
+        attachment = {"file": str(path), "headers": {
+            "Content-ID": f"<{cid}>", "Content-Disposition": f'inline; filename="{path.name}"'}}
         img_html = (
-            f'<img src="{settings.APP_BASE_URL}{image_url}" alt="{name}" '
+            f'<img src="cid:{cid}" alt="{name}" '
             f'style="max-width:240px;max-height:180px;border-radius:8px;display:block;margin-bottom:8px;" />'
         )
     else:
@@ -578,7 +589,7 @@ def _build_item_row_html(item: BorrowItem) -> str:
         f'<tr><td style="color:#6b7280;padding:2px 8px 2px 0;">รหัส</td><td>{code}</td></tr>'
         f'<tr><td style="color:#6b7280;padding:2px 8px 2px 0;">จำนวน</td><td>{item.quantity} {unit}</td></tr>'
         '</table></div>'
-    )
+    ), attachment
 
 
 async def approve_request(
@@ -794,7 +805,8 @@ async def approve_request(
             + "</p>"
         ) if pickup_text else ""
         if approved:
-            item_rows_html = "".join(_build_item_row_html(item) for item in approved)
+            rows = [_build_item_row_html(item, n) for n, item in enumerate(approved)]
+            item_rows_html = "".join(html for html, _ in rows)
             await send_email(
                 req.student.email,
                 f"คำขอ {req.request_code} ได้รับการอนุมัติ",
@@ -810,6 +822,7 @@ async def approve_request(
                   "แล้วปริ้นลงลายเซ็นผู้ยืม นำมาแสดงตอนรับของ "
                   "หรือส่งไฟล์ที่เซ็นแล้วให้เจ้าหน้าที่</p>"
                 + f"{pickup_html}{rejected_html}{item_rows_html}",
+                attachments=[att for _, att in rows if att],
             )
         else:
             await send_email(
@@ -910,10 +923,16 @@ async def request_renew_item(
         )
     if requested_date <= date.today():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Requested date must be in the future.")
-    if requested_date > date.today() + timedelta(days=max_days_ahead):
+    latest = date.today() + timedelta(days=max_days_ahead)
+    if requested_date > latest:
+        # ข้อความนี้ถึงนักศึกษาตรง ๆ — เดิมเป็นภาษาอังกฤษ และไม่บอกว่าถ้ากำหนดเดิมไกลกว่าเพดานนี้
+        # (เช่น ยืมทำโปรเจกต์ 60 วัน) ต้องรอใกล้ครบกำหนดก่อน นักศึกษาเลยเข้าใจว่าระบบพัง (QA6-02, 5 พ.ย. 69)
+        due = effective_due_date(item, req)
+        hint = (f" — กำหนดคืนเดิม ({due:%d/%m/%Y}) ยังไกลกว่านั้น ขอต่อเวลาได้เมื่อเหลือไม่เกิน {max_days_ahead} วันก่อนครบกำหนด"
+                if due >= latest else "")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Requested date is too far ahead (max {max_days_ahead} days from today).",
+            detail=f"ขอต่อเวลาได้ไม่เกิน {max_days_ahead} วันนับจากวันนี้ (ถึง {latest:%d/%m/%Y}){hint}",
         )
 
     # ต่อเวลาต้อง "เลื่อนออก" เท่านั้น — เดิมขอวันเร็วกว่ากำหนดเดิมได้ อนุมัติแล้วกำหนดคืนร่นเข้า + เสียสิทธิ์ 1 ครั้ง (R2-08)

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.dependencies import get_db
 from app.routers import (
-    auth, audit, borrow, bundle, change_request, dashboard, eligible_students, equipment,
+    auth, audit, borrow, bundle, change_request, dashboard, eligible_students, equipment, feedback,
     notification, settings as settings_router, users,
 )
 from app.utils.email import email_configured
@@ -104,6 +104,7 @@ app.include_router(dashboard.router)
 app.include_router(bundle.router)
 app.include_router(change_request.router)
 app.include_router(eligible_students.router)
+app.include_router(feedback.router)
 
 
 @app.get("/health")

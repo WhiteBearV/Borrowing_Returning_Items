@@ -223,7 +223,8 @@ function targetPhrase(log) {
 export function actorLabel(log) {
   const id = log.actor_identifier
   if (!id) return log.actor_name ?? '—'
-  const kind = !log.actor_role ? '' : log.actor_role === 'student' ? 'รหัสนักศึกษา ' : 'รหัสบุคลากร '
+  // role student ที่รหัสไม่ใช่เลข 10 หลัก = อาจารย์ที่ยืมอย่างเดียว (KIT.SA06) ไม่ใช่นักศึกษา (QA6-03)
+  const kind = !log.actor_role ? '' : log.actor_role === 'student' && /^\d{10}$/.test(id) ? 'รหัสนักศึกษา ' : 'รหัสบุคลากร '
   return `${log.actor_name ?? '—'} (${kind}${id})`
 }
 

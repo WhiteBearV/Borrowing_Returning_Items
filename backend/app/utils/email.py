@@ -1,4 +1,6 @@
-from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+import asyncio
+
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType, MultipartSubtypeEnum
 
 from app.core.config import settings
 
@@ -24,17 +26,57 @@ mail_config = ConnectionConfig(
 fm = FastMail(mail_config)
 
 
-async def send_email(to: str, subject: str, body_html: str) -> None:
+SUBJECT_PREFIX = "[ระบบอัตโนมัติ] "
+AUTO_FOOTER = (
+    '<hr style="border:none;border-top:1px solid #e5e7eb;margin-top:24px;"/>'
+    '<p style="font-size:12px;color:#9ca3af;">อีเมลนี้ส่งจากระบบยืม-คืนอุปกรณ์โดยอัตโนมัติ กรุณาอย่าตอบกลับอีเมลนี้</p>'
+)
+
+
+_pending: set[asyncio.Task] = set()  # เก็บ reference ไว้ ไม่งั้น task ถูก GC ทิ้งกลางทาง
+
+
+async def _deliver(message: MessageSchema, to: str) -> None:
+    try:
+        await fm.send_message(message)
+    except Exception as e:  # ponytail: ส่งเบื้องหลังแล้ว ไม่มีใครรอผล — log ไว้ดูย้อนหลังพอ
+        print(f"[email] ส่งถึง {to} ไม่สำเร็จ: {e}")
+
+
+async def send_email(
+    to: str, subject: str, body_html: str, attachments: list[dict] | None = None, reply_to: str | None = None,
+    wait: bool = False,
+) -> None:
+    """ส่งอีเมล HTML — จุดเดียวที่เติมป้าย "[ระบบอัตโนมัติ]" หน้าหัวเรื่อง + ท้ายอีเมลว่าห้ามตอบกลับ (3 พ.ย. 69)
+
+    ค่าเริ่มต้นส่งเบื้องหลังแล้วคืนทันที · wait=True = รอจนส่งเสร็จ (โยน error ให้ผู้เรียก — ใช้กับปุ่มแจ้งปัญหา)
+    attachments = dict แบบ fastapi-mail ({"file": path|UploadFile, "headers": {...}}) — รูปที่อ้างด้วย
+    `cid:` ใน body ต้องใส่ header Content-ID + Content-Disposition: inline (ส่งเป็น multipart/related)
+    เพราะ <img src="http://IP-ภายใน/uploads/..."> Gmail ดึงจากนอกเครือข่ายคณะไม่ได้ รูปไม่ขึ้น
+    """
+    subject = SUBJECT_PREFIX + subject
+    body_html += AUTO_FOOTER
     if not _email_configured:
-        print(f"\n[DEV EMAIL] To: {to}\nSubject: {subject}\n{body_html}\n")
+        print(f"\n[DEV EMAIL] To: {to}\nSubject: {subject}\nAttachments: {len(attachments or [])}\n{body_html}\n")
         return
     message = MessageSchema(
         subject=subject,
         recipients=[to],
         body=body_html,
         subtype=MessageType.html,
+        attachments=attachments or [],
+        multipart_subtype=MultipartSubtypeEnum.related if attachments else MultipartSubtypeEnum.mixed,
+        reply_to=[reply_to] if reply_to else [],
     )
-    await fm.send_message(message)
+    if wait:
+        await fm.send_message(message)
+        return
+    # ส่งเบื้องหลัง (3 พ.ย. 69): SMTP Gmail ใช้ ~3 วิ/ฉบับ (ต่อ+TLS+login ทุกครั้ง) เดิม await ในคำขอเลย
+    # กดยืม = รออีเมลถึงเจ้าหน้าที่ทุกคน+ผู้ยืมทีละฉบับ (~10 วิ) กดอนุมัติ ~3 วิ — Prod หน่วงเพราะตรงนี้ (dev ปิดอีเมลจึงไม่เห็น)
+    # MessageSchema สร้างก่อน (อ่านไฟล์แนบตอนนี้) งานที่เหลือไม่แตะ DB session ของคำขอ
+    task = asyncio.create_task(_deliver(message, to))
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
 
 
 async def send_verification_email(to: str, token: str) -> None:

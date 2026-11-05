@@ -9,8 +9,7 @@ const MAJORS = [
 
 const TITLES = ['นาย', 'นาง', 'นางสาว']
 
-// หลักสูตร (เฟส 10) — แสดงให้ทุกคนเลือกได้ตั้งแต่ตอนสมัคร (ไม่ใช่แค่คนที่ระบบรู้ว่าเป็นรุ่นเทียบโอน) กัน
-// ต้องมี endpoint ที่บอกได้ว่ารหัสนี้อยู่ในรายชื่อหรือไม่ (ข้อมูลส่วนบุคคล) — backend ตรวจกับรายชื่อจริงอีกที
+// หลักสูตร — ระบบตัดสินจากหลักที่ 3 ของรหัสเอง (backend: study_year.is_transfer_student_id) ผู้สมัครเลือกได้แค่จำนวนปีเทียบโอน
 const TRANSFER_YEARS = [2, 3, 4]
 
 export default function RegisterPage() {
@@ -25,7 +24,6 @@ export default function RegisterPage() {
     confirm_password: '',
     major: '',
     pdpa_consent: false,
-    is_transfer: false,
     study_years: 4,
   })
   const [error, setError] = useState('')
@@ -42,9 +40,9 @@ export default function RegisterPage() {
     const sid = form.student_id.trim()
     if (!/^\d{10}$/.test(sid)) { setYearPreview(null); return }
     let cancelled = false
-    authApi.studyYearPreview(sid).then((p) => { if (!cancelled) setYearPreview(p) }).catch(() => { if (!cancelled) setYearPreview(null) })
+    authApi.studyYearPreview(sid, form.study_years).then((p) => { if (!cancelled) setYearPreview(p) }).catch(() => { if (!cancelled) setYearPreview(null) })
     return () => { cancelled = true }
-  }, [form.student_id])
+  }, [form.student_id, form.study_years])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -63,8 +61,7 @@ export default function RegisterPage() {
         password: form.password,
         pdpa_consent: form.pdpa_consent,
         major: form.major,
-        is_transfer: form.is_transfer,
-        study_years: form.is_transfer ? Number(form.study_years) : 4,
+        study_years: Number(form.study_years),  // backend ใช้เฉพาะเมื่อรหัสเป็นเทียบโอน
       })
       setSuccess(result ?? {})
     } catch (err) {
@@ -184,31 +181,26 @@ export default function RegisterPage() {
             {/* พรีวิวปีการศึกษา/ชั้นปีจากรหัส (เฟส 10) — คำนวณอย่างเดียว ไม่ได้ยืนยันว่าอยู่ในรายชื่อจริง */}
             {yearPreview && (
               <p className="mt-1 text-xs text-gray-500">
-                ปีการศึกษา {yearPreview.academic_year} · ชั้นปีที่ {yearPreview.year_level}
+                ปีการศึกษา {yearPreview.academic_year} · {yearPreview.label}
               </p>
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">หลักสูตร</label>
-            <div className="flex gap-2">
-              {[{ v: false, label: 'ปกติ 4 ปี' }, { v: true, label: 'เทียบโอน' }].map((opt) => (
-                <button type="button" key={String(opt.v)}
-                  onClick={() => setForm({ ...form, is_transfer: opt.v, study_years: opt.v ? form.study_years : 4 })}
-                  className={`flex-1 rounded-lg py-2 text-sm font-medium border ${
-                    form.is_transfer === opt.v ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'
-                  }`}>
-                  {opt.label}
-                </button>
-              ))}
+          {yearPreview && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">หลักสูตร</label>
+              <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                {yearPreview.is_transfer ? 'เทียบโอน' : 'ปกติ 4 ปี'}
+                <span className="text-xs text-gray-400"> (ตามรหัสนักศึกษา)</span>
+              </p>
+              {yearPreview.is_transfer && (
+                <select value={form.study_years} onChange={set('study_years')}
+                  className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                  {TRANSFER_YEARS.map((y) => <option key={y} value={y}>เทียบโอน {y} ปี</option>)}
+                </select>
+              )}
             </div>
-            {form.is_transfer && (
-              <select value={form.study_years} onChange={set('study_years')}
-                className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-                {TRANSFER_YEARS.map((y) => <option key={y} value={y}>เทียบโอน {y} ปี</option>)}
-              </select>
-            )}
-          </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -322,7 +314,8 @@ export default function RegisterPage() {
                 คำชี้แจงเกี่ยวกับการใช้ข้อมูลส่วนบุคคล
               </summary>
               <p className="mt-2 leading-relaxed">
-                ข้อมูลที่ท่านให้ไว้ในแบบประเมินฉบับนี้จะถูกใช้เพื่อวัตถุประสงค์ในการประเมินผลและปรับปรุงกระบวนการรับสมัครนักศึกษาเท่านั้น
+                ข้อมูลที่ท่านให้ไว้ในการสมัครใช้งานระบบยืม-คืนอุปกรณ์ (ชื่อ-นามสกุล รหัสนักศึกษา อีเมล เบอร์โทรศัพท์ และสาขา)
+                จะถูกใช้เพื่อยืนยันตัวตน ติดต่อประสานงานเรื่องการยืม-คืนอุปกรณ์ และวิเคราะห์ข้อมูลการใช้งานเพื่อปรับปรุงการให้บริการเท่านั้น
                 โดยจะมีการเก็บรักษาข้อมูลอย่างเหมาะสมและไม่เปิดเผยต่อบุคคลภายนอกโดยไม่ได้รับอนุญาต ทั้งนี้
                 รายละเอียดเกี่ยวกับการคุ้มครองข้อมูลส่วนบุคคลสามารถศึกษาเพิ่มเติมได้ที่{' '}
                 <a

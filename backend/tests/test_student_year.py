@@ -203,33 +203,22 @@ async def clean_transfer_students():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_register_transfer_generation_requires_transfer_program(
+async def test_register_transfer_generation_in_list_forces_transfer(
     client: AsyncClient, admin_token: str, clean_transfer_students,
 ):
-    """รหัสอยู่ในรุ่นที่มี "ทอ" แต่เลือกหลักสูตรปกติ → 400 ให้เลือกเทียบโอนก่อน"""
+    """รหัสอยู่ในรุ่น "ทอ" ของรายชื่อ (แม้หลักที่ 3 = 1) → เป็นเทียบโอนเสมอ ไม่สนว่าผู้สมัครติ๊กอะไรมา"""
     sid = f"{TAG_PREFIX}10301001"
     clean_transfer_students.append(sid)
     await client.post("/eligible-students/import", headers=auth(admin_token),
                       files={"file": ("a.csv", _csv_bytes([(sid, "ทดสอบ เทียบโอนหนึ่ง")], "รุ่น 66 วค.ทอ"),
                                       "text/csv")})
-
-    blocked = await client.post("/auth/register", json={
-        "full_name": "ทดสอบ เทียบโอนหนึ่ง", "student_id": sid,
-        "email": f"tr{uuid.uuid4().hex[:6]}@cdti.ac.th",
-        "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
-        "is_transfer": False,
-    })
-    assert blocked.status_code == 400
-    assert "เทียบโอน" in blocked.json()["detail"]
-
     ok = await client.post("/auth/register", json={
         "full_name": "ทดสอบ เทียบโอนหนึ่ง", "student_id": sid,
         "email": f"tr{uuid.uuid4().hex[:6]}@cdti.ac.th",
         "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
-        "is_transfer": True, "study_years": 2,
+        "is_transfer": False, "study_years": 2,
     })
     assert ok.status_code in (200, 201), ok.text
-
     async with AsyncSessionLocal() as db:
         user = (await db.execute(select(User).where(User.student_id == sid))).scalar_one()
         assert user.is_transfer is True
@@ -238,20 +227,23 @@ async def test_register_transfer_generation_requires_transfer_program(
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_register_regular_program_defaults_to_4_years(client: AsyncClient, clean_transfer_students):
-    sid = f"{TAG_PREFIX}10301099"
-    clean_transfer_students.append(sid)
-    r = await client.post("/auth/register", json={
-        "full_name": "ทดสอบ หลักสูตรปกติ", "student_id": sid,
-        "email": f"reg{uuid.uuid4().hex[:6]}@cdti.ac.th",
-        "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
-    })
-    assert r.status_code in (200, 201), r.text
-    async with AsyncSessionLocal() as db:
-        user = (await db.execute(select(User).where(User.student_id == sid))).scalar_one()
-        assert user.is_transfer is False
-        assert user.study_years == 4
-        assert user.enrollment_year == enrollment_year_from_student_id(sid)
+async def test_register_transfer_decided_by_third_digit(client: AsyncClient, clean_transfer_students):
+    """3 พ.ย. 69 — หลักที่ 3 ≠ 1 = เทียบโอน · หลักที่ 3 = 1 ติ๊กเทียบโอนมาก็ได้บัญชีปกติ 4 ปี"""
+    cases = [(f"{TAG_PREFIX}10301098", True, False, 4), (f"{TAG_PREFIX}20301098", False, True, 3)]
+    for sid, ticked, expected, years in cases:
+        clean_transfer_students.append(sid)
+        r = await client.post("/auth/register", json={
+            "full_name": "ทดสอบ หลักที่สาม", "student_id": sid,
+            "email": f"d3{uuid.uuid4().hex[:6]}@cdti.ac.th",
+            "password": "Test1234!", "major": "comp_eng", "phone": "0812345678", "pdpa_consent": True,
+            "is_transfer": ticked, "study_years": 3,
+        })
+        assert r.status_code in (200, 201), r.text
+        async with AsyncSessionLocal() as db:
+            user = (await db.execute(select(User).where(User.student_id == sid))).scalar_one()
+            assert (user.is_transfer, user.study_years) == (expected, years)
+    p = await client.get("/auth/study-year-preview", params={"student_id": cases[1][0]})
+    assert p.json()["is_transfer"] is True
 
 
 # ── แอดมินแก้ชั้นปีรายคน ──────────────────────────────────────────────────────

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     MAIL_SERVER: str = "smtp.gmail.com"
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
+    FEEDBACK_EMAIL: str = "verapat056@gmail.com"  # ปุ่ม "แจ้งปัญหา/ข้อเสนอแนะ" ส่งมาที่นี่ (3 พ.ย. 69)
 
     # App
     APP_BASE_URL: str = "http://localhost:8000"

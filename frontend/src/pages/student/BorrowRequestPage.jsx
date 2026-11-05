@@ -31,7 +31,12 @@ export default function BorrowRequestPage() {
   const { cart, removeItem, updateQuantity, clearCart, purpose, setPurpose } = useCart()
   const { user } = useAuthContext()
   const fineBlocked = user?.fine_blocked && !isStaff(user)
-  const [dueDate, setDueDate] = useState('')
+  // วัตถุประสงค์ถูกจำใน localStorage แต่วันที่ไม่ถูกจำ — กลับมาหน้านี้แล้วปุ่มสำเร็จรูปค้างอยู่แต่ช่องวันว่าง
+  // (เลือกปุ่มเดิมซ้ำก็ไม่เติมเพราะ onChange ไม่ยิง) จึงเติมวันจากปุ่มที่ค้างอยู่ตอนเปิดหน้า (QA6-01, 5 พ.ย. 69)
+  const [dueDate, setDueDate] = useState(() => {
+    const p = PURPOSE_PRESETS.find((x) => x.label === purpose)
+    return p?.days ? daysFromToday(p.days) : ''
+  })
   // กำหนดวันคืนแยกรายชิ้น (เฟส 3) — ค่าเริ่มต้นคือวันเดียวกันทั้งใบเหมือนเดิม
   // ponytail: state ในหน้านี้พอ ไม่ต้อง persist ลงตะกร้า ผู้ใช้ตั้งวันตอนกำลังจะกดส่งอยู่แล้ว
   const [splitDates, setSplitDates] = useState(false)

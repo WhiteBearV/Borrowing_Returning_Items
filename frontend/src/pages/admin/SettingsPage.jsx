@@ -12,6 +12,7 @@ const ADMIN_EDITABLE_KEYS = new Set([
   'low_stock_threshold_default', 'max_items_per_request', 'max_active_requests_per_student',
   'max_renew_count', 'max_renew_days',
   'quality_repair_default_drop', 'quality_low_threshold', 'quality_inspect_interval_months', 'academic_year_start',
+  'show_borrower_names_to_users',
 ])
 
 // จัดกลุ่มให้อ่านง่ายแทนที่จะเรียงตามตัวอักษรของ key
@@ -19,6 +20,7 @@ const GROUPS = [
   { title: 'งานประจำวัน (นัดรับ · แจ้งเตือน · สต็อก)', keys: [
     'default_pickup_location', 'default_pickup_time', 'due_soon_notify_days_before', 'notify_time',
     'low_stock_threshold_default'] },
+  { title: 'ความเป็นส่วนตัว', keys: ['show_borrower_names_to_users'] },
   { title: 'โควต้าการยืม', keys: [
     'max_items_per_request', 'max_active_requests_per_student', 'max_renew_count', 'max_renew_days'] },
   { title: 'ค่าคุณภาพ · ชั้นปี', keys: [
@@ -30,6 +32,9 @@ const GROUPS = [
 ]
 
 // ค่าที่มีตัวเลือกตายตัว — ให้เลือกแทนพิมพ์เอง (พิมพ์ผิดตัวเดียวระบบอ่านไม่ออกทันที)
+// ค่าเปิด/ปิด ("true"/"false") — กดสวิตช์แล้วบันทึกทันที
+const TOGGLE_KEYS = new Set(['show_borrower_names_to_users'])
+
 const CHOICES = {
   pdf_value_source: [['acquisition', 'มูลค่าแท้จริง (ราคาที่ซื้อ)'], ['book', 'มูลค่าตามบัญชี (หักค่าเสื่อมแล้ว)']],
 }
@@ -49,8 +54,7 @@ export default function SettingsPage() {
 
   const [error, setError] = useState('')
 
-  const save = async (key) => {
-    const value = editing[key]
+  const save = async (key, value = editing[key]) => {
     if (value === undefined) return
     setSaving({ ...saving, [key]: true })
     setError('')
@@ -96,7 +100,16 @@ export default function SettingsPage() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {choices ? (
+          {TOGGLE_KEYS.has(s.key) ? (
+            <button type="button" role="switch" aria-checked={s.value === 'true'}
+              disabled={locked || saving[s.key]}
+              onClick={() => save(s.key, s.value === 'true' ? 'false' : 'true')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                s.value === 'true' ? 'bg-primary-600' : 'bg-gray-300'}`}>
+              <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                s.value === 'true' ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          ) : choices ? (
             <select value={editing[s.key] ?? s.value} disabled={locked}
               onChange={(e) => setEditing({ ...editing, [s.key]: e.target.value })}
               className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm bg-white w-64 disabled:bg-gray-50 disabled:text-gray-400">

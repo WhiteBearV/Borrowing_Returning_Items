@@ -154,6 +154,8 @@ async def test_renew_request_rejects_too_far_ahead(client: AsyncClient, admin_to
             json={"requested_date": far_date, "reason": "ไกลเกินไป"}, headers=h_student,
         )
         assert r.status_code == 400
+        # ข้อความถึงนักศึกษาต้องเป็นไทยและบอกเพดาน (QA6-02)
+        assert f"ไม่เกิน {max_renew_days} วัน" in r.json()["detail"], r.text
     finally:
         await _cleanup(eq_id, req_id, item_id)
 

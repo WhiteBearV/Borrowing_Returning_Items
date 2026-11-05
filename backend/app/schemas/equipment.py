@@ -47,7 +47,7 @@ class CategoryCreate(BaseModel):
 
 class HolderInfo(BaseModel):
     """ผู้ที่กำลังครอบครองอุปกรณ์ชิ้นนี้อยู่ (ยืมแล้วยังไม่คืน)"""
-    holder_name: str
+    holder_name: str | None  # None = ซ่อนชื่อจากผู้ใช้ทั่วไป (setting show_borrower_names_to_users)
     student_number: str | None = None
     due_date: date | None
     quantity: int

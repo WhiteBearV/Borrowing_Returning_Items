@@ -191,7 +191,7 @@ async def get_equipment(
     db: AsyncSession = Depends(get_db),
 ) -> EquipmentDetailResponse:
     eq = await equipment_service.get_equipment(db, equipment_id, viewer=user)
-    holders = (await equipment_service.get_holders_map(db, [equipment_id])).get(equipment_id, [])
+    holders = (await equipment_service.get_holders_map(db, [equipment_id], viewer=user)).get(equipment_id, [])
     base = EquipmentResponse.model_validate(eq, from_attributes=True)
     resp = EquipmentDetailResponse(**base.model_dump(exclude={"holders"}), holders=holders)
     return equipment_service.hide_quality_for_viewer(resp, user)

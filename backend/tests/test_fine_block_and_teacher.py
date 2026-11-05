@@ -73,3 +73,25 @@ async def test_teacher_borrower_counts_as_staff_label(client: AsyncClient, admin
             await db.execute(delete(AuditLog).where(AuditLog.target_id == uuid.UUID(uid)))
             await db.execute(delete(User).where(User.id == uuid.UUID(uid)))
             await db.commit()
+
+
+async def test_staff_code_with_dot_can_create_and_login(client: AsyncClient, admin_token: str):
+    """5 พ.ย. 69 — รหัสอาจารย์จริงของคณะเป็นแบบ KIT.SA06 เดิม pattern ไม่รับจุด สร้างบัญชีไม่ได้"""
+    tag = uuid.uuid4().hex[:4].upper()
+    code = f"KIT.T{tag}"
+    r = await client.post("/users", headers=auth(admin_token), json={
+        "email": f"kit-{tag.lower()}@cdti.ac.th", "full_name": "อาจารย์ จุดในรหัส", "password": "secret123",
+        "role": "student", "username": code,
+    })
+    assert r.status_code == 201, r.text
+    uid = r.json()["id"]
+    try:
+        assert r.json()["username"] == code
+        login = await client.post("/auth/login", json={"identifier": code, "password": "secret123"})
+        assert login.status_code == 200, login.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditLog).where(AuditLog.target_id == uuid.UUID(uid)))
+            await db.execute(delete(AuditLog).where(AuditLog.actor_id == uuid.UUID(uid)))
+            await db.execute(delete(User).where(User.id == uuid.UUID(uid)))
+            await db.commit()

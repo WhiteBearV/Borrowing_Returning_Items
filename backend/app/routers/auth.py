@@ -26,10 +26,11 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
 @router.get("/study-year-preview", response_model=StudyYearPreviewResponse)
 async def study_year_preview(
     student_id: str = Query(..., min_length=10, max_length=10),
+    study_years: int = Query(4, ge=2, le=4),
     db: AsyncSession = Depends(get_db),
 ) -> StudyYearPreviewResponse:
     """พรีวิว "ปีการศึกษา … · ชั้นปีที่ …" ใต้ช่องรหัสนักศึกษาตอนสมัคร — public, คำนวณจากรหัสอย่างเดียว"""
-    return await auth_service.study_year_preview(db, student_id)
+    return await auth_service.study_year_preview(db, student_id, study_years)
 
 
 @router.post("/verify-email")

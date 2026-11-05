@@ -46,9 +46,7 @@ class RegisterRequest(BaseModel):
     password: Password
     major: Literal["comp_eng", "digital_design"]  # ค่าอื่นทำให้ใบยืมไม่พิมพ์สาขา (R2-06)
     pdpa_consent: bool
-    # หลักสูตร (เฟส 10, 15 ก.ย. 69) — ปกติ 4 ปี (ค่าเริ่มต้น) หรือเทียบโอน 2/3/4 ปีแล้วแต่คน แสดงให้ทุกคน
-    # เลือกได้ตั้งแต่ตอนสมัคร (ไม่ใช่เฉพาะคนที่ระบบรู้ว่าเป็นรุ่นเทียบโอน) เพื่อไม่ต้องมี endpoint ที่บอกได้ว่า
-    # รหัสนี้อยู่ในรายชื่อหรือไม่ (ข้อมูลส่วนบุคคล) — auth_service ตรวจกับรายชื่อจริงอีกทีตอนสมัครจริง
+    # ไม่ใช้แล้ว (3 พ.ย. 69) — ระบบตัดสินเทียบโอนจากหลักที่ 3 ของรหัสเอง คงฟิลด์ไว้ให้ client เก่าส่งมาได้ไม่ 422
     is_transfer: bool = False
     # หน้าสมัครเสนอแค่ 2/3/4 (ปกติ = 4) ตามแผน — จำกัดช่วงที่ schema ด้วย ไม่ใช่แค่ frontend (เรียก API
     # ตรง ๆ ข้าม UI จะตั้งเป็นอะไรก็ได้ถ้าไม่บังคับที่นี่) แก้ตามรีวิวรอบ 3, MINOR-12
@@ -73,6 +71,7 @@ class StudyYearPreviewResponse(BaseModel):
     academic_year: int
     year_level: int
     label: str
+    is_transfer: bool = False  # จากหลักที่ 3 ของรหัส (study_year.is_transfer_student_id) — สูตรล้วน ไม่ค้นรายชื่อ
 
 
 class LoginRequest(BaseModel):

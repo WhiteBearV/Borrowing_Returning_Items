@@ -82,7 +82,8 @@ export default function ProfilePage() {
         <div className="space-y-3 pb-4 border-b border-gray-100">
           {[
             ['อีเมล', user?.email],
-            [user?.student_id || user?.role === 'student' ? 'รหัสนักศึกษา' : 'รหัสบุคลากร', user?.student_id ?? user?.username ?? '—'],
+            // คำกลางใช้ได้กับทุกคน (นักศึกษา/อาจารย์/เจ้าหน้าที่) — ผู้ใช้ขอ 5 พ.ย. 69 (QA6-03)
+            ['รหัสประจำตัว', user?.student_id ?? user?.username ?? '—'],
             ['ระดับสิทธิ์', roleLabel(user?.role)],
             // ค่าปรับค้างชำระรวม (SKGRent ข้อ 6) — รายละเอียดแต่ละรายการอยู่ในหน้าประวัติการยืม
             ...(user?.unpaid_fine_total > 0 ? [['ค่าปรับค้างชำระ', `${fineMoney(user.unpaid_fine_total)} บาท`]] : []),

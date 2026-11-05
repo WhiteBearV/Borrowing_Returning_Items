@@ -3,6 +3,7 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import Sidebar from './Sidebar.jsx'
 import NotificationBell from './NotificationBell.jsx'
+import FeedbackButton from './FeedbackButton.jsx'
 import { isStaff, isSuperadmin, roleBadgeClass, roleLabel } from '../../utils/role.js'
 
 const avatarSrc = (url) =>
@@ -47,6 +48,7 @@ export default function ProtectedRoute({ role }) {
           </Link>
           {/* มินิโปรไฟล์ — เรียงตามที่ผู้ใช้ขอ 8 ก.ย. 69: กระดิ่ง → รูป → ชื่อ → สิทธิ์
               กดที่ชื่อ/รูปไปหน้าโปรไฟล์ได้เลย (เดิมต้องเปิด drawer ก่อน) */}
+          <FeedbackButton />
           <NotificationBell />
           <Link to="/profile" className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-gray-100">
             {user.avatar_url ? (

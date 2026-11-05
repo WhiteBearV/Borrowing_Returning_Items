@@ -456,8 +456,8 @@ function AddUserModal({ onClose, onCreated }) {
           </>
         ) : (
           <div>
-            <input className={input} placeholder="รหัสประจำตัวอาจารย์/เจ้าหน้าที่ เช่น 01MNK01 (ใช้ล็อกอิน)"
-              required pattern="(?=.*[A-Za-z])[A-Za-z0-9_-]{4,20}" title="4-20 ตัว ใช้ตัวอักษร ตัวเลข - _ และต้องมีตัวอักษรอย่างน้อย 1 ตัว"
+            <input className={input} placeholder="รหัสประจำตัวอาจารย์/เจ้าหน้าที่ เช่น 01MNK01, KIT.SA06 (ใช้ล็อกอิน)"
+              required pattern="(?=.*[A-Za-z])[A-Za-z0-9_.\-]{4,20}" title="4-20 ตัว ใช้ตัวอักษร ตัวเลข . - _ และต้องมีตัวอักษรอย่างน้อย 1 ตัว"
               value={form.username} onChange={set('username')} />
             <p className="text-xs text-gray-500 mt-1">
               ต้องมีตัวอักษรปน ห้ามเป็นตัวเลขล้วน เพื่อให้แยกออกจากรหัสนักศึกษาบนใบยืมและประวัติการใช้งาน

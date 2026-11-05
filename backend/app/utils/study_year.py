@@ -145,3 +145,12 @@ def enrollment_year_from_student_id(student_id: str | None) -> int | None:
     if not student_id or not _STUDENT_ID_RE.fullmatch(student_id):
         return None
     return 2500 + int(student_id[:2])
+
+
+def is_transfer_student_id(student_id: str | None) -> bool:
+    """รหัสนักศึกษาหลักที่ 3 ≠ "1" = หลักสูตรเทียบโอน (3 พ.ย. 69) — จุดเดียวที่ตัดสินจากรหัส
+
+    รุ่นปกติ 661xxxxxxx · เทียบโอน 662/665… (ตรงกับรุ่น "ทอ" ในรายชื่อที่สาขารับรองทุกแถว) — ผู้สมัครเลือกเองไม่ได้
+    อีกต่อไป เดิมใครติ๊ก "เทียบโอน" ก็ได้เวลาเรียนสั้นลงทันที ซึ่งกระทบกฎจ่ายของ (จับคู่อายุเครื่องกับเวลาเรียนที่เหลือ)
+    """
+    return bool(student_id and _STUDENT_ID_RE.fullmatch(student_id) and student_id[2] != "1")

@@ -11,7 +11,8 @@ from app.schemas.auth import FullName, Password, _strip_student_id
 # รหัสบนใบยืมเป็นของอาจารย์หรือนักศึกษา (และ login ที่รับได้ทั้งสองแบบก็แยกไม่ออก) ที่เหลือปล่อยให้ยืดหยุ่น
 # ไม่บังคับรูปแบบเป๊ะ ๆ เพราะแต่ละหน่วยงานตั้งคนละแบบ — ตัวอย่างที่แนะนำอยู่ใน placeholder ของฟอร์ม
 # (pattern ของ pydantic ใช้ rust regex ที่ไม่มี look-ahead เงื่อนไข "ต้องมีตัวอักษร" จึงไปเช็คใน validator)
-STAFF_CODE_PATTERN = r"^[A-Za-z0-9_-]{4,20}$"
+# จุด (.) ใช้ได้ — รหัสจริงของคณะมีรูปแบบ KIT.SA06 (5 พ.ย. 69 เจอจริงตอนสร้างบัญชีอาจารย์)
+STAFF_CODE_PATTERN = r"^[A-Za-z0-9_.-]{4,20}$"
 
 
 class UserResponse(BaseModel):

@@ -130,7 +130,7 @@ export default function EquipmentDetailPage() {
               <ul className="space-y-1 text-sm text-gray-600">
                 {eq.holders.map((h, i) => (
                   <li key={i} className="flex justify-between">
-                    <span>{h.holder_name}{h.quantity > 1 ? ` ×${h.quantity}` : ''}</span>
+                    <span>{h.holder_name ?? 'มีผู้ยืมอยู่'}{h.quantity > 1 ? ` ×${h.quantity}` : ''}</span>
                     <span className="text-gray-400">{h.due_date ? `กำหนดคืน ${formatDate(h.due_date)}` : ''}</span>
                   </li>
                 ))}

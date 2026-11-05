@@ -77,8 +77,8 @@ async def test_admin_borrowing_for_self_does_not_self_notify(
     out = capsys.readouterr().out
     # อีเมล "คำขอยืมใหม่" (แจ้งเจ้าหน้าที่) ต้องไม่ส่งถึงตัวเอง — แต่อีเมลยืนยัน "ส่งคำขอยืม … แล้ว" ถึงผู้ยืม
     # ส่งถึงตัวเองได้ปกติ (ในฐานะผู้ยืม ตั้งแต่ 24 ก.ย. 69)
-    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: คำขอยืมใหม่" not in out
-    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: ส่งคำขอยืม" in out
+    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: [ระบบอัตโนมัติ] คำขอยืมใหม่" not in out
+    assert f"[DEV EMAIL] To: {test_admin.email}\nSubject: [ระบบอัตโนมัติ] ส่งคำขอยืม" in out
     assert "new_request_admin" not in out
 
     async with AsyncSessionLocal() as db:

@@ -9,6 +9,6 @@ export const authApi = {
   resetPassword: (token, new_password) =>
     api.post('/auth/reset-password', { token, new_password }).then((r) => r.data),
   // พรีวิวปีการศึกษา/ชั้นปีจากรหัสนักศึกษา (เฟส 10) — public, โชว์ใต้ช่องรหัสนักศึกษาตอนสมัคร
-  studyYearPreview: (student_id) =>
-    api.get('/auth/study-year-preview', { params: { student_id } }).then((r) => r.data),
+  studyYearPreview: (student_id, study_years = 4) =>
+    api.get('/auth/study-year-preview', { params: { student_id, study_years } }).then((r) => r.data),
 }

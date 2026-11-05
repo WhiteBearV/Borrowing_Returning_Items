@@ -17,7 +17,9 @@ from app.services import audit_service, settings_service, student_import_service
 from app.schemas.auth import LoginRequest, RegisterRequest, StudyYearPreviewResponse, TokenResponse
 from app.utils.email import send_reset_password_email, send_verification_email
 from app.utils.roles import STAFF_ROLES
-from app.utils.study_year import academic_year, compute_study_year, enrollment_year_from_student_id
+from app.utils.study_year import (
+    academic_year, compute_study_year, enrollment_year_from_student_id, is_transfer_student_id,
+)
 
 
 async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]:
@@ -46,6 +48,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]
     # ไม่อยู่ในรายชื่อ/ชื่อไม่ตรง ไม่ปิดตาย — เข้าคิวรออนุมัติ เพราะ นศ. ใหม่/ตกหล่น/ย้ายสาขา มีจริง
     eligible = await student_import_service.find_eligible(db, body.student_id)
     approval_status, approval_note = "approved", None
+    from_list_transfer = False
     full_name, major = body.full_name, body.major
     if eligible is None:
         approval_status = "pending"
@@ -59,20 +62,12 @@ async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]
         full_name = eligible.full_name
         major = eligible.major or body.major
 
-        # เฟส 10: รหัสรุ่นที่มี "ทอ" (เทียบโอน) ในรายชื่อ แต่ผู้สมัครเลือกหลักสูตรปกติ — ให้เลือกหลักสูตร
-        # เทียบโอนก่อนสมัครต่อ กันบัญชีเทียบโอนถูกสร้างเป็นหลักสูตรปกติ 4 ปีผิด ๆ ซึ่งกระทบกฎจ่ายของ (จับคู่
-        # อายุเครื่องกับเวลาเรียนที่เหลือ) ไปตลอดอายุบัญชี
-        #
-        # ต้องเช็คเฉพาะ branch นี้ (รหัส+ชื่อตรงกันแล้วเท่านั้น) — เดิมเช็คทันทีที่ `eligible is not None`
-        # โดยไม่สนว่าชื่อตรงไหม ทำให้ 400 นี้กลายเป็นช่องทางเดา/ยืนยันว่า "รหัสนี้อยู่ในรายชื่อรุ่นเทียบโอน"
-        # ได้แม้ผู้โจมตีไม่รู้ชื่อจริงของเจ้าของรหัสเลย (ตอบ 400 ต่างจากตอบ 200 ปกติของรหัสที่ไม่อยู่ในรายชื่อ/
-        # ชื่อไม่ตรง = รั่วข้อมูลว่าใครอยู่ในรุ่นไหน) แก้ตามรีวิวรอบ 2 (MINOR 3)
-        if eligible.generation and "ทอ" in eligible.generation and not body.is_transfer:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="รหัสนักศึกษานี้อยู่ในรุ่นเทียบโอน กรุณาเลือกหลักสูตร \"เทียบโอน\" และระบุจำนวนปีก่อนสมัคร",
-            )
-    study_years = body.study_years if body.is_transfer else 4
+        # รุ่น "ทอ" ในรายชื่อ = เทียบโอนแน่นอน (เสริมกฎจากรหัสด้านล่าง เผื่อรุ่นที่รหัสไม่ตามรูปแบบ)
+        # เช็คเฉพาะ branch รหัส+ชื่อตรงแล้ว และไม่ตอบอะไรต่างออกไป — ไม่เป็นช่องเดาว่าใครอยู่รุ่นไหน
+        from_list_transfer = bool(eligible.generation and "ทอ" in eligible.generation)
+    # เทียบโอนหรือไม่ ระบบตัดสินจากรหัส (+รายชื่อ) ไม่ใช่จากที่ผู้สมัครติ๊ก — body.is_transfer ถูกเพิกเฉย (3 พ.ย. 69)
+    is_transfer = is_transfer_student_id(body.student_id) or from_list_transfer
+    study_years = body.study_years if is_transfer else 4
 
     user = User(
         full_name=full_name,
@@ -90,7 +85,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]
         # backfill และ GET /auth/study-year-preview) is_transfer/study_years มาจากที่ผู้สมัครเลือก
         enrollment_year=enrollment_year_from_student_id(body.student_id),
         study_years=study_years,
-        is_transfer=body.is_transfer,
+        is_transfer=is_transfer,
     )
     db.add(user)
     await db.flush()  # ได้ user.id ก่อน commit
@@ -240,7 +235,7 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
     await db.commit()
 
 
-async def study_year_preview(db: AsyncSession, student_id: str) -> StudyYearPreviewResponse:
+async def study_year_preview(db: AsyncSession, student_id: str, study_years: int = 4) -> StudyYearPreviewResponse:
     """พรีวิวปีการศึกษา/ชั้นปีจากรหัสนักศึกษาอย่างเดียว — endpoint สาธารณะ (ไม่ต้องล็อกอิน)
 
     คำนวณจาก 2 หลักแรกของรหัสอย่างเดียว **ไม่ค้นรายชื่อที่สาขารับรอง** เพราะ endpoint นี้เปิดสาธารณะ —
@@ -252,8 +247,10 @@ async def study_year_preview(db: AsyncSession, student_id: str) -> StudyYearPrev
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก")
     enrollment_year = enrollment_year_from_student_id(student_id.strip())
     start = await settings_service.get_academic_year_start(db)
-    info = compute_study_year(enrollment_year, 4, academic_year_start=start)
+    is_transfer = is_transfer_student_id(student_id.strip())
+    info = compute_study_year(enrollment_year, study_years if is_transfer else 4, academic_year_start=start)
     return StudyYearPreviewResponse(
+        is_transfer=is_transfer,
         enrollment_year=enrollment_year,
         academic_year=academic_year(date.today(), start),
         year_level=info.year_level,

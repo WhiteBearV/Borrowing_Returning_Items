@@ -693,14 +693,24 @@ async def save_image(file: UploadFile) -> str:
     return await save_upload(file)
 
 
+async def show_borrower_names(db: AsyncSession) -> bool:
+    """setting `show_borrower_names_to_users` — ไม่มีแถว/ค่าเพี้ยน = เปิด (พฤติกรรมเดิมก่อนมี setting)"""
+    v = (await db.execute(select(Setting.value).where(Setting.key == "show_borrower_names_to_users"))).scalar_one_or_none()
+    return v != "false"
+
+
 async def get_holders_map(
-    db: AsyncSession, equipment_ids: list[uuid.UUID] | None = None
+    db: AsyncSession, equipment_ids: list[uuid.UUID] | None = None, viewer: User | None = None,
 ) -> dict[uuid.UUID, list[HolderInfo]]:
     """หน่วยไหนกำลังถูกยืมอยู่จริงบ้าง (approved + ยังไม่คืน) พร้อมรายละเอียดคนถือ — equipment_ids=None คือทั้งระบบ
 
     คิวรีเดียวได้ทั้ง "ถูกยืมอยู่ไหม" (เดิมใช้ _borrowed_equipment_ids คืนแค่ set id) และ "ใครถือ" (เดิม
     get_holders แยกอีกคิวรี) รวมเป็นฟังก์ชันเดียว — ผู้เรียกที่ต้องการแค่ boolean เช็ค `id in map` ได้เลย
     ไม่ต้องยิง 2 คิวรีซ้อนกันเหมือนก่อน
+
+    viewer (ผู้ใช้ที่ไม่ใช่เจ้าหน้าที่) + setting `show_borrower_names_to_users` = false → ซ่อนชื่อ/รหัสผู้ยืม
+    (ยังรู้ว่าถูกยืมอยู่ + วันคืน + จำนวน) — จุดเดียวที่ตัดสินเรื่องนี้ (3 พ.ย. 69, ความเป็นส่วนตัวของผู้ยืม)
+    viewer=None = งานภายใน/เจ้าหน้าที่ ไม่ซ่อน · ทุกจุดที่คืนข้อมูลให้ผู้ใช้ต้องส่ง viewer จริงมาเสมอ
 
     คืนเป็น list ต่อ equipment_id (ไม่ใช่ HolderInfo เดี่ยว) เพราะวัสดุสิ้นเปลืองแถวเดียวยืมพร้อมกันได้หลายคน
     คนละจำนวน (ต่างจาก durable ที่ยืมทีละหน่วยจริง ไม่มีทางมีคนถือพร้อมกันหลายคนต่อ 1 แถว) — เดิมใช้ dict
@@ -724,10 +734,12 @@ async def get_holders_map(
     if equipment_ids is not None:
         query = query.where(BorrowItem.equipment_id.in_(equipment_ids))
     result = await db.execute(query)
+    hide = viewer is not None and not is_staff(viewer) and not await show_borrower_names(db)
     holders_map: dict[uuid.UUID, list[HolderInfo]] = {}
     for eq_id, name, sid, ext, due, qty in result.all():
         holders_map.setdefault(eq_id, []).append(
-            HolderInfo(holder_name=name, student_number=sid, due_date=ext or due, quantity=qty)
+            HolderInfo(holder_name=None if hide else name, student_number=None if hide else sid,
+                       due_date=ext or due, quantity=qty)
         )
     return holders_map
 
@@ -808,7 +820,7 @@ async def list_equipment(
     items = list(result.scalars().all())
     await attach_book_values(db, items)
     await attach_quality_info(db, items, viewer)
-    holders_map = await get_holders_map(db)
+    holders_map = await get_holders_map(db, viewer=viewer)
     responses = []
     for eq in items:
         holders = holders_map.get(eq.id, [])
@@ -908,7 +920,7 @@ async def list_equipment_grouped(
     for r in light_rows:
         groups.setdefault((r.id,) if r.item_type == "consumable" else (r.name, r.item_type), []).append(r)
 
-    holders_map = await get_holders_map(db)
+    holders_map = await get_holders_map(db, viewer=viewer)
     if group_level:
         keep = {
             "borrowed": lambda m: m.id in holders_map,
@@ -987,7 +999,7 @@ async def get_equipment_group_detail(
     members = [eq] if eq.item_type == "consumable" else await find_group_members(db, eq.name, eq.item_type)
     await attach_book_values(db, members)
     await attach_quality_info(db, members, viewer)
-    holders_map = await get_holders_map(db, [m.id for m in members])
+    holders_map = await get_holders_map(db, [m.id for m in members], viewer=viewer)
     usage = await usage_days_map(db, [m.id for m in members])
     group = _build_group_response(members, holders_map, viewer)
     unit_summaries = []
