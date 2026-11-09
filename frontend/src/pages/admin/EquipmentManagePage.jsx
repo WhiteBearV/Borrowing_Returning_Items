@@ -927,7 +927,7 @@ export default function EquipmentManagePage() {
   const [searchParams] = useSearchParams()
   const [data, setData] = useState({ items: [], total: 0 })
   const [categories, setCategories] = useState([])
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('q') || '')  // ?q= จากหน้าตรวจสอบระบบ
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState(searchParams.get('item_type') || '')
   const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || '')

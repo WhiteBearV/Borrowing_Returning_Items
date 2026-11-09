@@ -2,7 +2,7 @@ import asyncio
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import audit_service, equipment_service, settings_service
@@ -174,7 +174,7 @@ async def update_avatar(db: AsyncSession, user: User, file: UploadFile) -> User:
 
 async def list_users(
     db: AsyncSession, page: int, page_size: int, role: str | None, major: str | None,
-    approval_status: str | None = None, year_group: str | None = None,
+    approval_status: str | None = None, year_group: str | None = None, q: str | None = None,
 ) -> PaginatedUsers:
     """year_group: "1".."4" (ชั้นปี) / "retained" (ตกค้าง) / "staff" (บุคลากร) / "unknown" (นักศึกษาที่
     enrollment_year เป็น None — คนละกลุ่มกับ "staff" จริง ดู dashboard_service.YEAR_GROUP_LABEL) ไม่ใช่
@@ -189,10 +189,17 @@ async def list_users(
         query = query.where(User.major == major)
     if approval_status:
         query = query.where(User.approval_status == approval_status)
+    if q and q.strip():
+        # ค้นชื่อ / รหัส (นักศึกษาหรือบุคลากร) / อีเมล แบบบางส่วน ไม่สนตัวพิมพ์
+        like = f"%{q.strip()}%"
+        query = query.where(or_(
+            User.full_name.ilike(like), User.student_id.ilike(like),
+            User.username.ilike(like), User.email.ilike(like),
+        ))
 
     if year_group:
         start = await settings_service.get_academic_year_start(db)
-        rows = list((await db.execute(query)).scalars().all())
+        rows = list((await db.execute(query.order_by(User.created_at.desc(), User.id))).scalars().all())
 
         def matches(u: User) -> bool:
             # ใช้ year_group_key() จุดเดียวกับ dashboard_service.get_summary() (แก้ตามรีวิวรอบ 4, M-b) —
@@ -214,7 +221,10 @@ async def list_users(
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
-    result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
+    # จบด้วย id (unique) ตามกฎแบ่งหน้า — เดิมไม่มี ORDER BY เลย แถวซ้ำ/หายข้ามหน้าได้
+    result = await db.execute(
+        query.order_by(User.created_at.desc(), User.id).offset((page - 1) * page_size).limit(page_size)
+    )
     items = list(result.scalars().all())
     await attach_study_year(db, items)
     await attach_unpaid_fines(db, items)

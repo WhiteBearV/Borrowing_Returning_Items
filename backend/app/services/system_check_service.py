@@ -70,53 +70,69 @@ async def run_checks(db: AsyncSession) -> dict:
     issues = []
 
     async def add_issue(key: str, label: str, count: int, hint: str,
-                        sample: list[str] | None = None) -> None:
+                        sample: list[str] | None = None, link: str | None = None) -> None:
+        # link = หน้าเว็บที่ใช้แก้เรื่องนี้ · หน้าเว็บต่อ ?q=<ตัวอย่าง> ให้กดตัวอย่างแล้วค้นหาให้เลย
         if count:
             issues.append({"key": key, "label": label, "count": count, "hint": hint,
-                           "sample": sample or []})
+                           "sample": sample or [], "link": link})
+
+    async def sample_of(col, *where) -> list[str]:
+        """ตัวอย่างไม่เกิน SAMPLE_LIMIT รายการของเรื่องนั้น (รหัส/เลขคำขอ/อีเมล) ให้กดตามไปแก้ได้"""
+        return list((await db.execute(
+            select(col).where(*where).order_by(col).limit(SAMPLE_LIMIT)
+        )).scalars().all())
+
+    async def count_of(model, *where) -> int:
+        return (await db.execute(select(func.count()).select_from(model).where(*where))).scalar() or 0
 
     # สต็อกเกินจำนวนทั้งหมด — มี CheckConstraint กันอยู่แล้ว ตรวจซ้ำเผื่อข้อมูลเก่าก่อน migration 0016
+    w = (Equipment.quantity_available > Equipment.quantity_total,)
     await add_issue(
-        "stock_over_total", "อุปกรณ์ที่คงเหลือมากกว่าจำนวนทั้งหมด",
-        (await db.execute(select(func.count()).select_from(Equipment)
-                          .where(Equipment.quantity_available > Equipment.quantity_total))).scalar() or 0,
+        "stock_over_total", "อุปกรณ์ที่คงเหลือมากกว่าจำนวนทั้งหมด", await count_of(Equipment, *w),
         "ตัวเลขสต็อกผิด ต้องปรับยอดคงเหลือให้ตรงของจริง",
+        await sample_of(Equipment.code, *w), "/admin/equipment",
     )
     # ยืมค้างอยู่แต่แถวอุปกรณ์ถูกลบถาวรไปแล้ว (equipment_id เป็น NULL จาก ON DELETE SET NULL)
+    # นับเฉพาะของที่ออกจากคลังจริง (คำขออนุมัติแล้ว + ชิ้นไม่ถูกปฏิเสธ) — คำขอที่ถูกปฏิเสธ/ยกเลิกก็มี
+    # returned=False ค้างตลอดไป เดิมนับรวมจนเตือนหลอก (เจอบนข้อมูล Prod 9 พ.ย. 69: 6 ชิ้นเป็นคำขอที่ถูกปฏิเสธทั้งหมด)
+    w = (BorrowItem.equipment_id.is_(None), BorrowItem.returned == False,  # noqa: E712
+         BorrowItem.item_status != "rejected", BorrowRequest.status == "approved")
+    orphan = select(BorrowItem.id, BorrowRequest.request_code).join(
+        BorrowRequest, BorrowItem.borrow_request_id == BorrowRequest.id).where(*w).subquery()
+    orphan_count = (await db.execute(select(func.count()).select_from(orphan))).scalar() or 0
+    orphan_codes = list((await db.execute(
+        select(orphan.c.request_code).distinct().order_by(orphan.c.request_code).limit(SAMPLE_LIMIT)
+    )).scalars().all())
     await add_issue(
-        "orphan_borrow_items", "รายการยืมค้างที่อุปกรณ์ถูกลบไปแล้ว",
-        (await db.execute(select(func.count()).select_from(BorrowItem)
-                          .where(BorrowItem.equipment_id.is_(None), BorrowItem.returned == False))).scalar() or 0,  # noqa: E712
+        "orphan_borrow_items", "รายการยืมค้างที่อุปกรณ์ถูกลบไปแล้ว", orphan_count,
         "ของถูกลบทั้งที่ยังยืมไม่คืน — ตรวจว่าของอยู่ไหนแล้วปิดรายการให้ถูกต้อง",
+        orphan_codes, "/admin/borrows",
     )
     # คำขอที่อนุมัติแล้วแต่ไม่มีรายการเลย — ปิดไม่ได้เพราะไม่มีอะไรให้คืน
-    approved_no_items = (await db.execute(
-        select(func.count()).select_from(BorrowRequest).where(
-            BorrowRequest.status == "approved",
-            ~select(BorrowItem.id).where(BorrowItem.borrow_request_id == BorrowRequest.id).exists(),
-        )
-    )).scalar() or 0
-    await add_issue("approved_no_items", "คำขอที่อนุมัติแล้วแต่ไม่มีรายการ", approved_no_items,
-                    "คำขอค้างสถานะถาวร ควรลบทิ้งหรือตรวจว่าเกิดจากอะไร")
+    w = (BorrowRequest.status == "approved",
+         ~select(BorrowItem.id).where(BorrowItem.borrow_request_id == BorrowRequest.id).exists())
+    await add_issue("approved_no_items", "คำขอที่อนุมัติแล้วแต่ไม่มีรายการ", await count_of(BorrowRequest, *w),
+                    "คำขอค้างสถานะถาวร ควรลบทิ้งหรือตรวจว่าเกิดจากอะไร",
+                    await sample_of(BorrowRequest.request_code, *w), "/admin/borrows")
     # สมัครแล้วไม่ยืนยันอีเมลสักที
     cutoff = datetime.now(timezone.utc) - timedelta(days=STALE_UNVERIFIED_DAYS)
+    w = (User.email_verified == False, User.created_at < cutoff)  # noqa: E712
     await add_issue(
-        "stale_unverified", f"บัญชีที่ยังไม่ยืนยันอีเมลเกิน {STALE_UNVERIFIED_DAYS} วัน",
-        (await db.execute(select(func.count()).select_from(User)
-                          .where(User.email_verified == False, User.created_at < cutoff))).scalar() or 0,  # noqa: E712
+        "stale_unverified", f"บัญชีที่ยังไม่ยืนยันอีเมลเกิน {STALE_UNVERIFIED_DAYS} วัน", await count_of(User, *w),
         "อาจเป็นการสมัครทิ้งไว้ ควรตรวจแล้วลบออก",
+        await sample_of(User.email, *w), "/admin/users",
     )
+    w = (Equipment.unit_value.is_(None), Equipment.status != "retired")
     await add_issue(
-        "no_price", "อุปกรณ์ที่ยังไม่มีราคา",
-        (await db.execute(select(func.count()).select_from(Equipment)
-                          .where(Equipment.unit_value.is_(None), Equipment.status != "retired"))).scalar() or 0,
+        "no_price", "อุปกรณ์ที่ยังไม่มีราคา", await count_of(Equipment, *w),
         "คิดมูลค่าตามบัญชี/ค่าเสียหายไม่ได้จนกว่าจะกรอกราคา",
+        await sample_of(Equipment.code, *w), "/admin/equipment",
     )
+    w = (Equipment.acquired_at.is_(None), Equipment.status != "retired")
     await add_issue(
-        "no_acquired_at", "อุปกรณ์ที่ยังไม่มีวันที่ได้มา",
-        (await db.execute(select(func.count()).select_from(Equipment)
-                          .where(Equipment.acquired_at.is_(None), Equipment.status != "retired"))).scalar() or 0,
+        "no_acquired_at", "อุปกรณ์ที่ยังไม่มีวันที่ได้มา", await count_of(Equipment, *w),
         "คำนวณอายุและค่าเสื่อมไม่ได้จนกว่าจะกรอกวันที่ได้มา",
+        await sample_of(Equipment.code, *w), "/admin/equipment",
     )
 
     mismatch_count, mismatch_sample = await _stock_reconcile(db)
@@ -124,7 +140,7 @@ async def run_checks(db: AsyncSession) -> dict:
         "stock_mismatch", "อุปกรณ์ที่ยอดคงเหลือไม่ตรงกับประวัติการยืม", mismatch_count,
         "ยอดคงเหลือ + ที่ยืมค้าง + ที่คืนแบบไม่เข้าคลัง ควรเท่ากับจำนวนทั้งหมด "
         "ถ้าไม่ตรงแปลว่ามีของหายไปจากยอดโดยไม่มีประวัติรองรับ (หรือเคยปรับยอดด้วยมือ — ดูได้ในหน้าประวัติการใช้งาน)",
-        mismatch_sample,
+        mismatch_sample, "/admin/equipment",
     )
 
     oldest_log = (await db.execute(select(func.min(AuditLog.created_at)))).scalar()

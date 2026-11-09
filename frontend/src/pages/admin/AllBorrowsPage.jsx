@@ -35,7 +35,7 @@ export default function AllBorrowsPage() {
   const [data, setData] = useState({ items: [], total: 0 })
   const [filterStatus, setFilterStatus] = useState('')
   const [overdueOnly, setOverdueOnly] = useState(false)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('q') || '')  // ?q= จากหน้าตรวจสอบระบบ
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState('')
   const [categories, setCategories] = useState([])

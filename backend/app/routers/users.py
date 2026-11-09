@@ -58,10 +58,11 @@ async def list_users(
     # ชั้นปี (เฟส 10) — "1".."4" / "retained" (ตกค้าง) / "staff" (บุคลากร) / "unknown" (ไม่ทราบชั้นปี)
     # คำนวณสด ไม่ใช่คอลัมน์ตรง (แก้ตามรีวิวรอบ 4, M-j — คอมเมนต์เดิมค้าง "1".."10" จากก่อนจำกัดช่วง study_years)
     year_group: str | None = Query(None),
+    q: str | None = Query(None, max_length=100),  # ค้นชื่อ / รหัส / อีเมล
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedUsers:
-    return await users_service.list_users(db, page, page_size, role, major, approval_status, year_group)
+    return await users_service.list_users(db, page, page_size, role, major, approval_status, year_group, q)
 
 
 @router.post("", response_model=UserResponse, status_code=201)

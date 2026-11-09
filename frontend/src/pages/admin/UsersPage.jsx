@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { usersApi } from '../../api/usersApi.js'
 import ConfirmModal from '../../components/common/ConfirmModal.jsx'
@@ -35,6 +35,8 @@ export default function UsersPage() {
   // เดิมไม่อ่านเลย ทำให้ลิงก์จาก Dashboard พาเข้ามาหน้านี้แล้วตัวกรองไม่ติดมาด้วย (พบตอนรีวิวรอบ 2)
   const [searchParams] = useSearchParams()
   const [yearFilter, setYearFilter] = useState(searchParams.get('year_group') || '')
+  const [search, setSearch] = useState(searchParams.get('q') || '')  // ?q= จากหน้าตรวจสอบระบบ
+  const loadSeq = useRef(0)  // กันผลค้นหาเก่าที่ตอบช้ามาทับผลใหม่
   // คิวผู้สมัครที่ระบบตรวจแล้วไม่ตรงรายชื่อของสาขา (เฟส 9) — โหลดแยกจากตารางหลัก
   // เพื่อให้ขึ้นเด่นด้านบนเสมอ ไม่ว่าแอดมินจะกรองอะไรอยู่หรือหน้าไหน
   const [pending, setPending] = useState([])
@@ -45,8 +47,13 @@ export default function UsersPage() {
 
   const load = () => {
     setLoading(true)
-    usersApi.list({ role: roleFilter || undefined, year_group: yearFilter || undefined, page, page_size: 20 })
-      .then(setData).finally(() => setLoading(false))
+    const seq = ++loadSeq.current
+    usersApi.list({
+      role: roleFilter || undefined, year_group: yearFilter || undefined,
+      q: search.trim() || undefined, page, page_size: 20,
+    })
+      .then((d) => { if (seq === loadSeq.current) setData(d) })
+      .finally(() => { if (seq === loadSeq.current) setLoading(false) })
     usersApi.list({ approval_status: 'pending', page: 1, page_size: 50 })
       .then((d) => setPending(d.items)).catch(() => setPending([]))
   }
@@ -68,6 +75,13 @@ export default function UsersPage() {
   })
 
   useEffect(() => { load() }, [roleFilter, yearFilter, page])
+  // พิมพ์ค้นหา: รอ 300 ms ค่อยยิง ไม่ยิงทุกตัวอักษร
+  const firstSearch = useRef(true)
+  useEffect(() => {
+    if (firstSearch.current) { firstSearch.current = false; return }
+    const t = setTimeout(() => { if (page === 1) load(); else setPage(1) }, 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const toggleStatus = (user) => {
     const label = user.is_active ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'
@@ -113,10 +127,13 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-light text-gray-800">จัดการผู้ใช้</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            ทั้งหมด {data.total.toLocaleString('th-TH')} บัญชี{roleFilter ? ' (ตามตัวกรองปัจจุบัน)' : ''}
+            ทั้งหมด {data.total.toLocaleString('th-TH')} บัญชี{roleFilter || yearFilter || search.trim() ? ' (ตามตัวกรองปัจจุบัน)' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหาชื่อ / รหัส / อีเมล" aria-label="ค้นหาผู้ใช้"
+            className="w-full sm:w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500" />
           <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1) }}
             className="flex-1 sm:flex-none rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
             <option value="">ทุกสิทธิ์</option>

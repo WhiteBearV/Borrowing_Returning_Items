@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { changeRequestApi } from '../../api/changeRequestApi.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import { formatDateTime } from '../../utils/formatDate.js'
@@ -276,11 +277,23 @@ export default function SystemCheckPage() {
                 {i.count}
               </span>
               <div className="min-w-0">
-                <p className="text-sm text-gray-800">{i.label}</p>
+                {i.link
+                  ? <Link to={i.link} className="text-sm text-primary-700 hover:underline">{i.label} →</Link>
+                  : <p className="text-sm text-gray-800">{i.label}</p>}
                 <p className="text-xs text-gray-500">{i.hint}</p>
                 {i.sample?.length > 0 && (
                   <p className="text-[11px] text-gray-400 font-mono mt-1 break-words">
-                    เช่น {i.sample.join(' · ')}{i.count > i.sample.length && ` … และอีก ${i.count - i.sample.length} รายการ`}
+                    เช่น{' '}
+                    {i.sample.map((v, n) => (
+                      <span key={v}>
+                        {n > 0 && ' · '}
+                        {i.link
+                          ? <Link to={`${i.link}?q=${encodeURIComponent(v)}`} title="เปิดดูรายการนี้"
+                              className="text-primary-600 hover:underline">{v}</Link>
+                          : v}
+                      </span>
+                    ))}
+                    {i.count > i.sample.length && ` … และอีก ${i.count - i.sample.length} รายการ`}
                   </p>
                 )}
               </div>
