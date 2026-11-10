@@ -24,6 +24,7 @@ async def send_feedback(
 
     ตรวจรูปผ่าน `_read_validated()` จุดเดิม (นามสกุล + magic bytes + ขนาดก่อนอ่าน) · ข้อความผู้ใช้ escape ทุกช่อง
     อีเมลปิดอยู่ = 503 ให้ผู้ใช้รู้ว่ารายงานไปไม่ถึง (ไม่มีที่เก็บสำรอง) · reply-to = อีเมลผู้แจ้ง ตอบกลับได้ทันที
+    ส่งเบื้องหลัง (10 พ.ย. 69) — เดิม wait=True รอ SMTP+รูปแนบ ~11 วิ ผู้ใช้นึกว่าค้าง · ส่งพลาดดูได้ใน docker logs `[email]`
     """
     detail = detail.strip()  # Form(...) ไม่บังคับ StringConstraints ของ NonBlank — ตรวจเองที่นี่
     if not detail:
@@ -55,4 +56,4 @@ async def send_feedback(
             f'<p style="white-space:pre-wrap;padding:12px;background:#f9fafb;border-radius:8px;">{escape(detail)}</p>')
     summary = detail.splitlines()[0][:60]
     await email_utils.send_email(settings.FEEDBACK_EMAIL, f"{KIND_LABEL[kind]}: {summary}", body,
-                                 attachments=attachments, reply_to=user.email, wait=True)
+                                 attachments=attachments, reply_to=user.email)

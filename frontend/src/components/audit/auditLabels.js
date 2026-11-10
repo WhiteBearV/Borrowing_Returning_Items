@@ -66,6 +66,7 @@ export const ACTION_LABEL = {
 export const FIELD_LABEL = {
   // ลายเซ็นบนหน้าจอ (เฟส 11)
   staff_signed: 'เจ้าหน้าที่เซ็นกำกับ',
+  via_signed_form: 'ยืนยันด้วยใบยืมที่เซ็นแล้ว (ไม่เซ็นบนจอ)',
   kind: 'ชนิดลายเซ็น',
   name: 'ชื่อ',
   code: 'รหัส',

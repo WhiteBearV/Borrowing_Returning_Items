@@ -189,14 +189,14 @@ async def download_signed_form(
 async def handover_request(
     request_id: uuid.UUID,
     request: Request,
-    borrower_signature: UploadFile = File(...),
+    borrower_signature: UploadFile | None = File(None),
     staff_signature: UploadFile | None = File(None),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> BorrowRequestResponse:
     """บันทึกการจ่ายของพร้อมลายเซ็นรับของบนหน้าจอ — เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมเซ็น
 
-    ลายเซ็นเจ้าหน้าที่ (staff_signature) เว้นได้ · ไม่แตะสต็อกเพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว
+    ลายเซ็นเจ้าหน้าที่ (staff_signature) เว้นได้ · ลายเซ็นผู้ยืมเว้นได้ถ้าผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว · ไม่แตะสต็อกเพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว
     """
     req = await borrow_service.handover_request(
         db, admin, request_id, borrower_signature, staff_signature,

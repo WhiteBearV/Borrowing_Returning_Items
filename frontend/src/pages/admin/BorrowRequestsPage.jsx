@@ -155,7 +155,7 @@ export default function BorrowRequestsPage() {
   }
 
   // เปิดใบร่างฉบับเดียวกับที่นักศึกษาส่งมา (backend ออกใบร่างให้เองเมื่อคำขอยัง pending)
-  const viewDraft = async (id) => openPdf(await borrowApi.downloadPdf(id))
+  const viewDraft = async (id) => await openPdf(borrowApi.downloadPdf(id))
 
   const approveRenew = async (reqId, itemId) => {
     setActionError('')
@@ -418,7 +418,7 @@ export default function BorrowRequestsPage() {
                           })}
                         </div>
                         <button
-                          onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
+                          onClick={async () => await openPdf(borrowApi.downloadPdf(req.id))}
                           className="text-sm text-primary-600 hover:underline"
                         >
                           ดูใบยืม
@@ -486,7 +486,7 @@ export default function BorrowRequestsPage() {
                           ))}
                         </div>
                         <button
-                          onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
+                          onClick={async () => await openPdf(borrowApi.downloadPdf(req.id))}
                           className="text-sm text-primary-600 hover:underline"
                         >
                           ดูใบยืม

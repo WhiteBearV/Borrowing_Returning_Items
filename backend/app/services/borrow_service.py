@@ -1258,7 +1258,7 @@ async def handover_request(
     db: AsyncSession,
     admin: User,
     request_id: uuid.UUID,
-    borrower_signature: UploadFile,
+    borrower_signature: UploadFile | None,
     staff_signature: UploadFile | None = None,
     user_agent: str | None = None,
 ) -> BorrowRequestResponse:
@@ -1279,11 +1279,16 @@ async def handover_request(
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Can only hand over approved requests.")
-    if req.handover_sig_borrower:
+    if req.handover_at or req.handover_sig_borrower:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="This request has already been signed for handover.")
+                            detail="This request has already been handed over.")
+    # ผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว = มีหลักฐานลายเซ็นอยู่แล้ว บันทึกจ่ายของได้โดยไม่ต้องเซ็นซ้ำบนจอ (10 พ.ย. 69)
+    if borrower_signature is None and not req.signed_form_file:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Borrower signature is required unless a signed form has been uploaded.")
 
-    await _save_signature(req, "handover_borrower", borrower_signature, req.student, user_agent)
+    if borrower_signature is not None:
+        await _save_signature(req, "handover_borrower", borrower_signature, req.student, user_agent)
     if staff_signature is not None:
         await _save_signature(req, "handover_staff", staff_signature, admin, user_agent)
     req.handover_at = datetime.now(timezone.utc)
@@ -1296,6 +1301,7 @@ async def handover_request(
         "request_code": req.request_code,
         "student_name": req.student_name,
         "staff_signed": staff_signature is not None,
+        "via_signed_form": borrower_signature is None,
     })
     await db.commit()
     await _attach_request_student_year(db, [req])

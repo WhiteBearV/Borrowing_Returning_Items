@@ -143,11 +143,11 @@ export default function MyBorrowsPage() {
     }
   }
 
-  const viewPdf = async (id) => openPdf(await borrowApi.downloadPdf(id))
+  const viewPdf = async (id) => await openPdf(borrowApi.downloadPdf(id))
   // ใบเซ็นเก็บในโฟลเดอร์ที่ไม่ได้เสิร์ฟสาธารณะ ต้องดึงผ่าน API ที่ตรวจสิทธิ์แล้วเปิดจาก blob
-  const viewSignedForm = async (id) => openPdf(await borrowApi.downloadSignedForm(id))
-  const viewReturnPdf = async (id) => openPdf(await borrowApi.downloadReturnPdf(id))
-  const viewSignature = async (id, kind) => openPdf(await borrowApi.downloadSignature(id, kind))
+  const viewSignedForm = async (id) => await openPdf(borrowApi.downloadSignedForm(id))
+  const viewReturnPdf = async (id) => await openPdf(borrowApi.downloadReturnPdf(id))
+  const viewSignature = async (id, kind) => await openPdf(borrowApi.downloadSignature(id, kind))
 
   return (
     <div className="px-4 sm:px-6 py-8">
@@ -408,7 +408,8 @@ export default function MyBorrowsPage() {
                       )}
                     </div>
                     {/* ลายเซ็นบนหน้าจอ (เฟส 11) — ผู้ยืมเปิดดูของตัวเองได้ ผ่าน endpoint ที่ตรวจสิทธิ์ + ลง audit */}
-                    {req.signatures?.length > 0 && (
+                    {/* handover_at ด้วย — จ่ายของด้วยใบที่อัปโหลดแล้วไม่มีลายเซ็นบนจอ แต่ผู้ยืมต้องเห็นว่ารับของแล้ว */}
+                    {(req.signatures?.length > 0 || req.handover_at) && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                         {req.handover_at && (
                           <span className="text-xs text-gray-500">

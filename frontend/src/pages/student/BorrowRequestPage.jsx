@@ -84,7 +84,7 @@ export default function BorrowRequestPage() {
     if (!validate()) return
     setError('')
     try {
-      openPdf(await borrowApi.previewPdf(cartPayload()))
+      await openPdf(borrowApi.previewPdf(cartPayload()))
     } catch (err) {
       setError(err.response?.data?.detail ?? 'สร้างตัวอย่างไม่สำเร็จ')
     }

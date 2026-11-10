@@ -65,7 +65,9 @@ async def send_email(
         body=body_html,
         subtype=MessageType.html,
         attachments=attachments or [],
-        multipart_subtype=MultipartSubtypeEnum.related if attachments else MultipartSubtypeEnum.mixed,
+        # related เฉพาะรูปที่ body อ้างด้วย cid: — ไฟล์แนบธรรมดา (รูปแจ้งปัญหา) ห่อ related แล้วโครงสร้างผิด โดนกรองเป็นสแปม
+        multipart_subtype=MultipartSubtypeEnum.related
+        if any("Content-ID" in (a.get("headers") or {}) for a in attachments or []) else MultipartSubtypeEnum.mixed,
         reply_to=[reply_to] if reply_to else [],
     )
     if wait:

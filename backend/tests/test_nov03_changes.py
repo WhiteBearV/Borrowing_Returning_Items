@@ -94,3 +94,23 @@ async def test_send_email_does_not_block_request(monkeypatch):
     await email_utils.send_email("x@cdti.ac.th", "s", "<p>b</p>")
     assert time.monotonic() - t < 0.2
     await asyncio.gather(*email_utils._pending)
+
+
+async def test_send_email_related_only_with_cid(monkeypatch):
+    """รูปแนบธรรมดา (แจ้งปัญหา) ต้องเป็น mixed — related ที่ไม่มี cid โดน Gmail กรองเป็นสแปม (10 พ.ย. 69)"""
+    import io
+    from fastapi import UploadFile
+    from app.utils import email as email_utils
+
+    sent = []
+
+    async def capture(message):
+        sent.append(message.multipart_subtype.value)
+    monkeypatch.setattr(email_utils, "_email_configured", True)
+    monkeypatch.setattr(email_utils.fm, "send_message", capture)
+    plain = {"file": UploadFile(filename="a.png", file=io.BytesIO(_png()))}
+    inline = {"file": UploadFile(filename="b.png", file=io.BytesIO(_png())),
+              "headers": {"Content-ID": "<x>", "Content-Disposition": 'inline; filename="b.png"'}}
+    await email_utils.send_email("x@cdti.ac.th", "s", "<p>b</p>", attachments=[plain], wait=True)
+    await email_utils.send_email("x@cdti.ac.th", "s", '<img src="cid:x">', attachments=[inline], wait=True)
+    assert sent == ["mixed", "related"]

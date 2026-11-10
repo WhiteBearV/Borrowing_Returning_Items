@@ -215,3 +215,32 @@ async def test_sign_return_requires_a_returned_item_and_shows_on_pdf(
         assert "วันที่ .........." not in text
     finally:
         await _cleanup(req["id"], test_equipment.id, files)
+
+
+async def test_handover_without_signature_needs_uploaded_signed_form(
+    client: AsyncClient, student_token: str, admin_token: str, test_equipment: Equipment,
+):
+    """ผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว → บันทึกจ่ายของได้โดยไม่เซ็นซ้ำบนจอ (10 พ.ย. 69 — Prod ยังขึ้นปุ่มให้เซ็นอีก)"""
+    req = await _pending_request(client, student_token, test_equipment.id)
+    assert (await client.patch(f"/borrow-requests/{req['id']}/approve",
+                               headers=auth(admin_token))).status_code == 200
+    files: list[str] = []
+    try:
+        url = f"/borrow-requests/{req['id']}/handover"
+        # ยังไม่มีใบเซ็น + ไม่เซ็นบนจอ = ไม่มีหลักฐานการรับของเลย
+        assert (await client.post(url, headers=auth(admin_token))).status_code == 400
+
+        r = await client.post(f"/borrow-requests/{req['id']}/signed-form", headers=auth(student_token),
+                              files={"file": ("signed.png", PNG_BYTES, "image/png")})
+        assert r.status_code == 200, r.text
+        files.append(r.json()["signed_form_file"])
+
+        r = await client.post(url, headers=auth(admin_token))
+        assert r.status_code == 200, r.text
+        assert r.json()["handover_at"] and r.json()["signatures"] == []
+        # บันทึกจ่ายของซ้ำไม่ได้ ทั้งแบบไม่เซ็นและแบบเซ็น
+        assert (await client.post(url, headers=auth(admin_token))).status_code == 400
+        assert (await client.post(url, headers=auth(admin_token),
+                                  files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})).status_code == 400
+    finally:
+        await _cleanup(req["id"], test_equipment.id, files)

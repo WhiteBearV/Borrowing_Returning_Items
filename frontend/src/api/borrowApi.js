@@ -42,7 +42,8 @@ export const borrowApi = {
   // เซ็นบนหน้าจอ (เฟส 11) — blob จาก canvas ทั้งคู่ ลายเซ็นเจ้าหน้าที่เว้นได้
   handover: (id, borrowerBlob, staffBlob) => {
     const fd = new FormData()
-    fd.append('borrower_signature', borrowerBlob, 'borrower.png')
+    // ไม่มี blob = ผู้ยืมอัปโหลดใบเซ็นแล้ว บันทึกจ่ายของโดยไม่เซ็นบนจอ (10 พ.ย. 69)
+    if (borrowerBlob) fd.append('borrower_signature', borrowerBlob, 'borrower.png')
     if (staffBlob) fd.append('staff_signature', staffBlob, 'staff.png')
     return api.post(`/borrow-requests/${id}/handover`, fd,
       { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)

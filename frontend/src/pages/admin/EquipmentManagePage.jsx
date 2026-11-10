@@ -1094,7 +1094,7 @@ export default function EquipmentManagePage() {
   const downloadDoc = async (kind) => {
     if (!docRange.from || !docRange.to) { alert('กรุณาเลือกช่วงวันที่'); return }
     try {
-      openPdf(await equipmentApi.stockDocument(kind, docRange.from, docRange.to))
+      await openPdf(equipmentApi.stockDocument(kind, docRange.from, docRange.to))
     } catch (e) {
       alert(e.response?.data?.detail || 'ไม่สามารถสร้างเอกสารได้')
     }
@@ -1102,7 +1102,7 @@ export default function EquipmentManagePage() {
 
   const downloadRepairDoc = async () => {
     try {
-      openPdf(await equipmentApi.repairDocument())
+      await openPdf(equipmentApi.repairDocument())
     } catch (e) {
       alert(e.response?.data?.detail || 'ไม่สามารถสร้างเอกสารได้')
     }

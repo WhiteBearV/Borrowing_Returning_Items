@@ -240,7 +240,7 @@ export default function AllBorrowsPage() {
                       {req.handover_by_name ? ` โดย ${req.handover_by_name}` : ''}
                       {req.signatures?.map((kind) => (
                         <button key={kind}
-                          onClick={async () => openPdf(await borrowApi.downloadSignature(req.id, kind))}
+                          onClick={async () => await openPdf(borrowApi.downloadSignature(req.id, kind))}
                           className="ml-2 text-primary-600 hover:underline">
                           ✍ {SIGNATURE_LABEL[kind]}
                         </button>
@@ -250,7 +250,7 @@ export default function AllBorrowsPage() {
                   {/* ใบยืมที่ผู้ยืมเซ็นแล้วอัปโหลดมา — แอดมินต้องเปิดตรวจก่อนจ่ายของได้โดยไม่ต้องรอกระดาษ */}
                   {req.signed_form_file && (
                     <p className="text-sm">
-                      <button onClick={async () => openPdf(await borrowApi.downloadSignedForm(req.id))}
+                      <button onClick={async () => await openPdf(borrowApi.downloadSignedForm(req.id))}
                         className="text-emerald-700 hover:underline">
                         📎 ใบยืมที่เซ็นแล้ว ({formatDateTime(req.signed_form_at)})
                       </button>
@@ -333,7 +333,19 @@ export default function AllBorrowsPage() {
 
                   <div className="flex items-center gap-4 pt-1">
                     {/* จ่ายของ + เซ็นรับบนหน้าจอ (เฟส 11) — ไม่บังคับ แต่ถ้าทำแล้วลายเซ็นจะขึ้นบนใบยืม */}
-                    {req.status === 'approved' && !req.signatures?.includes('handover_borrower') && (
+                    {/* ผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว = มีลายเซ็นแล้ว แค่บันทึกว่าจ่ายของ ไม่ต้องเซ็นซ้ำบนจอ (10 พ.ย. 69) */}
+                    {req.status === 'approved' && !req.handover_at && req.signed_form_file && (
+                      <button
+                        onClick={async () => {
+                          try { await borrowApi.handover(req.id); load() }
+                          catch (err) { alert(err.response?.data?.detail ?? 'บันทึกจ่ายของไม่สำเร็จ') }
+                        }}
+                        className="text-sm rounded-lg bg-primary-50 text-primary-700 px-3 py-1 hover:bg-primary-100 font-medium border border-primary-200"
+                      >
+                        บันทึกจ่ายของ
+                      </button>
+                    )}
+                    {req.status === 'approved' && !req.handover_at && !req.signed_form_file && (
                       <button
                         onClick={() => setSignTarget({ id: req.id, code: req.request_code, mode: 'handover' })}
                         className="text-sm rounded-lg bg-primary-50 text-primary-700 px-3 py-1 hover:bg-primary-100 font-medium border border-primary-200"
@@ -358,14 +370,14 @@ export default function AllBorrowsPage() {
                       </button>
                     )}
                     <button
-                      onClick={async () => openPdf(await borrowApi.downloadPdf(req.id))}
+                      onClick={async () => await openPdf(borrowApi.downloadPdf(req.id))}
                       className="text-sm text-primary-600 hover:underline"
                     >
                       {req.status === 'pending' ? 'ดูใบร่างคำขอ' : 'ดูใบยืม'}
                     </button>
                     {req.items?.some((i) => i.returned) && (
                       <button
-                        onClick={async () => openPdf(await borrowApi.downloadReturnPdf(req.id))}
+                        onClick={async () => await openPdf(borrowApi.downloadReturnPdf(req.id))}
                         className="text-sm text-emerald-600 hover:underline"
                       >
                         ดูใบรับคืน
