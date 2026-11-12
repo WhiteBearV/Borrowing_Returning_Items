@@ -24,17 +24,31 @@ async def _annotate_unit_counts(db: AsyncSession, responses: list[BundleResponse
         for r in responses for i in r.items
         if i.equipment_name and i.item_type and i.item_type != "consumable"
     }
-    group_size: dict[tuple, int] = {}
+    group_size: dict[tuple, tuple[int, int]] = {}
     if pairs:
         conditions = [(Equipment.name == n) & (Equipment.item_type == t) for n, t in pairs]
+        # หน่วยที่ยืมได้ = เงื่อนไขเดียวกับ eligible ใน borrow_service.create_request (1 หน่วย = 1 ชิ้น)
+        eligible = (
+            Equipment.is_borrowable & (Equipment.status == "available") & (Equipment.quantity_available > 0)
+        )
         rows = (await db.execute(
-            select(Equipment.name, Equipment.item_type, func.count(Equipment.id))
+            select(Equipment.name, Equipment.item_type, func.count(Equipment.id),
+                   func.count(Equipment.id).filter(eligible))
             .where(or_(*conditions)).group_by(Equipment.name, Equipment.item_type)
         )).all()
-        group_size = {(name, item_type): count for name, item_type, count in rows}
+        group_size = {(name, item_type): (count, avail) for name, item_type, count, avail in rows}
     for r in responses:
         for i in r.items:
-            i.unit_count = 1 if i.item_type == "consumable" else group_size.get((i.equipment_name, i.item_type), 1)
+            count, avail = (
+                (1, None) if i.item_type == "consumable"
+                else group_size.get((i.equipment_name, i.item_type), (1, None))
+            )
+            i.unit_count = count
+            # ชุดผูกกับหน่วยเจาะจง แต่ตอนยื่นคำขอระบบจ่ายจากทั้งรุ่น — ถ้าส่งยอดของหน่วยนั้นตัวเดียว
+            # ตะกร้าจะข้ามของที่หน่วยนั้นถูกยืมอยู่ / ตัดจำนวนเหลือ 1 ทั้งที่รุ่นยังว่างอีกหลายหน่วย (บั๊ก 12 พ.ย. 69)
+            if count > 1:
+                i.quantity_available = avail
+                i.is_borrowable = avail > 0
 
 
 async def _load(db: AsyncSession, bundle_id: uuid.UUID) -> Bundle:

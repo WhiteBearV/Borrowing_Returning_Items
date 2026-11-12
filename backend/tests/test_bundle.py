@@ -146,6 +146,16 @@ async def test_bundle_item_unit_count_reflects_group_size(
         listed = next(b for b in r.json() if b["id"] == bundle_id)
         listed_by_id = {i["equipment_id"]: i for i in listed["items"]}
         assert listed_by_id[str(eq_ids[0])]["unit_count"] == 3
+
+        # หน่วยที่ชุดผูกไว้ถูกยืมอยู่ แต่รุ่นยังว่าง 2 หน่วย → ต้องส่งยอดทั้งรุ่น ไม่งั้นตะกร้าข้าม/ตัดเหลือ 1
+        # (บั๊ก Prod 12 พ.ย. 69: สาย Micro-HDMI ไม่เข้าตะกร้า · Cucumber RIS ตั้ง 2 ได้ 1)
+        async with AsyncSessionLocal() as db:
+            (await db.get(Equipment, eq_ids[0])).quantity_available = 0
+            await db.commit()
+        r = await client.get("/bundles", headers=h)
+        listed = next(b for b in r.json() if b["id"] == bundle_id)
+        grp_item = next(i for i in listed["items"] if i["equipment_id"] == str(eq_ids[0]))
+        assert grp_item["quantity_available"] == 2 and grp_item["is_borrowable"] is True
     finally:
         await _cleanup(bundle_id)
         async with AsyncSessionLocal() as db:
