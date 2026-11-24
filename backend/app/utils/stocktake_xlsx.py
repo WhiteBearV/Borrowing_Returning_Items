@@ -103,6 +103,8 @@ def xlsx_rows(head: dict[str, str], sheet_rows: list[SheetRow]) -> bytes:
         r = 4 + n
         for col, v in enumerate(row, 1):
             c = ws.cell(row=r, column=col, value=v)
+            if isinstance(v, str) and v.startswith("="):
+                c.data_type = "s"  # ชื่อ/หมายเหตุที่ขึ้นต้นด้วย = ต้องเป็นข้อความ ไม่ใช่สูตร (formula injection)
             c.border = box
             c.font = tick if col in TICK_COLS else font
             c.alignment = center if col not in (3, 14, 18) else Alignment(vertical="center", wrap_text=True)
