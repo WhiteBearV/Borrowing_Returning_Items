@@ -75,7 +75,8 @@
 ├── docker-compose.yml       # dev (ใช้แค่ service db — ดูหัวข้อ 3)
 ├── docker-compose.prod.yml  # production
 ├── .env.prod.example        # ตัวอย่าง .env สำหรับ production
-└── gen-self-signed-cert.sh  # ออก cert HTTPS ให้ IP ของเครื่อง
+├── gen-lan-ca.sh           # CA ของคณะ + cert HTTPS ให้ IP ของเครื่อง (มือถือติดตั้ง CA แล้วเปิดกล้องสแกน QR ได้)
+└── gen-signing-cert.sh      # ออกใบรับรองประทับตราดิจิทัลบนใบยืม/ใบคืน PDF (ครั้งเดียว)
 ```
 
 ---
@@ -136,6 +137,7 @@ npm run dev                        # http://localhost:5173
 ```
 
 vite ฟังทุก network interface อยู่แล้ว มือถือหรือเครื่องอื่นในวง LAN เข้าผ่าน `http://<IP-เครื่อง>:5173` ได้ทันที
+(ถ้ามี `certs/dev/` จาก `./gen-lan-ca.sh` Vite จะเปิดเป็น https แทน ต้องพิมพ์ `https://<IP>:5173` เอง หรือเข้า `http://<IP>:5174` ซึ่ง redirect ไปให้ · Prod ไม่มีปัญหานี้ เพราะ nginx :80 redirect ไป https อยู่แล้ว)
 (QR code ของอุปกรณ์จะใช้ IP ที่เข้ามาจริงให้เอง)
 
 ### 3.4 สร้างบัญชีผู้ดูแลคนแรก
@@ -204,7 +206,8 @@ cd Borrowing_Returning_Items
 cp .env.prod.example .env
 nano .env        # แก้อย่างน้อย: POSTGRES_PASSWORD, SECRET_KEY, FRONTEND_URL, APP_BASE_URL (เป็น https://<IP-เครื่อง>)
 
-./gen-self-signed-cert.sh <IP-เครื่อง>                       # ได้ certs/fullchain.pem + privkey.pem (อายุ 2 ปี)
+./gen-lan-ca.sh <IP-เครื่อง>                                 # ได้ certs/ca.crt (แจกมือถือ) + fullchain.pem + privkey.pem
+./gen-signing-cert.sh                                        # ได้ certs/signing/ — ตราดิจิทัลบนใบยืม PDF (ไม่ทำ = PDF ไม่มีตรา)
 docker compose -f docker-compose.prod.yml up --build -d       # migration รันเองก่อนเปิด backend ทุกครั้ง
 ```
 
@@ -216,8 +219,10 @@ docker compose -f docker-compose.prod.yml logs --tail=50 backend   # ต้อ�
 curl -sk https://localhost/api/health                         # {"status":"ok"}
 ```
 
-เข้าใช้งานที่ `https://<IP-เครื่อง>` — ครั้งแรกเบราว์เซอร์จะเตือนว่า "ไม่ปลอดภัย" เพราะเป็น cert ที่ออกเอง
-(เข้ารหัสจริง แค่ไม่มี CA รับรอง) กด "ขั้นสูง" → "ไปต่อ" ได้ตามปกติ
+เข้าใช้งานที่ `https://<IP-เครื่อง>` — เครื่องที่ยังไม่ติดตั้งใบรับรองของคณะจะเตือนว่า "ไม่ปลอดภัย" (เข้ารหัสจริง แค่ไม่มี
+CA สาธารณะรับรอง) กด "ขั้นสูง" → "ไปต่อ" ใช้งานทั่วไปได้ **แต่มือถือ/แท็บเล็ตจะไม่ให้หน้าเว็บเปิดกล้องสแกน QR** จนกว่าจะติดตั้ง
+ใบรับรองครั้งเดียว: เปิด `https://<IP-เครื่อง>/install-cert` บนเครื่องนั้นแล้วทำตามขั้นตอน (iPhone/iPad ต้องเปิด "เชื่อถือเต็มรูปแบบ" ด้วย)
+· ปุ่ม "ถ่ายรูป / เลือกรูป QR" ในหน้าสแกนใช้ได้เสมอแม้ยังไม่ติดตั้ง · วันมีโดเมนจริง + certbot ไม่ต้องติดตั้งอะไรบนมือถืออีก
 
 ### 5.2 หลังติดตั้ง — ต้องทำก่อนเปิดให้ผู้ใช้
 
@@ -234,7 +239,7 @@ curl -sk https://localhost/api/health                         # {"status":"ok"}
 ### 5.3 เมื่อ IP ของเครื่องเปลี่ยน (เช่น ย้าย VM)
 
 ```bash
-./gen-self-signed-cert.sh <IP-ใหม่>
+./gen-lan-ca.sh <IP-ใหม่>            # ใช้ CA เดิม — มือถือที่ติดตั้งไว้แล้วไม่ต้องทำใหม่
 sed -i 's#FRONTEND_URL=.*#FRONTEND_URL=https://<IP-ใหม่>#; s#APP_BASE_URL=.*#APP_BASE_URL=https://<IP-ใหม่>#' .env
 docker compose -f docker-compose.prod.yml up -d
 ```

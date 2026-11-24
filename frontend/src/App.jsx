@@ -7,6 +7,7 @@ import ProtectedRoute from './components/layout/ProtectedRoute.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import RegisterPage from './pages/RegisterPage.jsx'
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx'
+import InstallCertPage from './pages/InstallCertPage.jsx'
 import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx'
 import ResetPasswordPage from './pages/ResetPasswordPage.jsx'
 
@@ -38,6 +39,7 @@ const BorrowRequestsPage = lazyPage(() => import('./pages/admin/BorrowRequestsPa
 const AllBorrowsPage = lazyPage(() => import('./pages/admin/AllBorrowsPage.jsx'))
 const UsersPage = lazyPage(() => import('./pages/admin/UsersPage.jsx'))
 const AuditLogPage = lazyPage(() => import('./pages/admin/AuditLogPage.jsx'))
+const StocktakePage = lazyPage(() => import('./pages/admin/StocktakePage.jsx'))
 const SettingsPage = lazyPage(() => import('./pages/admin/SettingsPage.jsx'))
 const ChangeRequestsPage = lazyPage(() => import('./pages/admin/ChangeRequestsPage.jsx'))
 const SystemCheckPage = lazyPage(() => import('./pages/admin/SystemCheckPage.jsx'))
@@ -56,6 +58,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/install-cert" element={<InstallCertPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
 
@@ -86,6 +89,7 @@ export default function App() {
             <Route path="/admin/users" element={<UsersPage />} />
             <Route path="/admin/eligible-students" element={<EligibleStudentsPage />} />
             <Route path="/admin/audit" element={<AuditLogPage />} />
+            <Route path="/admin/stocktake" element={<StocktakePage />} />
             <Route path="/admin/change-requests" element={<ChangeRequestsPage />} />
           </Route>
 
