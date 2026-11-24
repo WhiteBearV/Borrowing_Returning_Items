@@ -1,0 +1,96 @@
+# รายงานความคืบหน้า — วันที่ 16 พฤศจิกายน 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+**ช่วง:** โครงงาน 2 · ทำตาม feedback ผู้ใช้งานจริง 4 ข้อ · ยังไม่ commit / ยังไม่ deploy (Prod ยังอยู่ 5b377ca, DB 0051)
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- **แก้อีเมลที่พิมพ์ผิดตอนสมัคร** — `POST /auth/resend-verification` (`auth_service.resend_verification()`)
+  ใส่รหัสนักศึกษา + รหัสผ่าน → ส่งลิงก์ยืนยันใหม่ หรือเปลี่ยนอีเมลได้ เฉพาะบัญชีที่ยังไม่ยืนยัน
+  ลบลิงก์เก่าทิ้ง · เช็คโดเมน/อีเมลซ้ำ · ล็อกแถวผู้ใช้ · bcrypt ผ่าน `asyncio.to_thread` · audit `resend_verification`
+  แยกเช็คโดเมนเป็น `_check_email_domain()` ใช้ร่วมกับ `register()`
+- **ตรวจครุภัณฑ์รายห้องด้วย QR** (migration 0052: `stocktake_rounds`, `stocktake_items`)
+  `models/stocktake.py`, `schemas/stocktake.py`, `services/stocktake_service.py`, `routers/stocktake.py` (เจ้าหน้าที่เท่านั้น)
+  - `start_round()` snapshot ครุภัณฑ์/วัสดุใช้ซ้ำของห้อง (ห้อง = `equipment.location`) · ของที่ถูกยืมอยู่ = `on_loan`
+    (จาก `get_holders_map`) · ห้องมีรอบค้าง = คืนรอบเดิม (advisory lock ต่อชื่อห้อง)
+  - `scan()` รับ QR ระบบ / รหัสอุปกรณ์ / เลขครุภัณฑ์ (ใช้ `_normalize_asset_number`) → `found` หรือ `moved_here`
+    (แก้ `equipment.location` ให้ทันที + audit `stocktake_move`) · สแกนซ้ำ = `already` · ล็อกแถวรอบก่อนเสมอ
+  - `finish()` ที่ไม่ได้สแกน = `missing` (ถ้าทะเบียนย้ายไปห้องอื่นแล้ว = `elsewhere`) + แจ้งเตือนเจ้าหน้าที่
+  - PDF ใหม่ใน `utils/pdf.py`: `generate_stocktake_pdf()` (ใบตรวจประจำห้อง) และ `generate_room_qr_pdf()` (QR ติดหน้าห้อง 6 ใบ/หน้า)
+- **E-sign แทนรูปลายเซ็น** (feedback: รูปลายมือหลุดเมื่อเซิร์ฟเวอร์ถูกแฮ็ก)
+  - `borrow_service._esign()` ยืนยันด้วยรหัสผ่านของผู้ลงนามเอง (ผิด = 400 ไม่ใช่ 401) เก็บใน `signature_meta`:
+    method/ref/doc_sha256/เวลา/ผู้ลงนาม/user-agent/IP — ไม่เก็บรหัสผ่าน ไม่สร้างไฟล์รูปใหม่
+  - `_doc_digest()` hash เนื้อหาเอกสาร (รายการ/จำนวน/วันครบกำหนด/สภาพตอนคืน) · `_is_signed()` รองรับทั้งรูปเก่าและ E-sign
+  - `handover_request()` / `sign_return()` + router รับ `borrower_password` / `staff_password` แทนไฟล์
+  - property ใหม่ `BorrowRequest.esignatures` + field ใน `BorrowRequestResponse`
+  - PDF: `_esign_block()` พิมพ์ผู้ลงนาม + เลขอ้างอิงแทนรูป · `utils/pdf_seal.py::seal_pdf()` ประทับตราดิจิทัล (pyHanko)
+    ทั้งไฟล์ใบยืม/ใบคืน · สร้าง PDF ใน `asyncio.to_thread` · ไม่มีใบรับรอง = PDF ออกได้ตามปกติ
+  - ลบ `_save_signature()` (ไม่ใช้แล้ว) — คำขอเก่าที่เซ็นเป็นรูปยังเปิดดูได้ผ่าน `get_signature()` เดิม
+- เทสใหม่: `test_resend_verification.py` (2), `test_stocktake.py` (2), `test_pdf_seal.py` (3) · ปรับ `test_handover_signature.py`
+  → **pytest ทั้งหมด 517 ผ่าน** (เดิม 507) · `alembic check` ไม่มีส่วนต่าง
+
+### Frontend
+- `LoginPage.jsx` — ล็อกอินแล้วได้ 403 "ยังไม่ยืนยันอีเมล" → กล่อง "ส่งลิงก์ยืนยันใหม่ / แก้อีเมล" · `authApi.resendVerification()`
+- `RegisterPage.jsx` — หน้าสมัครสำเร็จบอกวิธีแก้ถ้าอีเมลผิด
+- หน้าใหม่ `pages/admin/StocktakePage.jsx` (lazyPage) + `api/stocktakeApi.js` + เมนู "ตรวจครุภัณฑ์" ใน Sidebar
+  รายการห้อง · พิมพ์ QR ห้อง · ประวัติรอบ · หน้ารอบตรวจ (ป้ายสีตามผล) · ปิดรอบพร้อมหมายเหตุ · พิมพ์ใบตรวจ
+- `QrScanModal.jsx` — เพิ่มโหมด `continuous` สแกนต่อเนื่องไม่ปิดกล้อง (ชิ้นเดิมติดกันไม่ยิงซ้ำ) + `children` แสดงผลใต้กล้อง
+- `SignatureModal.jsx` — เปลี่ยนจากวาดลายเซ็นเป็นช่องรหัสผ่าน · export `isSigned()` / `esignText()`
+  ใช้ใน `AllBorrowsPage.jsx` และ `MyBorrowsPage.jsx` · ปุ่มเปลี่ยนชื่อเป็น "จ่ายของ + ลงนามรับ" / "ลงนามรับคืน" · ลบ `SignaturePad.jsx`
+- `EquipmentListPage.jsx` — ลิงก์ "ถ่ายรูปหาชื่อด้วย Google Lens" (ค้นหาด้วยรูปแบบเบา ไม่ผ่านเซิร์ฟเวอร์)
+- `auditLabels.js` — ป้ายไทย `resend_verification`, `stocktake_start/move/finish` และฟิลด์ผลตรวจ
+
+### อื่น ๆ (Config, Docker, Docs)
+- `gen-signing-cert.sh` สร้างใบรับรองประทับตรา (certs/signing, ไม่ขึ้น git) · `config.py` เพิ่ม `SIGNING_CERT_PATH` / `SIGNING_KEY_PATH`
+- `docker-compose.prod.yml` mount `./certs/signing` แบบอ่านอย่างเดียว · `requirements.txt` เพิ่ม `pyhanko`
+- CLAUDE.md เพิ่มกฎ E-sign / แก้อีเมลก่อนยืนยัน / ตรวจครุภัณฑ์รายห้อง · README เพิ่มขั้นตอนสร้างใบรับรอง
+- แผนงาน `Plans/2026-11-16-feedback-4-items.md` · สรุปทีละขั้น `Plans/2026-11-16-feedback/สรุปงาน.txt`
+- ทดสอบผ่านหน้าเว็บจริงบน Dev ครบ 4 ข้อ แล้วลบข้อมูลทดสอบหมด (0 แถวค้าง)
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| ใบยืม PDF จากเว็บไม่มีตราดิจิทัลเลย (เจอตอนรีวิวโค้ด) | pyHanko `sign_pdf` เรียก `asyncio.run` ภายใน ล้มบน event loop แล้วตกไปออกแบบไม่ประทับเงียบ ๆ | สร้าง PDF ใน `asyncio.to_thread` + เทสดาวน์โหลดผ่าน API จริง — แก้แล้ว |
+| ตรวจสองห้องพร้อมกัน ของที่ห้อง B เจอถูกนับ "ไม่พบ" ในห้อง A (รีวิวโค้ด) | รอบ snapshot ตอนเปิด ไม่รู้ว่ารอบอื่นย้ายของไปแล้ว | ผล `elsewhere` + สแกนเจอในห้องที่ถูกต้องย้ายทะเบียนกลับ — แก้แล้ว |
+| จ่ายของด้วยรหัสผ่านจากหน้าเว็บไม่ผ่าน (ทดสอบเว็บ) | axios instance ตั้ง Content-Type เป็น JSON รหัสผ่านใน FormData เลยไปไม่ถึงเซิร์ฟเวอร์ | ใส่ header multipart กลับใน `borrowApi.js` — แก้แล้ว |
+| รีเฟรชหน้าหลังปิดรอบตรวจ = เปิดรอบใหม่เอง (ทดสอบเว็บ) | URL ยังมี `?location=` ค้าง | ลบพารามิเตอร์ทันทีหลังเปิดรอบ — แก้แล้ว |
+| หน้าตรวจครุภัณฑ์ชิดขอบจอ | ไม่ได้ใส่ระยะขอบแบบหน้าอื่น | ใส่ `px-6 py-8` — แก้แล้ว |
+| ชื่อห้องซ้ำความหมาย เช่น "5304" กับ "ชั้น 3 ห้อง 5304 ห้องเรียนชั่วคราว…" (22 ห้องบนข้อมูลจริง) | `equipment.location` เป็นข้อความอิสระ | ค้าง — ให้เจ้าหน้าที่รวมชื่อห้องด้วยแก้หลายรายการก่อนพิมพ์ QR |
+| ยังไม่ได้ทดสอบสแกนด้วยกล้องมือถือจริง | Chrome บนเครื่อง Dev ไม่มี BarcodeDetector ใช้ช่องพิมพ์รหัสแทน | ค้าง — ทดสอบบนมือถือ Android |
+| Google SSO ยังทำไม่ได้ | Google ไม่รับเว็บที่เข้าด้วย IP (Prod = https://172.16.46.130) | ค้าง — รอ IT ตั้ง DNS borrow.cdti.ac.th |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] commit งานวันนี้ (หลังผู้ใช้ตรวจ) แล้ว deploy: build image ใหม่ (pyhanko) + รัน `./gen-signing-cert.sh` บน VM + migration 0052
+2. [ ] ทดสอบสแกน QR ห้องและ QR อุปกรณ์ด้วยมือถือ Android จริงบน Prod (https)
+3. [ ] เปิดใบยืม PDF ใน Adobe Reader ดูตราดิจิทัล
+4. [ ] รวมชื่อห้องที่ซ้ำความหมายในหน้าจัดการอุปกรณ์ แล้วพิมพ์ QR ห้องให้เจ้าหน้าที่
+5. [ ] ถามรูปแบบอีเมลนักศึกษา cdti จริง เพื่อเพิ่มคำเตือนตอนพิมพ์รหัสนักศึกษาเป็นอีเมลใน `RegisterPage.jsx`
+6. [ ] แจ้งเจ้าหน้าที่: จ่ายของ/รับคืนเปลี่ยนเป็นให้ผู้ยืมพิมพ์รหัสผ่านแทนการเซ็น
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~98% — ฟีเจอร์จาก feedback ครบ เหลือ Google SSO (รอ DNS) และค้นหาด้วยรูปแบบ CLIP (พักไว้รออาจารย์ยืนยัน)
+**Frontend:** ~98% — เหลือคำเตือนรูปแบบอีเมลตอนสมัคร และทดสอบกล้องมือถือจริง
+**ระยะรวม:** ใช้งานจริงบน Prod แล้ว · รอบนี้ปิด feedback 4 ข้อ (3 ข้อทำเต็ม 1 ข้อทำแบบเบา) พร้อม deploy หลัง commit
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **Deploy ต้องมีขั้นพิเศษ:** image ใหม่ (dependency `pyhanko`) + `./gen-signing-cert.sh` ครั้งเดียว — ไม่รันก็ใช้ได้แต่ PDF ไม่มีตรา
+- ใบรับรองตราออกเอง Adobe จะขึ้น "ไม่รู้จักผู้ออกใบรับรอง" (ยังตรวจจับการแก้ไฟล์ได้) — เปลี่ยนเป็นใบรับรององค์กรได้ภายหลัง
+- เปลี่ยนวิธีลงนาม = เจ้าหน้าที่ต้องรู้ก่อนใช้งาน ไม่งั้นจะงงว่าช่องวาดลายเซ็นหายไปไหน
+- เจ้าหน้าที่ลองรหัสผ่านของผู้ยืมซ้ำ ๆ ที่หน้าจ่ายของได้ (ไม่มี rate limit — เหมือนหน้า login เดิม) ความเสี่ยงต่ำแต่ควรรู้
+- Dev: รหัส `DEVTEST01` ถูกเปลี่ยน (อยู่ใน Plans/2026-11-16-feedback/dev-test-accounts.txt) · เพิ่ม `SIGNING_*` ใน backend/.env และ certs/signing
+- Pending Items (CLAUDE.md หัวข้อ 10): ไฟล์ Excel คลังอุปกรณ์เดิม — นำเข้าไปแล้วในรอบก่อน ไม่เกี่ยวกับงานวันนี้

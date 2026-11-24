@@ -1,0 +1,82 @@
+# รายงานความคืบหน้า — วันที่ 23 พฤศจิกายน 2569
+**โปรเจค:** ระบบยืม-คืนอุปกรณ์ (Equipment Borrowing System)
+**ผู้รายงาน:** Wiraphat
+
+---
+
+## สิ่งที่ทำสำเร็จวันนี้ ✅
+
+### Backend
+- **ตรวจครุภัณฑ์ตามแบบ "รายงานทะเบียนคุมทรัพย์สิน" ของคณะ** (migration 0054)
+  - `stocktake_items.condition` (ปกติ/ชำรุด/เสื่อมสภาพ/สูญหาย/รายการผิดประเภท) + `note`
+  - `stocktake_service.set_condition()` + `POST /stocktake/rounds/{id}/items/{item_id}/condition` — ไม่ใช่ปกติบังคับหมายเหตุ (`StocktakeConditionRequest`)
+  - `finish()` ปิดรอบไม่ได้ถ้ามีของที่พบแล้วยังไม่ติ๊กสภาพ · ของที่ไม่ได้สแกนเว้นช่องสภาพว่าง · บันทึกบนใบตรวจเท่านั้น ไม่แก้สถานะในทะเบียน
+  - `utils/pdf.py`: `SheetRow`, `round_rows()`, `_inspection_pdf()` (A4 แนวนอน, ติ๊กวาดเป็นเส้น `_tick()`), `_fmt_date_th_full()` วันที่ชื่อเดือนเต็ม
+  - ใหม่ `utils/stocktake_xlsx.py`: Excel คอลัมน์ A–R ตรงไฟล์ทะเบียน ติ๊ก "✓" + `preview_rows()` สำหรับพรีวิวบนเว็บ (`GET …/report-preview`, `…/report.xlsx`)
+- **สแกนผิดห้องแก้ได้** (migration 0055): `undo_scan()` + `POST …/items/{item_id}/undo` — ของที่ย้ายมาจากห้องอื่นคืนห้อง+ตู้เดิม (`from_location_detail`) แล้วเอาออกจากรอบ · ของในห้อง = กลับเป็นยังไม่ตรวจ
+- **ใบตรวจรวมทุกห้อง**: `summary_rows()` + `/stocktake/summary-preview`, `/summary.xlsx`, `/summary.pdf` — ครุภัณฑ์ทุกชิ้นเรียงตามห้อง สภาพจากการตรวจล่าสุด (PDF 55 หน้า 0.8 วิ)
+- **ตรวจเฉพาะครุภัณฑ์**: `TRACKED_TYPES = ("durable",)` (วัสดุ 534 ชิ้นไม่มีเลขครุภัณฑ์ ไม่อยู่ในทะเบียนราชการ)
+- **ค้นหา/ดูของในห้อง**: `stocktake_service.room_items()` + `GET /stocktake/locations/items` (อ่านอย่างเดียว ไม่เปิดรอบ)
+- **กรอง/ค้นหาอุปกรณ์ตามห้อง**: พารามิเตอร์ `location=` ใน `/equipment`, `/equipment/grouped` · `GET /equipment/locations` · `_search_clause()` ครอบห้องและตำแหน่ง
+- **แยกห้องกับตำแหน่งในห้อง** (migration 0053): คอลัมน์ `equipment.location_detail` + แยกชื่อห้องยาว 4 ค่าตามที่กำหนด (5304 รวมเป็นห้องเดียว 80 ชิ้น, 5324, 604, 5423)
+  - `equipment_service.set_room()` จุดเดียว — ย้ายห้องโดยไม่ระบุตำแหน่งใหม่ = ล้างตำแหน่งเดิม (แก้รายชิ้น/หลายรายการ/นำเข้าไฟล์/ตรวจครุภัณฑ์)
+- **QR ชี้ localhost**: `routers/equipment.py::_forwarded_frontend_origin()` เปิดเว็บด้วย localhost แล้วแทนด้วย IP วง LAN จริง (`_lan_ip()`)
+- เทสใหม่/ปรับ: `test_stocktake.py` (3 เทส), `test_equipment_location_filter.py` (2 เทส), `test_equipment_qrcode.py` · **pytest 521 ผ่าน** · `alembic check` ไม่มีส่วนต่าง
+
+### Frontend
+- **กล้องสแกน QR บนมือถือ** (`components/common/QrScanModal.jsx`): iPhone/iPad ไม่มี BarcodeDetector → ใช้ `barcode-detector/ponyfill` (zxing-wasm เสิร์ฟจากเซิร์ฟเวอร์เราเอง) · ปุ่ม "ถ่ายรูป / เลือกรูป QR" ใช้ได้แม้ไม่มี https · ข้อความ error บอกทางแก้แยกกรณี
+- ใหม่ `pages/InstallCertPage.jsx` (`/install-cert`) ขั้นตอนติดตั้งใบรับรองบน iPhone/iPad/Android
+- `pages/admin/StocktakePage.jsx`: ค้นหาห้อง · ดูของในห้อง · ป๊อปอัปเลือกสภาพหลังสแกน (`components/equipment/StocktakeConditionDialog.jsx`) · กล่องส้มเตือนของต่างห้อง + ปุ่มยกเลิกการสแกน · วันที่ตรวจที่หัว · ดูตัวอย่าง/ดาวน์โหลด Excel · ใบรวมทุกห้อง
+- ใหม่ `components/equipment/StocktakeSheetPreview.jsx` พรีวิวแบบ Excel (ตัวอักษรคอลัมน์ + เลขแถว)
+- `pages/admin/EquipmentManagePage.jsx`: dropdown ห้อง · ช่อง "ห้อง" (มีรายการให้เลือก) + "ตำแหน่งในห้อง" · กาง/ติ๊กกลุ่มเฉพาะหน่วยในห้องที่เลือก (`inRoom()`) · ปุ่ม "รายละเอียด" (`components/equipment/EquipmentInfoModal.jsx` ข้อมูลครบทุกช่อง)
+- ใหม่ `utils/location.js::formatPlace()` แสดง "ห้อง · ตำแหน่ง" ที่หน้ารายละเอียดนักศึกษา/รายหน่วย/CSV
+- `components/audit/auditLabels.js` เพิ่มป้าย stocktake_condition, stocktake_undo, location_detail
+
+### อื่น ๆ (Config, Docker, Docs)
+- ใหม่ `gen-lan-ca.sh` แทน `gen-self-signed-cert.sh` (ลบแล้ว) — CA ของคณะ + ใบรับรองเซิร์ฟเวอร์ตามเกณฑ์ Apple (EKU serverAuth, ≤825 วัน)
+- `frontend/nginx.conf` เสิร์ฟ `/ca.crt` ทั้ง :80 และ :443 · `frontend/vite.config.js` เปิด https เองเมื่อมี `certs/dev/` + เสิร์ฟ `/ca.crt`
+- README, docker-compose.prod.yml, CLAUDE.md อัปเดตกฎใหม่ทั้งหมด
+- แผน: `Plans/2026-11-23-camera-scan.md`, `Plans/2026-11-23-room-and-spot.md` · สรุปทีละขั้น `Plans/2026-11-23-camera-scan/สรุปงาน.txt` (Step 1–12)
+- ทดสอบผ่านหน้าเว็บจริงบน Dev ครบทุกฟีเจอร์ (2 รอบ) ลบข้อมูลทดสอบหมดแล้ว
+
+---
+
+## ปัญหาที่พบ / ปัญหาที่ยังค้างอยู่ 🔴
+
+| ปัญหา | สาเหตุ | วิธีแก้ / แผน |
+|---|---|---|
+| มือถือทั้ง 3 เครื่องเปิดกล้องสแกนไม่ได้ | Dev เป็น http · Prod ใบรับรองทำเองที่ iOS ไม่เชื่อถือ · iOS ไม่มี BarcodeDetector | polyfill zxing-wasm + ปุ่มถ่ายรูป + CA คณะ/หน้า /install-cert — **รอทดสอบบนมือถือจริงหลังติดตั้งใบรับรอง** |
+| QR ห้องชี้ localhost | QR สร้างจากที่อยู่ที่เบราว์เซอร์ใช้เปิดเว็บ | แทน localhost ด้วย IP วง LAN อัตโนมัติ (แก้แล้ว) |
+| Excel ขึ้นตัว P แทนติ๊ก | เครื่องผู้ใช้ไม่มีฟอนต์ Wingdings 2 | เปลี่ยนเป็นตัว ✓ จริง (แก้แล้ว) |
+| PDF ติ๊กขึ้นเป็น ■ | ฟอนต์ไทยไม่มี ✓ และ ZapfDingbats บางโปรแกรมไม่มี | วาดเครื่องหมายถูกเป็นเส้น (แก้แล้ว) |
+| สแกนของต่างห้องเงียบเกินไป แก้ไม่ได้ | ไม่มีป้ายเตือน/ปุ่มย้อน | กล่องส้ม + ยกเลิกการสแกนคืนห้อง+ตู้เดิม (แก้แล้ว) |
+| ชื่อห้องเดียวกันแตกเป็นหลายห้อง (5304) | ช่องสถานที่เป็นข้อความเดียว ปนห้องกับตู้ | แยกห้อง/ตำแหน่ง (migration 0053) (แก้แล้ว) |
+| ข้อความ error บางจุดเป็นภาษาอังกฤษ | backend ส่ง detail อังกฤษ | พักไว้ทำตอนระบบใกล้เสร็จ (บันทึกใน memory แล้ว) |
+| ห้อง 15208 มีรอบตรวจเปิดค้างตั้งแต่ 18 พ.ย. (รายการเก่ามีวัสดุปน) | เปิดรอบก่อนเปลี่ยนเป็นตรวจเฉพาะครุภัณฑ์ | ปิดรอบเดิมแล้วเริ่มรอบใหม่ |
+
+---
+
+## แผนวันพรุ่งนี้ 📋
+
+1. [ ] ทดสอบกล้องสแกนบน iPhone / iPad / Android จริง — ติดตั้งใบรับรองจาก `https://<IP Dev>:5173/install-cert` แล้วลองสแกนสด + ตรวจครุภัณฑ์รายห้อง
+2. [ ] เปิดไฟล์ Excel ใบตรวจ/ใบรวมด้วย Excel จริง ตรวจว่า ✓ และคอลัมน์ตรงไฟล์ทะเบียนของคณะ
+3. [ ] Commit งาน 16 พ.ย. + 23 พ.ย. (migration 0052–0055)
+4. [ ] Deploy Prod: `./gen-lan-ca.sh 172.16.46.130` บน VM · rebuild image (pyhanko, barcode-detector) · `./gen-signing-cert.sh` · เช็คข้อมูลห้องบน Prod ก่อน migration 0053
+5. [ ] แจ้งเจ้าหน้าที่: ติดตั้งใบรับรองบนเครื่องที่ใช้สแกน · พิมพ์ QR ห้องใหม่ (ชื่อห้องเปลี่ยน 4 ห้อง)
+
+---
+
+## สถานะโดยรวม
+
+**Backend:** ~98% — เหลือแปลข้อความ error เป็นไทย, Google SSO (รอ DNS)
+**Frontend:** ~97% — เหลือยืนยันกล้องบนมือถือจริง, ข้อความ error ภาษาไทย
+**ระยะรวม:** ฟีเจอร์ครบตาม feedback ผู้ดูแลคลัง อยู่ช่วงทดสอบกับอุปกรณ์จริงและรอ deploy งานสองรอบล่าสุด
+
+---
+
+## หมายเหตุ / ความเสี่ยง ⚠️
+
+- **งานยังไม่ commit/deploy** ตั้งแต่ 16 พ.ย. — migration 0052–0055 ต้องรันบน Prod พร้อมกัน · 0053 แยกชื่อห้อง 4 ค่าตามข้อมูล Dev ต้องเช็คค่าบน Prod ก่อน
+- ใบรับรอง CA คณะต้องติดตั้งบนมือถือทุกเครื่องที่ใช้สแกนสด (ครั้งเดียว) จนกว่าจะได้โดเมนจริง — **รอ IT ตั้ง DNS borrow.cdti.ac.th** (แล้วทำ Google SSO + ใบรับรองจริง)
+- ห้ามแจก/commit `certs/**/ca.key` (กุญแจ CA)
+- Pending Items (CLAUDE.md หัวข้อ 10): ไฟล์ Excel คลังอุปกรณ์เดิม — ใช้ไฟล์รายงานทะเบียนคุมทรัพย์สินที่ได้รับเป็นแบบของใบตรวจแล้ว
