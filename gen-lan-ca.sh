@@ -22,18 +22,21 @@ trap 'rm -rf "$TMP"' EXIT
 
 if [ ! -f "$DIR/ca.key" ]; then
   # CA อายุ 10 ปี — เปลี่ยน CA = ทุกเครื่องต้องติดตั้งใหม่ จึงตั้งยาว
+  # nameConstraints: CA นี้ออกใบได้เฉพาะ IP วงภายใน + *.cdti.ac.th — ถ้า ca.key หลุด ก็ปลอมเว็บภายนอก (ธนาคาร/Google) บนมือถือที่ติดตั้งไว้ไม่ได้
   openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
     -keyout "$DIR/ca.key" -out "$DIR/ca.crt" \
     -subj "/O=CDTI Equipment Borrowing/CN=CDTI Equipment Borrowing Local CA" \
     -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
-    -addext "keyUsage=critical,keyCertSign,cRLSign"
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -addext "nameConstraints=critical,permitted;IP:10.0.0.0/255.0.0.0,permitted;IP:172.16.0.0/255.240.0.0,permitted;IP:192.168.0.0/255.255.0.0,permitted;DNS:cdti.ac.th"
+  chmod 600 "$DIR/ca.key"
   echo "สร้าง CA ใหม่แล้ว: $DIR/ca.crt (มือถือต้องติดตั้งใบนี้ครั้งเดียว)"
 else
   echo "ใช้ CA เดิม: $DIR/ca.crt (มือถือที่ติดตั้งไว้แล้วไม่ต้องทำใหม่)"
 fi
 
 openssl req -newkey rsa:2048 -sha256 -nodes \
-  -keyout "$DIR/privkey.pem" -out "$TMP/server.csr" -subj "/CN=${IP}"
+  -keyout "$DIR/privkey.pem" -out "$TMP/server.csr" -subj "/O=CDTI Equipment Borrowing/OU=${IP}"
 # Apple บังคับ: อายุ ≤ 825 วัน + SAN + EKU serverAuth ไม่งั้น iOS ไม่เชื่อแม้ติดตั้ง CA แล้ว
 cat > "$TMP/ext.cnf" <<EOF
 basicConstraints=critical,CA:FALSE
