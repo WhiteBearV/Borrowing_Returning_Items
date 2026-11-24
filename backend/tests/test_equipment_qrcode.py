@@ -100,3 +100,13 @@ async def test_qrcode_rejects_non_lan_forwarded_host(client: AsyncClient, admin_
             mocked.assert_called_once_with(f"{settings.FRONTEND_URL}/equipment/{eq_id}")
     finally:
         await _cleanup(eq_id)
+
+
+def test_localhost_forwarded_host_becomes_lan_ip():
+    """เปิดเว็บด้วย localhost แล้วพิมพ์ QR → ต้องได้ IP วง LAN ของเครื่อง ไม่ใช่ localhost (มือถือสแกนแล้วเข้าไม่ได้)"""
+    from starlette.requests import Request
+    from app.routers.equipment import _forwarded_frontend_origin
+
+    req = Request({"type": "http", "headers": [(b"x-forwarded-host", b"localhost:5173")]})
+    with patch("app.routers.equipment._lan_ip", return_value="192.168.9.9"):
+        assert _forwarded_frontend_origin(req) == "http://192.168.9.9:5173"

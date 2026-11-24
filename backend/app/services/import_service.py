@@ -593,6 +593,8 @@ async def commit_import(
             # bulk_update_equipment — เดิมไฟล์นี้ก็อปสูตรง่าย ๆ ของตัวเอง ("มี sibling ที่ tracked=True สักตัว
             # ก็ inherit True") ไม่มี consumable guard และไม่รองรับกลุ่มปลายทางที่ติดตามไม่ครบ (mixed ต้องได้
             # False ไม่ใช่เงียบ ๆ ไม่แตะอะไรเลย) แก้ตามรีวิวรอบ 4, M-d
+            # ป้ายค่าปรับ: ตามรุ่นเดิม หรือป้ายค่าเริ่มต้นถ้าเป็นรุ่นใหม่ (23 พ.ย. 69)
+            eq.fine_rate = await equipment_service._initial_fine_rate(db, eq.name, eq.item_type, exclude_id=eq.id)
             inherited = await equipment_service._inherit_quality_from_group(
                 db, eq.name, eq.item_type, exclude_id=eq.id,
             )
@@ -634,8 +636,13 @@ async def commit_import(
                     detail=f"{eq.code}: จำนวนในไฟล์ ({row.quantity}) น้อยกว่าที่กำลังถูกยืมอยู่ ({loaned}) — รับคืนก่อนหรือแก้จำนวนในร่าง",
                 )
         old_group = (eq.name, eq.item_type)
+        # ป้ายค่าปรับของรุ่นปลายทาง — ตัดสินก่อนเปลี่ยนชื่อ (ไม่งั้น autoflush นับตัวเองเป็นหน่วยในรุ่นปลายทาง)
+        old_rate_name = eq.fine_rate_name
+        dest_rate = (await equipment_service._dest_group_fine_rate(db, row.name, row.item_type, {eq.id})
+                     if (row.name, row.item_type) != old_group else None)
         old_quality = (eq.quality_tracked, eq.quality_life_years)
-        eq.name, eq.location, eq.status = row.name, row.location, row.status
+        eq.name, eq.status = row.name, row.status
+        equipment_service.set_room(eq, row.location)  # ห้องเดิม = ตำแหน่งในตู้ที่กรอกไว้ไม่หาย
         eq.item_type, eq.quantity_total = row.item_type, row.quantity
         # ตั้งยอดคงเหลือทันทีคู่กับจำนวนรวม — query ถัดไป (หมวดหมู่/SN) จะ autoflush ถ้ายอดคงเหลือยังเป็นค่าเก่าที่
         # มากกว่าจำนวนรวมใหม่จะชน CHECK constraint กลางทาง · ขยับตามส่วนต่าง (delta) ไม่ตั้งทับ เพราะการตั้งทับ
@@ -674,6 +681,9 @@ async def commit_import(
             if inherited:
                 eq.quality_tracked, eq.quality_life_years = inherited
         changes = dict(ref["changes"])
+        if dest_rate is not None and dest_rate.id != eq.fine_rate_id:
+            eq.fine_rate = dest_rate
+            changes["fine_rate"] = [old_rate_name, dest_rate.name]
         for f, before, after in zip(equipment_service.QUALITY_SWITCH_FIELDS, old_quality,
                                     (eq.quality_tracked, eq.quality_life_years)):
             if before != after:

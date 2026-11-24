@@ -7,6 +7,7 @@ import { useAuthContext } from '../../context/AuthContext.jsx'
 import { isStaff } from '../../utils/role.js'
 import { formatAge, formatDate, formatMoney } from '../../utils/formatDate.js'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
+import { formatPlace } from '../../utils/location.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
 
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
@@ -108,8 +109,10 @@ export default function EquipmentDetailPage() {
                 ...(eq.model_number ? [['รุ่น', eq.model_number]] : []),
                 ...(eq.manufacturer ? [['ผู้ผลิต', eq.manufacturer]] : []),
                 ['หมวดหมู่', (eq.categories ?? []).map((c) => c.name).join(', ') || '—'],
-                ['ที่เก็บ', eq.location ?? '—'],
+                ['ที่เก็บ', formatPlace(eq.location, eq.location_detail) || '—'],
                 ['เหลือให้ยืม', `${eq.quantity_available} ${eq.unit ?? 'ชิ้น'}`],
+                // ผู้ยืมต้องรู้ก่อนยืมว่าคืนช้าโดนเท่าไหร่ (ป้ายอัตรารายรุ่น 23 พ.ย. 69)
+                ...(eq.fine_rate_per_day != null ? [['ค่าปรับคืนเกินกำหนด', `${formatMoney(eq.fine_rate_per_day)} บาท/วัน`]] : []),
                 // นักศึกษาเห็นอายุได้ (ช่วยตัดสินใจว่าจะยืมรุ่นไหน) แต่ไม่ต้องเห็นราคา/มูลค่าทางบัญชี — แอดมินเห็นครบ
                 ...(eq.acquired_at ? [['อายุการใช้งาน', `${formatAge(eq.acquired_at)} (ได้มา ${formatDate(eq.acquired_at)})`]] : []),
                 ...(isAdmin && eq.unit_value != null

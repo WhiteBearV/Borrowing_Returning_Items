@@ -5,6 +5,7 @@ export const equipmentApi = {
   get: (id) => api.get(`/equipment/${id}`).then((r) => r.data),
   // อุปกรณ์รุ่นเดียวกันหลายหน่วย (ครุภัณฑ์/วัสดุ) ยุบเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้
   listGrouped: (params) => api.get('/equipment/grouped', { params }).then((r) => r.data),
+  listLocations: () => api.get('/equipment/locations').then((r) => r.data),
   // recommendFor (เฉพาะเจ้าหน้าที่, ไม่บังคับ): user_id ของผู้ยืม — ได้ recommended_unit_id กลับมาด้วย
   // (equipment_service.dispatch_order กฎเดียวกับตอนอนุมัติจริง) ใช้ใน UnitPickerModal
   getGrouped: (id, recommendFor) =>

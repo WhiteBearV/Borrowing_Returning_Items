@@ -41,7 +41,12 @@ class Equipment(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # cover = image_urls[0] (sync อัตโนมัติ)
     image_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # ห้องเท่านั้น (เช่น "15312") — ตัวกรอง/ตรวจครุภัณฑ์/QR ห้อง เทียบค่านี้ตรงตัว · ตู้/ชั้นอยู่ location_detail (23 พ.ย. 69)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_detail: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ตำแหน่งในห้อง เช่น "ตู้A ชั้น3"
+    # ป้ายอัตราค่าปรับคืนช้า (23 พ.ย. 69, 0056) — ตั้งทั้งรุ่น · ว่าง = อัตรากลาง setting fine_per_day_per_item
+    fine_rate_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fine_rates.id", ondelete="RESTRICT", name="fk_equipment_fine_rate"), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เฉพาะ consumable
     unit_value: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # มูลค่า/ราคาต่อหน่วย (บาท) — โชว์ในใบยืม
     # วันที่ได้มา/รับเข้าทะเบียน — ห้ามใช้ created_at แทนเด็ดขาด เพราะ split/restock สร้างแถวใหม่
@@ -79,6 +84,16 @@ class Equipment(Base):
         "EquipmentCategory", secondary=equipment_category_links, back_populates="equipment"
     )
     borrow_items = relationship("BorrowItem", back_populates="equipment")
+    fine_rate = relationship("FineRate", lazy="selectin")
+
+    @property
+    def fine_rate_per_day(self) -> float | None:
+        """อัตราค่าปรับต่อวันของป้ายที่ตั้งไว้ — ไม่มีป้าย = None (ใช้อัตรากลาง)"""
+        return float(self.fine_rate.amount_per_day) if self.fine_rate else None
+
+    @property
+    def fine_rate_name(self) -> str | None:
+        return self.fine_rate.name if self.fine_rate else None
     # ชิ้นส่วนที่ติดตั้ง/เคยติดตั้งกับหน่วยนี้ (ดู EquipmentPart) — ลบอุปกรณ์ถาวรแล้วชิ้นส่วนหายตาม (CASCADE)
     parts = relationship("EquipmentPart", back_populates="equipment", cascade="all, delete-orphan")
 

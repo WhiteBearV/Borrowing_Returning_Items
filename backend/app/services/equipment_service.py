@@ -17,6 +17,7 @@ from app.models.audit_log import AuditLog
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.bundle import BundleItem
+from app.models.fine_rate import FineRate
 from app.models.equipment import Equipment, equipment_category_links
 from app.models.equipment_category import EquipmentCategory
 from app.models.setting import Setting
@@ -792,8 +793,11 @@ async def list_equipment(
     filter_status: str | None,
     search: str | None,
     viewer: User | None = None,
+    location: str | None = None,
 ) -> PaginatedEquipment:
     query = select(Equipment)
+    if location:
+        query = query.where(Equipment.location == location)
     if category_id:
         query = query.where(Equipment.categories.any(EquipmentCategory.id == category_id))
     if item_type:
@@ -893,6 +897,7 @@ async def list_equipment_grouped(
     filter_status: str | None,
     search: str | None,
     viewer: User | None = None,
+    location: str | None = None,
 ) -> PaginatedEquipmentGroup:
     """เหมือน list_equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว
 
@@ -906,6 +911,9 @@ async def list_equipment_grouped(
     )
     if category_id:
         light = light.where(Equipment.categories.any(EquipmentCategory.id == category_id))
+    # กรองระดับหน่วย — การ์ดรุ่นนับเฉพาะหน่วยที่อยู่ห้องนี้ (ดูว่าห้องมีอะไรกี่ชิ้น ไม่ใช่ยอดทั้งรุ่น)
+    if location:
+        light = light.where(Equipment.location == location)
     if item_type:
         light = light.where(Equipment.item_type == item_type)
     # "borrowed"/"no_price"/"no_acquired_at" ต้องตัดสินที่ระดับ "กลุ่ม" ไม่ใช่ระดับแถว — ถ้ากรองที่แถว จะเหลือแค่หน่วย
@@ -1170,7 +1178,7 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
         dup_sn = await db.execute(select(Equipment).where(Equipment.serial_number == body.serial_number))
         if dup_sn.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Serial number already exists.")
-    data = body.model_dump(exclude={"category_ids"})
+    data = body.model_dump(exclude={"category_ids", "fine_rate_id"})
     data["code"] = code
     data["name"] = _normalize_name(data["name"])
     data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
@@ -1195,6 +1203,11 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     inherited = await _inherit_quality_from_group(db, eq.name, eq.item_type, exclude_id=eq.id)
     if inherited:
         eq.quality_tracked, eq.quality_life_years = inherited
+    # ป้ายค่าปรับ: เลือกมาเอง = ตั้งทั้งรุ่น · ไม่เลือก = ตามรุ่นเดิม หรือป้ายค่าเริ่มต้นถ้าเป็นรุ่นใหม่
+    if body.fine_rate_id:
+        await _apply_fine_rate_to_group(db, eq, await _load_fine_rate(db, body.fine_rate_id))
+    else:
+        eq.fine_rate = await _initial_fine_rate(db, eq.name, eq.item_type, exclude_id=eq.id)
     await db.flush()  # เขียนค่าคุณภาพที่ inherit มาให้เป็น pending ก่อนบันทึก audit ต่อ (id มีอยู่แล้วจากข้างบน)
     # เก็บ quantity/item_type ลง detail ด้วย เพื่อให้ใบรับเข้า (ร่างเข้า) ดึงจำนวนมาโชว์ได้
     await audit_service.log_action(db, admin, "create_equipment", "equipment", eq.id,
@@ -1205,11 +1218,83 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     return await get_equipment(db, eq.id, viewer=admin)
 
 
+async def _load_fine_rate(db: AsyncSession, rate_id: uuid.UUID) -> FineRate:
+    rate = (await db.execute(select(FineRate).where(FineRate.id == rate_id))).scalar_one_or_none()
+    if not rate:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fine rate not found.")
+    return rate
+
+
+async def _initial_fine_rate(db: AsyncSession, name: str, item_type: str, exclude_id: uuid.UUID | None) -> FineRate | None:
+    """ป้ายค่าปรับของหน่วยใหม่ — มีหน่วยอื่นในรุ่น = ป้ายเดียวกับรุ่น · รุ่นใหม่ = ป้ายค่าเริ่มต้น (23 พ.ย. 69)"""
+    if item_type != "consumable":
+        for m in await find_group_members(db, name, item_type):
+            if m.id != exclude_id and m.fine_rate is not None:
+                return m.fine_rate
+    return (await db.execute(select(FineRate).where(FineRate.is_default))).scalar_one_or_none()
+
+
+async def _dest_group_fine_rate(
+    db: AsyncSession, name: str, item_type: str, exclude_ids: set[uuid.UUID],
+) -> FineRate | None:
+    """ป้ายค่าปรับของรุ่นปลายทางตอนหน่วยเดิมเปลี่ยนชื่อ/ประเภทจนย้ายรุ่น — จากหน่วยอื่นในรุ่นนั้น (ไม่นับหน่วยที่กำลังย้าย)
+
+    ไม่มีหน่วยอื่น (ชื่อใหม่ล้วน = รุ่นใหม่) = None → คงป้ายเดิม · มีผลกับหน่วยที่ย้ายเท่านั้น ไม่ propagate ต่อทั้งรุ่นปลายทาง
+    (หลักเดียวกับ _inherit_quality_from_group — รุ่นปลายทางเป็นคนกำหนด ไม่ใช่หน่วยที่เพิ่งย้ายเข้า) · ต้องเรียกก่อน setattr ชื่อใหม่
+    ไม่งั้น autoflush เห็นหน่วยที่เพิ่งย้ายเข้าไปปนเป็น sibling
+    """
+    if item_type == "consumable":
+        return None
+    for m in await find_group_members(db, name, item_type):
+        if m.id not in exclude_ids and m.fine_rate is not None:
+            return m.fine_rate
+    return None
+
+
+async def _apply_fine_rate_to_group(db: AsyncSession, eq: Equipment, rate: FineRate) -> list[str]:
+    """ตั้งป้ายค่าปรับให้ทั้งรุ่นของ eq (ชื่อ+ประเภทเดียวกัน) จุดเดียว — คืนรหัสหน่วยอื่นที่ถูกเปลี่ยนตาม
+
+    ตั้งระดับรุ่นตามที่ผู้ใช้เลือก (23 พ.ย. 69) ของรุ่นเดียวกันห้ามมีอัตราต่างกัน · วัสดุสิ้นเปลืองชื่อซ้ำได้โดยตั้งใจ
+    (คนละล็อต — เหตุผลเดียวกับ _propagate_quality_to_group) จึงตั้งเฉพาะแถวนั้น · ตั้งผ่าน relationship เพื่อให้ค่าใน
+    session ไม่ค้างของเก่า (response ที่คืนทันทีหลังแก้ต้องเห็นอัตราใหม่)
+    """
+    eq.fine_rate = rate
+    if eq.item_type == "consumable":
+        return []
+    affected = []
+    for m in await find_group_members(db, eq.name, eq.item_type):
+        if m.id != eq.id and m.fine_rate_id != rate.id:
+            m.fine_rate = rate
+            affected.append(m.code)
+    return affected
+
+
+def set_room(eq: Equipment, room: str | None) -> None:
+    """ย้ายห้อง — ห้องเปลี่ยนจริง = ล้างตำแหน่งในห้องเดิมทิ้ง (ตู้A ของห้องเก่าไม่มีความหมายในห้องใหม่)
+
+    จุดเดียวที่ทุกทางใช้ย้ายห้องโดยไม่ได้ระบุตำแหน่งใหม่มาด้วย: แก้รายชิ้น/หลายรายการ · นำเข้าไฟล์ทะเบียน · ตรวจครุภัณฑ์
+    ห้องเดิม = ไม่แตะตำแหน่ง (นำเข้าไฟล์ซ้ำ/ตรวจเจอของในตู้ ต้องไม่ลบตำแหน่งที่เจ้าหน้าที่กรอกไว้)
+    """
+    if room != eq.location:
+        eq.location_detail = None
+    eq.location = room
+
+
+async def list_locations(db: AsyncSession) -> list[LocationCount]:
+    """สถานที่เก็บทั้งหมดที่ใช้อยู่ (ไม่รวมปลดระวาง) + จำนวนหน่วย — ตัวเลือก dropdown กรองตามห้องในหน้าจัดการอุปกรณ์"""
+    rows = (await db.execute(
+        select(Equipment.location, func.count())
+        .where(Equipment.location.is_not(None), Equipment.location != "", Equipment.status != "retired")
+        .group_by(Equipment.location).order_by(Equipment.location)
+    )).all()
+    return [LocationCount(location=loc, count=n) for loc, n in rows]
+
+
 def _search_clause(search: str):
     """เงื่อนไขค้นหาอุปกรณ์ — ที่เดียวสำหรับทั้งหน้ารายการและหน้ากลุ่ม ไม่งั้นสองหน้าค้นเจอคนละชุด
 
-    ครอบ 4 ช่องตามมาตรฐานการตั้งชื่อ (เฟส 8): ชื่อ · รหัสทะเบียน · รุ่น · ซีเรียล
-    เพราะคนค้นด้วยสิ่งที่ตัวเองรู้ — นักศึกษาพิมพ์ "DHT11" (รุ่น) แอดมินพิมพ์เลขครุภัณฑ์ ช่างพิมพ์ SN
+    ครอบ 4 ช่องตามมาตรฐานการตั้งชื่อ (เฟส 8): ชื่อ · รหัสทะเบียน · รุ่น · ซีเรียล + สถานที่เก็บ (23 พ.ย. 69)
+    เพราะคนค้นด้วยสิ่งที่ตัวเองรู้ — นักศึกษาพิมพ์ "DHT11" (รุ่น) แอดมินพิมพ์เลขครุภัณฑ์ ช่างพิมพ์ SN คนเดินตรวจพิมพ์เลขห้อง
     """
     kw = f"%{search.strip()}%"
     return or_(
@@ -1219,6 +1304,8 @@ def _search_clause(search: str):
         Equipment.manufacturer.ilike(kw),
         Equipment.serial_number.ilike(kw),
         Equipment.asset_number.ilike(kw),
+        Equipment.location.ilike(kw),
+        Equipment.location_detail.ilike(kw),
         # พิมพ์เลขครุภัณฑ์ไม่มีขีดก็เจอ (เก็บแบบมีขีด)
         func.replace(Equipment.asset_number, "-", "").ilike(f"%{search.strip().replace('-', '')}%"),
     )
@@ -1296,6 +1383,11 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         exclude_unset=True,
         exclude={"category_ids", "status_reason", "quality_after", "quality_reason"},
     )
+    # ป้ายค่าปรับแยกออกจาก diff ปกติ — ต้องลง audit เป็นชื่อป้าย (ไม่ใช่ uuid) และมีผลทั้งรุ่น · null = ไม่แก้ (ทุกรุ่นต้องมีป้าย)
+    new_fine_rate_id = changed.pop("fine_rate_id", None)
+    # ฟอร์มส่งป้ายเดิมมาทุกครั้ง — นับว่า "เลือกเอง" เฉพาะตอนค่าต่างจากเดิมจริง ไม่งั้นเปลี่ยนชื่อผ่านฟอร์มจะไม่เคยได้ป้ายรุ่นปลายทาง
+    if new_fine_rate_id == eq.fine_rate_id:
+        new_fine_rate_id = None
     # เปลี่ยนสถานะ = action ที่ต้องอธิบายได้ ไม่ใช่แค่แก้ค่าในฟอร์ม (เฟส 8) — เหตุผลลง audit คู่กับ diff
     status_reason = (body.status_reason or "").strip()
     if "status" in changed and changed["status"] != eq.status and not status_reason:
@@ -1352,6 +1444,9 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
     # เท่านั้น (แก้ตามรีวิวรอบ 4, M-a) · ตัดสินรายฟิลด์: ส่ง quality_life_years มาเองอย่างเดียวยังต้อง inherit
     # quality_tracked ตามรุ่นปลายทาง ไม่งั้นเหลือหน่วยไม่ติดตามค้างในรุ่นที่ติดตามทั้งรุ่น (รีวิวรอบ 4 MINOR ข้อ 2)
     inherited_fields: set[str] = set()
+    # ย้ายรุ่นจากการเปลี่ยนชื่อ/ประเภท + ไม่ได้เลือกป้ายมาเอง = ใช้ป้ายของรุ่นปลายทาง (23 พ.ย. 69)
+    dest_fine_rate = (await _dest_group_fine_rate(db, new_name, new_item_type, {eq.id})
+                      if group_changing and not new_fine_rate_id else None)
     if group_changing:
         inherited = await _inherit_quality_from_group(db, new_name, new_item_type, exclude_id=eq.id)
         for f, v in zip(QUALITY_SWITCH_FIELDS, inherited or ()):
@@ -1371,6 +1466,11 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
                             detail=f"จำนวนทั้งหมดต้องไม่น้อยกว่าที่ยังถูกยืมอยู่ ({loaned})")
     old_quality_tracked, old_quality_life_years = eq.quality_tracked, eq.quality_life_years
 
+    if "location" in changed and "location_detail" not in changed:
+        old_detail = eq.location_detail
+        set_room(eq, changed.pop("location"))
+        if old_detail and eq.location_detail is None:
+            field_diffs["location_detail"] = [old_detail, None]  # ผลข้างเคียงต้องโผล่ใน audit (กฎเดียวกับ M-e)
     for field, value in changed.items():
         setattr(eq, field, value)
     # แปลง item_type เป็น consumable เฉย ๆ (ไม่ได้แตะ quality_tracked ในคำขอนี้) แต่แถวเคยเปิดติดตามค้างมา
@@ -1429,6 +1529,18 @@ async def update_equipment(db: AsyncSession, admin: User, equipment_id: uuid.UUI
         new_category_names = sorted(c.name for c in eq.categories)
         if old_category_names != new_category_names:
             field_diffs["category_ids"] = [old_category_names, new_category_names]
+
+    fine_rate_affected: list[str] = []
+    if new_fine_rate_id and new_fine_rate_id != eq.fine_rate_id:
+        old_rate_name = eq.fine_rate_name
+        rate = await _load_fine_rate(db, new_fine_rate_id)
+        fine_rate_affected = await _apply_fine_rate_to_group(db, eq, rate)
+        field_diffs["fine_rate"] = [old_rate_name, rate.name]
+        if fine_rate_affected:
+            field_diffs["fine_rate_affected_codes"] = fine_rate_affected
+    elif dest_fine_rate is not None and dest_fine_rate.id != eq.fine_rate_id:
+        field_diffs["fine_rate"] = [eq.fine_rate_name, dest_fine_rate.name]   # ผลข้างเคียงต้องโผล่ใน audit
+        eq.fine_rate = dest_fine_rate
 
     # field_diffs ว่าง = ส่งค่าเดิมมาซ้ำ (เช่น unit_value: null ที่ diff_fields กรองทิ้งไปแล้ว) ไม่ log entry
     # เปล่าๆ ที่ไม่มีอะไรอยู่ข้างใต้ ไม่งั้นเป็น noise ใน timeline รายอุปกรณ์ (เจอจาก QA จริง)
@@ -1572,6 +1684,8 @@ async def split_equipment_into_units(
             image_url=eq.image_url,
             image_urls=list(eq.image_urls),
             location=eq.location,
+            location_detail=eq.location_detail,
+            fine_rate_id=eq.fine_rate_id,
             unit=eq.unit,
             unit_value=eq.unit_value,
             # แยกแถวรวมเป็นรายชิ้น = ของชิ้นเดิม ไม่ใช่ของใหม่ → อายุ/เกณฑ์ค่าเสื่อมต้องตามไปทุกหน่วย
@@ -1657,7 +1771,8 @@ async def restock_equipment(
         clone = Equipment(
             id=uuid.uuid4(), code=code, name=eq.name, item_type=eq.item_type,
             description=eq.description, image_url=eq.image_url, image_urls=list(eq.image_urls),
-            location=eq.location, unit=eq.unit, unit_value=eq.unit_value,
+            location=eq.location, location_detail=eq.location_detail, fine_rate_id=eq.fine_rate_id,
+            unit=eq.unit, unit_value=eq.unit_value,
             # ต่างจาก split โดยตั้งใจ — restock = ซื้อของเพิ่มเข้าคลังจริง หน่วยใหม่จึงเริ่มนับอายุวันนี้
             # ไม่ copy acquired_at ของแถวต้นแบบ (จะทำให้ของใหม่แก่เท่าของเก่าทันที) และไม่ copy override ราคา
             acquired_at=date.today(), useful_life_years=eq.useful_life_years,
@@ -1836,7 +1951,8 @@ async def bulk_update_equipment(
     รุ่นเดียวกันที่แอดมินไม่ได้ติ๊กมาด้วย พร้อม audit "ผลกับทั้งรุ่น" แยกต่างหากต่อรุ่น (ดู M1 ใน CLAUDE.md)
     """
     changed = body.model_dump(exclude_none=True, exclude={"category_ids"})
-    if not changed and body.category_ids is None and quality_baseline is None:
+    bulk_fine_rate_id = changed.pop("fine_rate_id", None)  # ตั้งทั้งรุ่นของทุกหน่วยที่เลือก (ดู _apply_fine_rate_to_group)
+    if not changed and body.category_ids is None and quality_baseline is None and not bulk_fine_rate_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ไม่มีอะไรจะแก้ไข")
     if quality_baseline is not None and not (quality_reason or "").strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="กรุณาระบุเหตุผลที่ประเมินคุณภาพ")
@@ -1883,6 +1999,12 @@ async def bulk_update_equipment(
             eq.id: (changed.get("name", eq.name), changed.get("item_type", eq.item_type)) for eq in rows
         }
         moving = {eq.id for eq in rows if dest_of[eq.id] != (eq.name, eq.item_type)}
+        # ป้ายค่าปรับของรุ่นปลายทาง (ไม่นับแถวที่กำลังย้ายเข้าไปด้วยกัน) — ข้ามถ้าคำขอนี้เลือกป้ายมาเอง
+        fine_dest = {
+            key: await _dest_group_fine_rate(db, *key, moving)
+            for key in {dest_of[i] for i in moving}
+        } if not bulk_fine_rate_id else {}
+        fine_inherited_changes: list[dict] = []
         decisions = {
             key: await _inherit_quality_from_group(db, *key)
             for key in {dest_of[i] for i in moving}
@@ -1893,7 +2015,12 @@ async def bulk_update_equipment(
         quality_inherited_changes: list[dict] = []
         quality_cleared_changes: list[dict] = []
         for eq in rows:
+            # ย้ายห้องหลายรายการโดยไม่ได้เลือกแก้ตำแหน่ง = ล้างตำแหน่งเฉพาะแถวที่ห้องเปลี่ยนจริง (แถวที่อยู่ห้องนั้นอยู่แล้วคงตู้เดิม)
+            if "location" in changed and "location_detail" not in changed:
+                set_room(eq, changed["location"])
             for field, value in changed.items():
+                if field == "location" and "location_detail" not in changed:
+                    continue
                 setattr(eq, field, value)
             if "image_urls" in changed:
                 eq.image_url = changed["image_urls"][0] if changed["image_urls"] else None  # sync cover
@@ -1910,6 +2037,10 @@ async def bulk_update_equipment(
                     "code": eq.code, "quality_tracked": [True, False],
                     "quality_life_years": [cleared_life, None],
                 })
+            dest_rate = fine_dest.get(dest_of[eq.id]) if eq.id in moving else None
+            if dest_rate is not None and dest_rate.id != eq.fine_rate_id:
+                fine_inherited_changes.append({"code": eq.code, "fine_rate": [eq.fine_rate_name, dest_rate.name]})
+                eq.fine_rate = dest_rate
             inherited = decisions.get(dest_of[eq.id]) if eq.id in moving else None
             if inherited:
                 before = (eq.quality_tracked, eq.quality_life_years)
@@ -1925,6 +2056,23 @@ async def bulk_update_equipment(
 
         # ไม่ใช่ before/after จริง เพราะ 1 การแก้ไขกระทบหลายแถวที่ค่าเดิมต่างกัน — log ฝั่ง "ตั้งเป็นอะไร" พอ
         audit_set = dict(changed)
+        if fine_inherited_changes:
+            audit_set["fine_rate_inherited"] = fine_inherited_changes
+        if bulk_fine_rate_id:
+            rate = await _load_fine_rate(db, bulk_fine_rate_id)
+            fine_codes: list[str] = []
+            done_groups: set[tuple] = set()
+            for eq in rows:
+                key = (eq.id,) if eq.item_type == "consumable" else (eq.name, eq.item_type)
+                if key in done_groups:
+                    eq.fine_rate = rate
+                    continue
+                done_groups.add(key)
+                fine_codes += await _apply_fine_rate_to_group(db, eq, rate)
+            audit_set["fine_rate"] = rate.name
+            others = sorted(set(fine_codes) - {e.code for e in rows})
+            if others:
+                audit_set["fine_rate_affected_codes"] = others
         if new_categories is not None:
             audit_set["category_ids"] = sorted(c.name for c in new_categories)
         if quality_inherited_changes:

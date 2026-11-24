@@ -1,4 +1,5 @@
 import ipaddress
+import socket
 import uuid
 from datetime import date
 
@@ -10,6 +11,7 @@ from app.dependencies import get_current_user, get_db, require_admin
 from app.models.user import User
 from app.schemas.equipment import (
     AdjustStockRequest,
+    LocationCount,
     BulkAdjustStockRequest,
     BulkAdjustStockResult,
     BulkDeleteRequest,
@@ -48,11 +50,20 @@ async def list_equipment(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     search: str | None = Query(None),
+    location: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipment:
     return await equipment_service.list_equipment(
-        db, page, page_size, category_id, item_type, status, search, viewer=user)
+        db, page, page_size, category_id, item_type, status, search, viewer=user, location=location)
+
+
+@router.get("/equipment/locations", response_model=list[LocationCount])
+async def list_locations(
+    _admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
+) -> list[LocationCount]:
+    """ห้อง/สถานที่เก็บทั้งหมด — ตัวเลือก dropdown กรองตามห้อง (เจ้าหน้าที่)"""
+    return await equipment_service.list_locations(db)
 
 
 @router.get("/equipment/grouped", response_model=PaginatedEquipmentGroup)
@@ -63,12 +74,13 @@ async def list_equipment_grouped(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     search: str | None = Query(None),
+    location: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedEquipmentGroup:
     """เหมือน /equipment แต่ยุบอุปกรณ์รุ่นเดียวกันหลายหน่วยเป็นการ์ดเดียว — หน้ายืมของนักศึกษาใช้ตัวนี้"""
     return await equipment_service.list_equipment_grouped(
-        db, page, page_size, category_id, item_type, status, search, viewer=user)
+        db, page, page_size, category_id, item_type, status, search, viewer=user, location=location)
 
 
 @router.get("/equipment/grouped/{equipment_id}", response_model=EquipmentGroupDetailResponse)
@@ -320,7 +332,25 @@ def _forwarded_frontend_origin(request: Request) -> str | None:
         return None
     if not _is_lan_host(forwarded_host):
         return None
+    # เปิดเว็บบนเครื่องตัวเองด้วย localhost → QR ที่ได้ชี้ localhost มือถือสแกนแล้วเข้าไม่ได้
+    # แทนด้วย IP วง LAN จริงของเครื่องนี้ (หาสดทุกครั้ง IP dev เปลี่ยนบ่อย)
+    hostname, sep, port = forwarded_host.partition(":")
+    if hostname == "localhost" or hostname.startswith("127.") or hostname == "[::1]":
+        lan_ip = _lan_ip()
+        if lan_ip:
+            forwarded_host = f"{lan_ip}{sep}{port}"
     return f"{forwarded_proto}://{forwarded_host}"
+
+
+def _lan_ip() -> str | None:
+    """IP ของการ์ดเครือข่ายที่ออกเน็ต — UDP connect ไม่ส่งแพ็กเก็ตจริง แค่ให้ OS เลือก route"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        return None if ip.startswith("127.") else ip
+    except OSError:
+        return None
 
 
 # ── ชิ้นส่วน / การอัพเกรด ──────────────────────────────────────────────────────

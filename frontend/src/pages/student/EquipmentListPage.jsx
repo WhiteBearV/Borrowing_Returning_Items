@@ -140,6 +140,14 @@ export default function EquipmentListPage() {
           ))}
         </select>
       </div>
+      {/* ponytail: ค้นหาด้วยรูปแบบเบา (16 พ.ย. 69) — ส่งไป Google Lens ฝั่งผู้ใช้เอง รูปไม่ผ่านเซิร์ฟเวอร์เรา
+          ทำ CLIP บนเซิร์ฟเวอร์ + API เมื่ออาจารย์ยืนยันว่าต้องการจริง (Plans/2026-11-02-image-search-clip.md) */}
+      <p className="-mt-4 mb-6 text-xs text-gray-500">
+        ไม่รู้ชื่อของ?{' '}
+        <a href="https://lens.google.com/" target="_blank" rel="noopener noreferrer"
+          className="text-primary-600 hover:underline">ถ่ายรูปหาชื่อด้วย Google Lens</a>
+        {' '}แล้วกลับมาพิมพ์ชื่อในช่องค้นหา
+      </p>
 
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>

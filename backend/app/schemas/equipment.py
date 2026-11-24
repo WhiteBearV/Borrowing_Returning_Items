@@ -17,6 +17,16 @@ ItemType = Literal["durable", "material", "consumable"]
 EquipmentStatus = Literal["available", "unavailable", "damaged", "under_repair", "retired"]
 
 
+def _strip_blank(v: str | None) -> str | None:
+    """ตัดช่องว่างหัวท้าย + ว่างล้วน = None — ห้อง "15312 " กับ "15312" ต้องเป็นห้องเดียวกัน (ตัวกรอง/ตรวจครุภัณฑ์เทียบตรงตัว)"""
+    v = v.strip() if isinstance(v, str) else v
+    return v or None
+
+
+# ห้อง / ตำแหน่งในห้อง (23 พ.ย. 69)
+Place = Annotated[str | None, BeforeValidator(_strip_blank)]  # ยาวเกิน 255 = 400 จากตัวดัก DB กลาง (test_qa_round2)
+
+
 def _blank_sn_to_none(v: str | None) -> str | None:
     """เว้นว่าง/เว้นวรรคล้วนถือว่า "ไม่ได้กรอก SN" → normalize เป็น None เสมอ
 
@@ -67,6 +77,11 @@ class EquipmentResponse(BaseModel):
     image_url: str | None
     image_urls: list[str] = []
     location: str | None
+    location_detail: str | None = None
+    # ป้ายอัตราค่าปรับคืนช้า (23 พ.ย. 69) — ผู้ยืมเห็นก่อนยืม
+    fine_rate_id: uuid.UUID | None = None
+    fine_rate_name: str | None = None
+    fine_rate_per_day: float | None = None
     unit: str | None
     unit_value: float | None  # มูลค่าแท้จริง (ราคาที่ซื้อมา) — ชื่อฟิลด์เดิม ความหมายเดิม
     # วันที่ได้มา/รับเข้าทะเบียน — คนละอย่างกับ created_at (วันที่แถวถูกสร้างในระบบ) ใช้คำนวณอายุจริง
@@ -163,6 +178,7 @@ class EquipmentUnitSummary(BaseModel):
     asset_number: str | None = None
     serial_number: str | None = None
     location: str | None = None
+    location_detail: str | None = None
     status: str
     acquired_at: date | None = None
     unit_value: float | None = None
@@ -283,7 +299,9 @@ class EquipmentCreate(BaseModel):
     # บังคับรูปอย่างน้อย 1 เฉพาะตอนสร้างใหม่ — ของเดิมจากทะเบียน 704 แถวยังไม่มีรูป
     # ถ้าไปบังคับใน EquipmentUpdate ด้วยจะแก้ข้อมูลของเดิมไม่ได้เลย
     image_urls: list[str] = Field(..., min_length=1)
-    location: str | None = None
+    location: Place = None  # ห้องเท่านั้น
+    location_detail: Place = None  # ตำแหน่งในห้อง (ตู้/ชั้น)
+    fine_rate_id: uuid.UUID | None = None  # ป้ายอัตราค่าปรับ — มีผลทั้งรุ่น (equipment_service._apply_fine_rate_to_group)
     unit: Unit = None
     # บังคับกรอกตอนสร้างใหม่ (ของทุกชิ้นต้องมีราคา) — ของเดิมในคลังที่ยังว่างไม่โดนบังคับย้อนหลัง
     # เพราะ EquipmentUpdate ยังปล่อยเป็น optional ไม่งั้นแก้ฟิลด์อื่นของแถวเดิม 128 แถวไม่ได้เลย
@@ -322,7 +340,9 @@ class EquipmentUpdate(BaseModel):
     category_ids: list[uuid.UUID] | None = None
     description: str | None = None
     image_urls: list[str] | None = None
-    location: str | None = None
+    location: Place = None  # ห้องเท่านั้น
+    location_detail: Place = None  # ตำแหน่งในห้อง (ตู้/ชั้น)
+    fine_rate_id: uuid.UUID | None = None  # ป้ายอัตราค่าปรับ — มีผลทั้งรุ่น (equipment_service._apply_fine_rate_to_group)
     unit: Unit = None
     # ส่งมาเป็น null = "ไม่แก้ราคา" ไม่ใช่ "ล้างราคาทิ้ง" (ดู update_equipment) — ของทุกชิ้นต้องมีราคา
     unit_value: float | None = Field(None, gt=0)
@@ -439,7 +459,9 @@ class EquipmentBulkUpdate(BaseModel):
     model_number: str | None = None
     item_type: ItemType | None = None
     category_ids: list[uuid.UUID] | None = None
-    location: str | None = None
+    location: Place = None  # ห้องเท่านั้น
+    location_detail: Place = None  # ตำแหน่งในห้อง (ตู้/ชั้น)
+    fine_rate_id: uuid.UUID | None = None  # ป้ายอัตราค่าปรับ — มีผลทั้งรุ่น (equipment_service._apply_fine_rate_to_group)
     description: str | None = None
     image_urls: list[str] | None = None
     unit: Unit = None

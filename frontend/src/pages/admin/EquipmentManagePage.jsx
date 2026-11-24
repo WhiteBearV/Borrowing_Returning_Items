@@ -15,6 +15,9 @@ import StatusBadge, { STATUS_LABEL } from '../../components/equipment/StatusBadg
 import EmptyState from '../../components/common/EmptyState.jsx'
 import AuditTimeline from '../../components/audit/AuditTimeline.jsx'
 import PartsPanel from '../../components/equipment/PartsPanel.jsx'
+import EquipmentInfoModal from '../../components/equipment/EquipmentInfoModal.jsx'
+import { formatPlace } from '../../utils/location.js'
+import { fineRateApi } from '../../api/fineRateApi.js'
 import { openPdf } from '../../utils/openPdf.js'
 import { daysSinceTH, formatAge, formatDate, formatMoney, todayTH } from '../../utils/formatDate.js'
 import DateInput from '../../components/common/DateInput.jsx'
@@ -35,7 +38,7 @@ function ImportCode({ row }) {
   )
 }
 
-const EMPTY_FORM = { code: '', asset_number: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
+const EMPTY_FORM = { code: '', asset_number: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', location_detail: '', fine_rate_id: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
 
 // แบ่งฟอร์มตาม "ความเสี่ยง/วงจรชีวิต" ไม่ใช่ "รายละเอียด vs อื่นๆ" (เฟส 8, feedback ข้อ 15)
 // ข้อมูลประจำตัว = แก้ได้อิสระ · สถานะ = เป็น action ที่ต้องมีเหตุผล · ทะเบียน/การเงิน = กระทบตัวเลขย้อนหลัง
@@ -76,6 +79,16 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [tab, setTab] = useState('identity')
+  const [roomOptions, setRoomOptions] = useState([])
+  const [fineRates, setFineRates] = useState([])
+  useEffect(() => {
+    equipmentApi.listLocations().then(setRoomOptions).catch(() => {})
+    // ป้ายค่าปรับ — ของใหม่เลือกป้ายค่าเริ่มต้นไว้ให้ (backend ก็ทำแบบเดียวกันถ้าไม่ส่งมา)
+    fineRateApi.list().then((rs) => {
+      setFineRates(rs)
+      setForm((f) => (f.fine_rate_id ? f : { ...f, fine_rate_id: rs.find((r) => r.is_default)?.id ?? '' }))
+    }).catch(() => {})
+  }, [])
   const { user } = useAuthContext()
   // ตัวเลขทะเบียน/การเงินแก้ได้เฉพาะ superadmin ตอนแก้ไขของเดิม (backend กั้นด้วย — ดู FINANCE_FIELDS)
   // ตอนสร้างใหม่ผู้ดูแลคลังกรอกได้ตามปกติ เพราะของทุกชิ้นต้องมีราคา+วันที่ได้มาตั้งแต่รับเข้าทะเบียน
@@ -219,7 +232,9 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         serial_number: form.serial_number || null,
         code: form.code?.trim() || (isEdit ? form.code : null),
         asset_number: (isEdit || form.item_type === 'durable') ? (form.asset_number?.trim() || null) : null,
-        location: form.location || null,
+        location: form.location?.trim() || null,
+        location_detail: form.location_detail?.trim() || null,
+        fine_rate_id: form.fine_rate_id || undefined,   // undefined = ไม่ส่ง (ทุกรุ่นต้องมีป้าย ล้างไม่ได้)
         unit: form.unit || null,
         unit_value: form.unit_value === '' || form.unit_value == null ? null : Number(form.unit_value),
         acquired_at: form.acquired_at || null,
@@ -288,18 +303,22 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
               tip: 'ชื่อรุ่นที่เหมือนกันทุกชิ้นของรุ่นนี้ — คนละอย่างกับ SN (ไม่ซ้ำรายชิ้น) และรหัสอุปกรณ์ (ระบบออกให้)\nกรอกไว้แล้วค้นด้วยชื่อรุ่นก็เจอ แม้ชื่ออุปกรณ์จะเป็นภาษาไทย' },
             { label: 'SN (Serial Number ผู้ผลิต)', key: 'serial_number', placeholder: 'เลขที่ผู้ผลิตติดมากับเครื่อง (ไม่บังคับ)',
               tip: 'เลขประจำเครื่องจากผู้ผลิต ไม่ซ้ำกันรายชิ้น — คนละอย่างกับรหัสอุปกรณ์ (ระบบออกให้) เลขครุภัณฑ์ (ทะเบียนราชการ) และรุ่น (เหมือนกันทุกชิ้น)' },
-            { label: 'สถานที่เก็บ', key: 'location', placeholder: 'เช่น 15312 ตู้A ชั้น3 (ไม่บังคับ)' },
-          ].map(({ label, key, required, disabled, placeholder, tip }) => (
+            { label: 'ห้อง', key: 'location', placeholder: 'เช่น 15312 (ไม่บังคับ)', list: 'room-options',
+              tip: 'เลขห้องอย่างเดียว — ใช้กรองตามห้อง/ตรวจครุภัณฑ์/QR ห้อง เลือกจากรายการได้ จะได้สะกดตรงกับของชิ้นอื่นในห้องเดียวกัน' },
+            { label: 'ตำแหน่งในห้อง', key: 'location_detail', placeholder: 'เช่น ตู้A ชั้น3 (ไม่บังคับ)',
+              tip: 'ตู้/ชั้น/มุม ที่วางของในห้อง — ย้ายห้องแล้วต้องกรอกใหม่ (ระบบล้างตำแหน่งเดิมให้ถ้าไม่ได้กรอก)' },
+          ].map(({ label, key, required, disabled, placeholder, tip, list }) => (
             <div key={key}>
               <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
                 {label}
                 {tip && <Tooltip text={tip} />}
               </label>
-              <input type="text" required={required} disabled={disabled} value={form[key]} onChange={set(key)}
-                placeholder={placeholder}
+              <input type="text" required={required} disabled={disabled} value={form[key] ?? ''} onChange={set(key)}
+                placeholder={placeholder} list={list}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400" />
             </div>
           ))}
+          <datalist id="room-options">{roomOptions.map((l) => <option key={l.location} value={l.location} />)}</datalist>
 
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -384,6 +403,16 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
                 <option value="retired">ปลดระวาง</option>
               </select>
             </div>}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                อัตราค่าปรับคืนเกินกำหนด
+                <Tooltip text={'มีผลกับทุกชิ้นในรุ่นนี้ (ชื่อเดียวกัน) · อัตราถูกล็อกตอนอนุมัติ ของที่ยืมอยู่ไม่เปลี่ยนตาม\nเพิ่ม/แก้ป้ายอัตราได้ที่หน้าการตั้งค่า (ผู้ดูแลระบบสูงสุด)'} />
+              </label>
+              <select value={form.fine_rate_id ?? ''} onChange={set('fine_rate_id')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                {fineRates.map((r) => <option key={r.id} value={r.id}>{r.name}{r.is_default ? ' (ค่าเริ่มต้น)' : ''}</option>)}
+              </select>
+            </div>
             {/* เปลี่ยนสถานะเป็น action ที่ต้องอธิบายได้ ไม่ใช่แค่แก้ค่าในฟอร์ม — เหตุผลลง audit (backend บังคับด้วย) */}
             {statusChanged && (
               <div>
@@ -595,7 +624,8 @@ const BULK_FIELDS = [
   { key: 'name', tab: 'identity', label: 'ชื่ออุปกรณ์', type: 'text' },
   { key: 'manufacturer', tab: 'identity', label: 'ผู้ผลิต', type: 'text', placeholder: 'เช่น Aosong, Dell' },
   { key: 'model_number', tab: 'identity', label: 'รุ่น (Model)', type: 'text', placeholder: 'เช่น DHT11' },
-  { key: 'location', tab: 'identity', label: 'สถานที่เก็บ', type: 'text', placeholder: 'เช่น 15312 ตู้A ชั้น3' },
+  { key: 'location', tab: 'identity', label: 'ห้อง', type: 'text', placeholder: 'เช่น 15312 (ไม่เลือกแก้ตำแหน่ง = แถวที่ย้ายห้องจะล้างตำแหน่งเดิม)' },
+  { key: 'location_detail', tab: 'identity', label: 'ตำแหน่งในห้อง', type: 'text', placeholder: 'เช่น ตู้A ชั้น3' },
   { key: 'category_ids', tab: 'identity', label: 'หมวดหมู่ (แทนที่ของเดิมทั้งหมด)', type: 'categories', full: true },
   { key: 'description', tab: 'identity', label: 'คำอธิบาย', type: 'textarea', full: true },
   {
@@ -613,6 +643,7 @@ const BULK_FIELDS = [
     options: [[true, 'ยืมได้'], [false, 'ของประจำห้อง — ห้ามยืมออก']],
   },
   { key: 'low_stock_threshold', tab: 'status', label: 'แจ้งเตือนของใกล้หมด (จำนวน)', type: 'number' },
+  { key: 'fine_rate_id', tab: 'status', label: 'อัตราค่าปรับคืนเกินกำหนด (มีผลทั้งรุ่น)', type: 'select', options: [] }, // options เติมจาก API
   {
     key: 'quality_tracked', tab: 'quality', label: 'ติดตามค่าคุณภาพ (ทั้งรุ่น)', type: 'bool',
     options: [[true, 'เปิดติดตามคุณภาพ'], [false, 'ปิดติดตามคุณภาพ']],
@@ -660,6 +691,12 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
   const [qualityBaseline, setQualityBaseline] = useState('')
   const [qualityReason, setQualityReason] = useState('')
 
+  // ตัวเลือกป้ายค่าปรับมาจาก API (ผู้ดูแลสูงสุดเพิ่มป้ายได้) — เติมลงช่อง fine_rate_id ของ BULK_FIELDS
+  const [fineRates, setFineRates] = useState([])
+  useEffect(() => { fineRateApi.list().then(setFineRates).catch(() => {}) }, [])
+  const fields = BULK_FIELDS
+    .filter((f) => f.key !== 'fine_rate_id' || fineRates.length > 0) // ยังโหลดไม่เสร็จ = ซ่อนไว้ก่อน (options ว่างติ๊กแล้วพัง)
+    .map((f) => (f.key === 'fine_rate_id' ? { ...f, options: fineRates.map((r) => [r.id, r.name]) } : f))
   const setVal = (key, v) => setValues((s) => ({ ...s, [key]: v }))
   // เปิดใช้ฟิลด์ select/bool ต้องตั้งค่าเริ่มต้นจริงลง values ทันที ไม่ปล่อยเป็น undefined รอ onChange
   // (undefined โดน JSON.stringify ตัดคีย์ทิ้งตอน submit → ติ๊กแล้วไม่ไปคลิก dropdown เอง กลายเป็นไม่ส่งฟิลด์
@@ -682,7 +719,7 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
       setTab('identity'); setError('เลือกหมวดหมู่อย่างน้อย 1 หมวด หรือไม่ติ๊กช่องนี้ถ้าไม่ต้องการแก้'); return
     }
     const update = {}
-    for (const f of BULK_FIELDS) {
+    for (const f of fields) {
       if (!enabled[f.key]) continue
       const raw = values[f.key]
       update[f.key] = f.type === 'number' ? (raw === '' || raw == null ? null : Number(raw)) : raw
@@ -773,9 +810,9 @@ function BulkEditModal({ count, categories, onClose, onSave }) {
       </div>
     )
   }
-  const fieldsOf = (t) => BULK_FIELDS.filter((f) => f.tab === t).map(field)
+  const fieldsOf = (t) => fields.filter((f) => f.tab === t).map(field)
   // จำนวนช่องที่ติ๊กในแต่ละแท็บ — แก้หลายแท็บพร้อมกันแล้วยังเห็นว่ากำลังจะเปลี่ยนอะไรบ้าง
-  const tickedIn = (t) => BULK_FIELDS.filter((f) => enabled[f.key] &&
+  const tickedIn = (t) => fields.filter((f) => enabled[f.key] &&
     (f.tab === t || (t === 'status' && f.tab === 'quality'))).length + (t === 'status' && assessGroup ? 1 : 0)
 
   return (
@@ -931,6 +968,8 @@ export default function EquipmentManagePage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState(searchParams.get('item_type') || '')
   const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || '')
+  const [filterLocation, setFilterLocation] = useState(searchParams.get('location') || '')
+  const [locations, setLocations] = useState([])
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null) // null | 'create' | equipment object
   const [confirm, setConfirm] = useState(null) // { title, message, onConfirm }
@@ -963,6 +1002,7 @@ export default function EquipmentManagePage() {
       category_id: filterCategory || undefined,
       item_type: filterType || undefined,
       status: filterStatus || undefined,
+      location: filterLocation || undefined,
       page, page_size: 15,
     }).then((res) => { if (seq === loadSeq.current) setData(res) })
       .finally(() => { if (seq === loadSeq.current) setLoading(false) })
@@ -976,12 +1016,13 @@ export default function EquipmentManagePage() {
       const rows = await fetchAllPages(equipmentApi.list, {
         search: search || undefined, category_id: filterCategory || undefined,
         item_type: filterType || undefined, status: filterStatus || undefined,
+        location: filterLocation || undefined,
       })
       downloadCsv('equipment', [
-        'รหัส', 'เลขครุภัณฑ์', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'สถานที่', 'ประเภท', 'หมวดหมู่', 'สถานะ',
+        'รหัส', 'เลขครุภัณฑ์', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'ห้อง', 'ตำแหน่งในห้อง', 'ประเภท', 'หมวดหมู่', 'สถานะ',
         'จำนวนทั้งหมด', 'คงเหลือ', 'หน่วย', 'มูลค่าต่อหน่วย (บาท)', 'วันที่ได้มา', 'มูลค่าตามบัญชี (บาท)',
       ], rows.map((e) => [
-        e.code, e.asset_number, e.name, e.manufacturer, e.model_number, e.serial_number, e.location,
+        e.code, e.asset_number, e.name, e.manufacturer, e.model_number, e.serial_number, e.location, e.location_detail,
         TYPE_LABEL[e.item_type] ?? e.item_type, e.categories?.map((c) => c.name).join(', '),
         STATUS_LABEL[e.status] ?? e.status, e.quantity_total, e.quantity_available, e.unit,
         e.unit_value, e.acquired_at ? formatDate(e.acquired_at) : '', e.book_value,
@@ -991,10 +1032,17 @@ export default function EquipmentManagePage() {
     }
   }
 
-  useEffect(() => { reloadCategories() }, [])
-  useEffect(() => { load() }, [search, filterCategory, filterType, filterStatus, page])
+  useEffect(() => {
+    reloadCategories()
+    equipmentApi.listLocations().then(setLocations).catch(() => {})
+  }, [])
+  useEffect(() => { load() }, [search, filterCategory, filterType, filterStatus, filterLocation, page])
   // เปลี่ยนตัวกรอง/หน้า = แถวที่เห็นเปลี่ยนไป การเลือกเดิมอาจอ้างถึงแถวที่ไม่อยู่ในจอแล้ว เคลียร์กันสับสน
-  useEffect(() => { setSelected(new Set()) }, [search, filterCategory, filterType, filterStatus, page])
+  useEffect(() => { setSelected(new Set()) }, [search, filterCategory, filterType, filterStatus, filterLocation, page])
+
+  // กรองห้องอยู่ = กลุ่มรุ่นเดียวกันนับ/กาง/ติ๊กเลือกเฉพาะหน่วยในห้องนั้น — ไม่งั้นติ๊กทั้งกลุ่มแล้วแก้หลายรายการ
+  // จะลากหน่วยรุ่นเดียวกันที่อยู่ห้องอื่นไปด้วย (รายหน่วยของกลุ่มโหลดมาทั้งรุ่นจาก /equipment/grouped/{id})
+  const inRoom = (members) => (filterLocation && members ? members.filter((u) => u.location === filterLocation) : members)
 
   const toggleSelect = (id) => setSelected((prev) => {
     const next = new Set(prev)
@@ -1010,7 +1058,7 @@ export default function EquipmentManagePage() {
       const detail = await equipmentApi.getGrouped(eq.id)
       members = cacheMembers(eq.id, detail.members)
     }
-    const memberIds = members.map((m) => m.id)
+    const memberIds = inRoom(members).map((m) => m.id)
     const allSelected = memberIds.length > 0 && memberIds.every((id) => selected.has(id))
     setSelected((prev) => {
       const next = new Set(prev)
@@ -1031,6 +1079,7 @@ export default function EquipmentManagePage() {
   }
 
   const [historyTarget, setHistoryTarget] = useState(null)
+  const [infoId, setInfoId] = useState(null) // ดูรายละเอียดครบทุกช่องของชิ้นนี้
   // { [groupId]: EquipmentUnitSummary[] } — กลุ่มที่กำลัง "กางดู" หน่วยย่อยอยู่
   const [expanded, setExpanded] = useState({})
   // จำรายชื่อหน่วยของกลุ่มที่เคยโหลดแล้ว **ไม่ลบตอนยุบ** — สถานะติ๊กของแถวกลุ่มต้องรู้ว่ากลุ่มมีหน่วยอะไรบ้าง
@@ -1303,13 +1352,18 @@ export default function EquipmentManagePage() {
       )}
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <input type="text" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์…" value={search}
+        <input type="text" placeholder="ค้นหาชื่อ รหัส เลขครุภัณฑ์ หรือห้อง…" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1) }}
           className="w-full sm:w-44 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
           <option value="">ทุกหมวดหมู่</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={filterLocation} onChange={(e) => { setFilterLocation(e.target.value); setPage(1) }}
+          className="w-full sm:w-44 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+          <option value="">ทุกห้อง</option>
+          {locations.map((l) => <option key={l.location} value={l.location}>{l.location} ({l.count})</option>)}
         </select>
         <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
           className="w-full sm:w-40 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
@@ -1373,7 +1427,7 @@ export default function EquipmentManagePage() {
             <tbody className="divide-y divide-gray-100">
               {data.items.map((eq) => {
                 const grouped = eq.unit_count > 1
-                const members = memberCache[eq.id]   // ใช้ cache ไม่ใช่ expanded — ยุบกลุ่มแล้วติ๊กต้องไม่หาย
+                const members = inRoom(memberCache[eq.id])   // ใช้ cache ไม่ใช่ expanded — ยุบกลุ่มแล้วติ๊กต้องไม่หาย
                 return (
                   <Fragment key={eq.id}>
                     <tr className="hover:bg-gray-50">
@@ -1458,6 +1512,7 @@ export default function EquipmentManagePage() {
                           </div>
                         ) : (
                           <div className="flex gap-3">
+                            <button onClick={() => setInfoId(eq.id)} className="text-xs text-primary-600 hover:underline">รายละเอียด</button>
                             <button onClick={() => setModal(eq)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: eq.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             <button onClick={() => setHistoryTarget({ id: eq.id, name: eq.name, code: eq.code })} className="text-xs text-gray-500 hover:underline">ประวัติ</button>
@@ -1480,7 +1535,7 @@ export default function EquipmentManagePage() {
                       </td>
                     </tr>
 
-                    {grouped && expanded[eq.id]?.map((u) => (
+                    {grouped && inRoom(expanded[eq.id])?.map((u) => (
                       <tr key={u.id} className="bg-gray-50/60">
                         <td className="px-4 py-1.5">
                           <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)} />
@@ -1491,7 +1546,7 @@ export default function EquipmentManagePage() {
                           {u.asset_number && <span className="block text-[10px] text-gray-400">ครุภัณฑ์ {u.asset_number}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>
-                          <LocationIcon /> {u.location || 'ไม่ระบุสถานที่'}
+                          <LocationIcon /> {formatPlace(u.location, u.location_detail) || 'ไม่ระบุสถานที่'}
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
@@ -1513,6 +1568,7 @@ export default function EquipmentManagePage() {
                         </td>
                         <td className="px-4 py-1.5">
                           <div className="flex gap-3">
+                            <button onClick={() => setInfoId(u.id)} className="text-xs text-primary-600 hover:underline">รายละเอียด</button>
                             <button onClick={() => editMember(u.id)} className="text-xs text-primary-600 hover:underline">แก้ไข</button>
                             <button onClick={() => setQrTarget({ id: u.id, name: eq.name })} className="text-xs text-gray-500 hover:underline">QR</button>
                             <button onClick={() => setHistoryTarget({ id: u.id, name: eq.name, code: u.code })} className="text-xs text-gray-500 hover:underline">ประวัติ</button>
@@ -1547,6 +1603,10 @@ export default function EquipmentManagePage() {
         />
       )}
 
+      {infoId && (
+        <EquipmentInfoModal id={infoId} onClose={() => setInfoId(null)}
+          onEdit={(full) => { setInfoId(null); setModal(full) }} />
+      )}
       {historyTarget && (
         <HistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />
       )}
