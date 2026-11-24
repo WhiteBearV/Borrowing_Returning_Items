@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from jose import JWTError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -14,7 +14,7 @@ from app.models.auth_token import AuthToken
 from app.models.notification import Notification
 from app.models.user import User
 from app.services import audit_service, settings_service, student_import_service
-from app.schemas.auth import LoginRequest, RegisterRequest, StudyYearPreviewResponse, TokenResponse
+from app.schemas.auth import LoginRequest, RegisterRequest, ResendVerificationRequest, StudyYearPreviewResponse, TokenResponse
 from app.utils.email import send_reset_password_email, send_verification_email
 from app.utils.roles import STAFF_ROLES
 from app.utils.study_year import (
@@ -30,12 +30,7 @@ async def register(db: AsyncSession, body: RegisterRequest) -> dict[str, object]
     """
     # อีเมลไม่สนตัวพิมพ์ — เดิม QA.Y1@… สมัครซ้ำกับ qa.y1@… ได้เป็นคนละบัญชี (QA-15)
     body.email = body.email.strip().lower()
-    domain = body.email.split("@")[-1]
-    if domain not in settings.allowed_email_domains_list:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Email domain '{domain}' is not allowed.",
-        )
+    _check_email_domain(body.email)
     result = await db.execute(select(User).where(func.lower(User.email) == body.email))
     if result.scalars().first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered.")
@@ -145,9 +140,65 @@ async def verify_email(db: AsyncSession, token: str) -> None:
     await db.commit()
 
 
+def _check_email_domain(email: str) -> None:
+    """โดเมนต้องอยู่ใน ALLOWED_EMAIL_DOMAINS — ใช้ร่วมกันทั้งสมัครและแก้อีเมลก่อนยืนยัน"""
+    domain = email.split("@")[-1]
+    if domain not in settings.allowed_email_domains_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Email domain '{domain}' is not allowed.",
+        )
+
+
+async def resend_verification(db: AsyncSession, body: ResendVerificationRequest) -> str:
+    """ส่งลิงก์ยืนยันอีเมลใหม่ และแก้อีเมลได้ถ้าตอนสมัครพิมพ์ผิด (feedback 16 พ.ย. 69)
+
+    ผู้สมัครพิมพ์อีเมลผิด (เช่นใช้รหัสนักศึกษา@cdti.ac.th ซึ่งไม่มีจริง) แล้วติดรอลิงก์ที่ไม่มีวันมา — เดิมต้องให้
+    เจ้าหน้าที่ลบบัญชีให้สมัครใหม่ · บังคับรหัสผ่านก่อนเสมอ ไม่งั้นใครรู้รหัสนักศึกษาก็ย้ายอีเมลบัญชีคนอื่นไปเป็นของตัวเองได้
+    ใช้ได้เฉพาะบัญชีที่ยังไม่ยืนยันเท่านั้น (อีเมลที่ยืนยันแล้วคือตัวตนที่พิสูจน์แล้ว ห้ามแก้ทางนี้)
+    คืนอีเมลที่ส่งลิงก์ไปจริงให้หน้าเว็บโชว์ซ้ำ
+    """
+    result = await db.execute(
+        select(User).where(or_(
+            User.student_id == body.identifier,
+            User.username == body.identifier,
+            func.lower(User.email) == body.identifier.strip().lower(),
+        )).with_for_update()
+    )
+    user = result.scalars().first()
+    if not user or not await asyncio.to_thread(verify_password, body.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    if user.email_verified:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already verified.")
+
+    old_email = user.email
+    if body.new_email:
+        new_email = body.new_email.strip().lower()
+        _check_email_domain(new_email)
+        if new_email != old_email.lower():
+            taken = await db.execute(
+                select(User.id).where(func.lower(User.email) == new_email, User.id != user.id))
+            if taken.first():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered.")
+            user.email = new_email
+
+    # ลิงก์เก่าที่ส่งไปอีเมลผิดต้องใช้ไม่ได้อีก
+    await db.execute(delete(AuthToken).where(
+        AuthToken.user_id == user.id, AuthToken.token_type == "email_verify", AuthToken.used_at.is_(None)))
+    token_str = secrets.token_urlsafe(32)
+    db.add(AuthToken(user_id=user.id, token=token_str, token_type="email_verify",
+                     expires_at=datetime.now(timezone.utc) + timedelta(hours=24)))
+    await audit_service.log_action(db, user, "resend_verification", "users", user.id, {
+        "full_name": user.full_name, "identifier": user.student_id or user.username,
+        **({"changes": {"email": [old_email, user.email]}} if user.email != old_email else {"email": user.email}),
+    })
+    await db.commit()
+    await send_verification_email(user.email, token_str)
+    return user.email
+
+
 async def login(db: AsyncSession, body: LoginRequest) -> TokenResponse:
     """ตรวจสอบ credentials และคืน JWT access + refresh token — รองรับ student_id, username, หรือ email"""
-    from sqlalchemy import or_
     result = await db.execute(
         select(User).where(
             or_(

@@ -80,6 +80,11 @@ class LoginRequest(BaseModel):
     password: Annotated[str, Field(max_length=72)]
 
 
+class ResendVerificationRequest(LoginRequest):
+    """ส่งลิงก์ยืนยันใหม่ — ยืนยันตัวด้วยรหัสผ่านเหมือนล็อกอิน · new_email = แก้อีเมลที่พิมพ์ผิดตอนสมัคร"""
+    new_email: EmailStr | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

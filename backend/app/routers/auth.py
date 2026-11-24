@@ -7,6 +7,7 @@ from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     StudyYearPreviewResponse,
     TokenResponse,
@@ -37,6 +38,13 @@ async def study_year_preview(
 async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)) -> dict:
     await auth_service.verify_email(db, body.token)
     return {"detail": "Email verified successfully."}
+
+
+@router.post("/resend-verification")
+async def resend_verification(body: ResendVerificationRequest, db: AsyncSession = Depends(get_db)) -> dict:
+    """ส่งลิงก์ยืนยันอีเมลใหม่ / แก้อีเมลที่พิมพ์ผิด — เฉพาะบัญชีที่ยังไม่ยืนยัน ต้องใส่รหัสผ่าน"""
+    email = await auth_service.resend_verification(db, body)
+    return {"detail": "Verification email sent.", "email": email}
 
 
 @router.post("/login", response_model=TokenResponse)

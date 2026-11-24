@@ -88,6 +88,11 @@ export default function RegisterPage() {
               กรุณากดลิงก์ในอีเมลก่อนเข้าสู่ระบบ
             </p>
           )}
+          {!success.email_verified && (
+            <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3">
+              อีเมลผิด หรือรอแล้วไม่ได้รับ? ไปหน้าเข้าสู่ระบบ ใส่รหัสนักศึกษา + รหัสผ่าน แล้วกด "ส่งลิงก์ยืนยันใหม่" (แก้อีเมลได้ที่นั่น)
+            </p>
+          )}
           {success.approval_status === 'pending' ? (
             <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-6">
               บัญชีนี้ต้องรอเจ้าหน้าที่อนุมัติก่อนจึงจะเข้าใช้งานได้ (ไม่พบชื่อ/รหัสในรายชื่อที่สาขารับรอง)
@@ -119,7 +124,7 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 คำนำหน้า <span className="text-red-500">*</span>
@@ -136,7 +141,7 @@ export default function RegisterPage() {
                 ))}
               </select>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-[7rem]">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 ชื่อ <span className="text-red-500">*</span>
               </label>
@@ -150,7 +155,7 @@ export default function RegisterPage() {
                 placeholder="ชื่อจริง"
               />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-[10rem]">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 นามสกุล <span className="text-red-500">*</span>
               </label>
