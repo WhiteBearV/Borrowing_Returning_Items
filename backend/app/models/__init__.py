@@ -10,7 +10,9 @@ from app.models import (  # noqa: F401
     equipment,
     equipment_category,
     equipment_part,
+    fine_rate,
     notification,
     setting,
+    stocktake,
     user,
 )

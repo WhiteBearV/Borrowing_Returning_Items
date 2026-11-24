@@ -19,6 +19,7 @@ const ADMIN_NAV = [
   { to: '/admin/borrows',         label: 'ประวัติการยืม' },
   { to: '/admin/equipment',       label: 'จัดการอุปกรณ์' },
   { to: '/admin/bundles',         label: 'ชุดอุปกรณ์' },
+  { to: '/admin/stocktake',       label: 'ตรวจครุภัณฑ์' },
   { to: '/admin/users',           label: 'จัดการผู้ใช้' },
   { to: '/admin/eligible-students', label: 'รายชื่อ นศ. ที่รับรอง' },
   { to: '/admin/utilization',     label: 'สถิติความคุ้มค่า' },
