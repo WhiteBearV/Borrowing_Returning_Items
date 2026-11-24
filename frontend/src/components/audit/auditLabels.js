@@ -10,8 +10,9 @@ export const ACTION_LABEL = {
   request_renew: 'ขอต่อเวลา',
   upload_signed_form: 'อัปโหลดใบยืมที่เซ็นแล้ว',
   view_signed_form: 'เปิดดูใบยืมที่เซ็นแล้ว',
-  handover_request: 'จ่ายของ + เซ็นรับบนหน้าจอ',
-  sign_return: 'เซ็นรับคืนบนหน้าจอ',
+  handover_request: 'บันทึกจ่ายของ',
+  sign_return: 'ลงชื่อใบคืนที่เคาน์เตอร์',
+  self_sign: 'ผู้ยืมลงชื่อเอง',
   view_signature: 'เปิดดูลายเซ็น',
   register: 'สมัครใช้งาน',
   import_eligible_students: 'นำเข้ารายชื่อนักศึกษาที่รับรอง',
@@ -19,6 +20,7 @@ export const ACTION_LABEL = {
   approve_registration: 'อนุมัติผู้สมัคร',
   reject_registration: 'ปฏิเสธผู้สมัคร',
   verify_email: 'ยืนยันอีเมล',
+  resend_verification: 'ส่งลิงก์ยืนยันอีเมลใหม่',
   // จัดการผู้ใช้ / ค่าระบบ
   create_user: 'สร้างบัญชีผู้ใช้',
   update_user_status: 'เปิด/ปิดใช้งานบัญชี',
@@ -53,6 +55,15 @@ export const ACTION_LABEL = {
   update_bundle: 'แก้ไขชุดอุปกรณ์',
   delete_bundle: 'ลบชุดอุปกรณ์',
   physical_audit: 'ตรวจนับอุปกรณ์',
+  // ตรวจครุภัณฑ์รายห้องด้วย QR (16 พ.ย. 69)
+  stocktake_start: 'เริ่มตรวจครุภัณฑ์ประจำห้อง',
+  stocktake_move: 'ย้ายห้องอุปกรณ์ (พบระหว่างตรวจครุภัณฑ์)',
+  stocktake_finish: 'ปิดรอบตรวจครุภัณฑ์',
+  stocktake_condition: 'บันทึกสภาพครุภัณฑ์ (ตรวจครุภัณฑ์)',
+  stocktake_undo: 'ยกเลิกการสแกน (ตรวจครุภัณฑ์)',
+  create_fine_rate: 'เพิ่มป้ายอัตราค่าปรับ',
+  update_fine_rate: 'แก้ป้ายอัตราค่าปรับ',
+  delete_fine_rate: 'ลบป้ายอัตราค่าปรับ',
   install_part: 'ติดตั้งชิ้นส่วน',
   update_part: 'แก้ไขชิ้นส่วน',
   remove_part: 'ถอดชิ้นส่วน',
@@ -64,6 +75,13 @@ export const ACTION_LABEL = {
 // ชื่อฟิลด์ในภาษาคน — ที่ผ่านมา modal โชว์ชื่อคอลัมน์ดิบ (`location: 15310 → 15399`) ซึ่งอ่านไม่รู้เรื่อง
 // สำหรับคนที่ไม่ได้เขียนโค้ด ครอบทั้ง key แบบ diff (changes) และ key แบบ flat ของ action อื่น
 export const FIELD_LABEL = {
+  // ตรวจครุภัณฑ์รายห้อง
+  expected: 'ครุภัณฑ์ตามทะเบียน',
+  found: 'พบ',
+  moved_here: 'ย้ายมา',
+  missing: 'ไม่พบ',
+  on_loan: 'ถูกยืมอยู่',
+  elsewhere: 'พบที่ห้องอื่น',
   // ลายเซ็นบนหน้าจอ (เฟส 11)
   staff_signed: 'เจ้าหน้าที่เซ็นกำกับ',
   via_signed_form: 'ยืนยันด้วยใบยืมที่เซ็นแล้ว (ไม่เซ็นบนจอ)',
@@ -74,7 +92,13 @@ export const FIELD_LABEL = {
   model_number: 'รุ่น',
   serial_number: 'หมายเลขเครื่อง (SN)',
   item_type: 'ประเภท',
-  location: 'สถานที่เก็บ',
+  location: 'ห้อง',
+  location_detail: 'ตำแหน่งในห้อง',
+  fine_rate: 'อัตราค่าปรับคืนเกินกำหนด',
+  fine_rate_affected_codes: 'หน่วยอื่นในรุ่นที่เปลี่ยนป้ายตาม',
+  fine_rate_inherited: 'ป้ายค่าปรับตามรุ่นปลายทาง (ย้ายรุ่นจากการเปลี่ยนชื่อ)',
+  amount_per_day: 'บาท/วัน',
+  is_default: 'ป้ายค่าเริ่มต้น',
   status: 'สถานะ',
   unit: 'หน่วยนับ',
   unit_value: 'มูลค่าแท้จริง (ราคาที่ซื้อ)',
@@ -176,6 +200,8 @@ const TYPE_TH = { durable: 'ครุภัณฑ์', material: 'วัสด�
 const CONDITION_TH = {
   ok: 'คืนปกติ', damaged: 'เสียหาย', lost: 'สูญหาย',
   returned_full: 'คืนครบ ไม่ได้ใช้', used_up: 'ใช้หมด', discarded: 'เสียหาย/ทิ้ง',
+  // สภาพตอนตรวจครุภัณฑ์ (stocktake_condition)
+  normal: 'ปกติ', deteriorated: 'เสื่อมสภาพ', wrong_category: 'รายการผิดประเภท',
 }
 
 export const actionLabel = (a) => ACTION_LABEL[a] ?? a

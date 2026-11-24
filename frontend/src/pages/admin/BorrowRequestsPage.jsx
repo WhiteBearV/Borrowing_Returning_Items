@@ -43,6 +43,9 @@ export default function BorrowRequestsPage() {
   // นัดรับของ (เฟส 4) — โมดัลถามก่อนยืนยันอนุมัติ เว้นว่างได้ = จ่ายทันทีหน้าเคาน์เตอร์
   const [pickupTarget, setPickupTarget] = useState(null)  // คำขอที่กำลังจะอนุมัติ
   const [pickup, setPickup] = useState({ at: '', location: '', note: '' })
+  // รหัสผ่านเจ้าหน้าที่ = ลงชื่อช่อง "ผู้อนุมัติ" ในใบยืมไปพร้อมกัน (23 พ.ย. 69) · ผิดแล้วโมดัลค้างไว้ให้แก้
+  const [signPw, setSignPw] = useState('')
+  const [signErr, setSignErr] = useState('')
   const [defaults, setDefaults] = useState({ location: '', time: '13:00' })
   const [rejectReason, setRejectReason] = useState('')
   const [swapTarget, setSwapTarget] = useState(null) // { item, req } — เปลี่ยนตัวระหว่างยืม
@@ -117,6 +120,8 @@ export default function BorrowRequestsPage() {
     setActionError(err)
     if (err) return
     setPickup({ at: tomorrowAt(defaults.time), location: defaults.location, note: '' })
+    setSignPw('')
+    setSignErr('')
     setPickupTarget(req)
   }
 
@@ -141,12 +146,17 @@ export default function BorrowRequestsPage() {
         pickup_at: pickup.at || null,
         pickup_location: pickup.location.trim() || null,
         pickup_note: pickup.note.trim() || null,
+        sign_password: signPw || null,
       })
       setDecisions({})
       setPickedCodes({})
       setPickupTarget(null)
       load()
     } catch (err) {
+      if (/incorrect password/i.test(err.response?.data?.detail ?? '')) {
+        setSignErr('รหัสผ่านไม่ถูกต้อง')
+        return
+      }
       // เช่น ของบางชิ้นสต็อกหมดระหว่างรออนุมัติ — ต้องบอกแอดมิน ไม่ใช่เงียบ
       // ปิดโมดัลด้วย ไม่งั้นข้อความ error อยู่ใต้ overlay แล้วแอดมินไม่เห็นว่าทำไมกดแล้วไม่ไปไหน
       setPickupTarget(null)
@@ -546,14 +556,21 @@ export default function BorrowRequestsPage() {
                 placeholder="เช่น ติดต่อเจ้าหน้าที่หน้าห้อง"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
             </div>
+            <div className="border-t pt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่านของคุณ (ลงชื่อผู้อนุมัติในใบยืม)</label>
+              <input type="password" autoComplete="current-password" value={signPw}
+                onChange={(e) => { setSignPw(e.target.value); setSignErr('') }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              {signErr && <p className="mt-1 text-sm text-red-600">{signErr}</p>}
+            </div>
             <div className="flex gap-3">
               <button onClick={() => setPickupTarget(null)}
                 className="flex-1 rounded-full border py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
               <button onClick={() => setPickup({ at: '', location: '', note: '' })}
                 className="rounded-full border px-3 py-2 text-xs text-gray-500 hover:bg-gray-50"
                 title="จ่ายของทันทีหน้าเคาน์เตอร์ ไม่ต้องนัด">ไม่นัด</button>
-              <button onClick={() => approve(pickupTarget)}
-                className="flex-1 rounded-full bg-green-600 py-2 text-sm font-semibold text-white hover:bg-green-700">
+              <button onClick={() => approve(pickupTarget)} disabled={!signPw}
+                className="flex-1 rounded-full bg-green-600 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
                 ยืนยันอนุมัติ
               </button>
             </div>

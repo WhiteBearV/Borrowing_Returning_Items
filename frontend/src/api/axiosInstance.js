@@ -26,7 +26,7 @@ async function unwrapBlobError(error) {
   return error
 }
 
-const PUBLIC_PATHS = ['/login', '/register', '/verify-email', '/forgot-password', '/reset-password']
+const PUBLIC_PATHS = ['/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/install-cert']
 // ข้อความ validation ที่ผู้ใช้เจอบ่อย — ที่เหลือใช้ข้อความจาก backend ตามเดิม
 const VALIDATION_TH = {
   string_too_short: 'กรอกข้อมูลสั้นเกินไปหรือเว้นว่าง',

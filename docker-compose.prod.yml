@@ -1,7 +1,7 @@
 # Deploy จริง — อ่านค่าจาก .env ที่ root (คัดลอกจาก .env.prod.example)
 #
 #   cp .env.prod.example .env && vi .env
-#   ./gen-self-signed-cert.sh <ip-ของ-vm>      # สร้าง cert ก่อน up ครั้งแรก (ดู DEPLOY-PLAN.md)
+#   ./gen-lan-ca.sh <ip-ของ-vm>                # สร้าง cert ก่อน up ครั้งแรก (ดู DEPLOY-PLAN.md)
 #   docker compose -f docker-compose.prod.yml up --build -d
 #
 # เข้าใช้งานที่ https://<ip-ของ-vm>/ — :80 redirect ไป :443 อัตโนมัติ
@@ -43,12 +43,16 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - private_uploads_data:/app/private_uploads
+      # ใบรับรองประทับตรา PDF (./gen-signing-cert.sh) — ไม่มีโฟลเดอร์ = PDF ออกแบบไม่ประทับตรา
+      - ./certs/signing:/app/signing:ro
     env_file:
       - .env
     environment:
       # ตั้งทับ env_file เสมอ — กันพลาดจากการก็อป DATABASE_URL ของ dev ที่ชี้ localhost
       # (ใน container คำว่า localhost คือตัว backend เอง ไม่ใช่ Postgres)
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SIGNING_CERT_PATH: /app/signing/cert.pem
+      SIGNING_KEY_PATH: /app/signing/key.pem
     depends_on:
       db:
         condition: service_healthy
@@ -72,7 +76,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      # cert self-signed จาก ./gen-self-signed-cert.sh (หรือ certbot ทีหลัง) — ห้าม commit, ดู .gitignore
+      # cert จาก ./gen-lan-ca.sh (มี ca.crt ที่ nginx เสิร์ฟให้มือถือติดตั้งที่ /ca.crt) (หรือ certbot ทีหลัง) — ห้าม commit, ดู .gitignore
       - ./certs:/etc/nginx/certs:ro
     depends_on:
       - backend

@@ -39,23 +39,25 @@ export const borrowApi = {
   // ไฟล์ใบเซ็นไม่มี URL สาธารณะแล้ว (เฟส 7) — ต้องโหลดผ่าน endpoint ที่ตรวจสิทธิ์แล้วเปิดจาก blob
   downloadSignedForm: (id) =>
     api.get(`/borrow-requests/${id}/signed-form`, { responseType: 'blob' }).then((r) => r.data),
-  // เซ็นบนหน้าจอ (เฟส 11) — blob จาก canvas ทั้งคู่ ลายเซ็นเจ้าหน้าที่เว้นได้
-  handover: (id, borrowerBlob, staffBlob) => {
+  // ลงนามด้วยรหัสผ่าน (E-sign 16 พ.ย. 69) — รหัสเจ้าหน้าที่เว้นได้ · ไม่ส่งรหัสผู้ยืม = ผู้ยืมอัปโหลดใบเซ็นแล้ว
+  handover: (id, borrowerPassword, staffPassword) => {
     const fd = new FormData()
-    // ไม่มี blob = ผู้ยืมอัปโหลดใบเซ็นแล้ว บันทึกจ่ายของโดยไม่เซ็นบนจอ (10 พ.ย. 69)
-    if (borrowerBlob) fd.append('borrower_signature', borrowerBlob, 'borrower.png')
-    if (staffBlob) fd.append('staff_signature', staffBlob, 'staff.png')
+    if (borrowerPassword) fd.append('borrower_password', borrowerPassword)
+    if (staffPassword) fd.append('staff_password', staffPassword)
     return api.post(`/borrow-requests/${id}/handover`, fd,
-      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)  // default ของ instance เป็น JSON
   },
-  signReturn: (id, borrowerBlob, staffBlob) => {
+  // ผู้ยืมลงชื่อเองจากเครื่องตัวเอง (23 พ.ย. 69) — phase: 'borrow' (ใบยืม) | 'return' (ใบคืน)
+  selfSign: (id, phase, password) =>
+    api.post(`/borrow-requests/${id}/sign`, { phase, password }).then((r) => r.data),
+  signReturn: (id, borrowerPassword, staffPassword) => {
     const fd = new FormData()
-    fd.append('borrower_signature', borrowerBlob, 'borrower.png')
-    if (staffBlob) fd.append('staff_signature', staffBlob, 'staff.png')
+    if (borrowerPassword) fd.append('borrower_password', borrowerPassword)
+    if (staffPassword) fd.append('staff_password', staffPassword)
     return api.post(`/borrow-requests/${id}/sign-return`, fd,
-      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+      { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)  // default ของ instance เป็น JSON
   },
-  // ลายเซ็นไม่มี URL สาธารณะ — โหลดผ่าน endpoint ที่ตรวจสิทธิ์แล้วเปิดจาก blob (เหมือนใบยืมที่เซ็นแล้ว)
+  // ลายเซ็นแบบรูปของคำขอเก่า (ก่อน 16 พ.ย. 69) — โหลดผ่าน endpoint ที่ตรวจสิทธิ์แล้วเปิดจาก blob
   downloadSignature: (id, kind) =>
     api.get(`/borrow-requests/${id}/signature/${kind}`, { responseType: 'blob' }).then((r) => r.data),
   returnItem: (id, itemId, data) =>

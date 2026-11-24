@@ -9,7 +9,7 @@ import { isSuperadmin } from '../../utils/role.js'
 import Pagination from '../../components/common/Pagination.jsx'
 import SwapModal from '../../components/borrow/SwapModal.jsx'
 import { ReturnModal, CONDITION_LABEL } from '../../components/borrow/ReturnModal.jsx'
-import { SignatureModal, SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
+import { SignatureModal, SIGNATURE_LABEL, esignText, isSigned } from '../../components/borrow/SignatureModal.jsx'
 import BorrowStatusBadge, { STATUS_LABEL } from '../../components/borrow/BorrowStatusBadge.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import { formatDate, formatDateTime } from '../../utils/formatDate.js'
@@ -245,6 +245,9 @@ export default function AllBorrowsPage() {
                           ✍ {SIGNATURE_LABEL[kind]}
                         </button>
                       ))}
+                      {req.esignatures?.map((e) => (
+                        <span key={e.kind} className="block text-xs text-gray-500">✔ {esignText(e)}</span>
+                      ))}
                     </p>
                   )}
                   {/* ใบยืมที่ผู้ยืมเซ็นแล้วอัปโหลดมา — แอดมินต้องเปิดตรวจก่อนจ่ายของได้โดยไม่ต้องรอกระดาษ */}
@@ -334,7 +337,8 @@ export default function AllBorrowsPage() {
                   <div className="flex items-center gap-4 pt-1">
                     {/* จ่ายของ + เซ็นรับบนหน้าจอ (เฟส 11) — ไม่บังคับ แต่ถ้าทำแล้วลายเซ็นจะขึ้นบนใบยืม */}
                     {/* ผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว = มีลายเซ็นแล้ว แค่บันทึกว่าจ่ายของ ไม่ต้องเซ็นซ้ำบนจอ (10 พ.ย. 69) */}
-                    {req.status === 'approved' && !req.handover_at && req.signed_form_file && (
+                    {/* ผู้ยืมลงชื่อแล้ว (ตอนยื่น/จากมือถือ) หรืออัปโหลดใบที่เซ็นแล้ว = กดปุ่มเดียวจ่ายของ (23 พ.ย. 69) */}
+                    {req.status === 'approved' && !req.handover_at && (req.signed_form_file || isSigned(req, 'handover_borrower')) && (
                       <button
                         onClick={async () => {
                           try { await borrowApi.handover(req.id); load() }
@@ -345,20 +349,20 @@ export default function AllBorrowsPage() {
                         บันทึกจ่ายของ
                       </button>
                     )}
-                    {req.status === 'approved' && !req.handover_at && !req.signed_form_file && (
+                    {req.status === 'approved' && !req.handover_at && !req.signed_form_file && !isSigned(req, 'handover_borrower') && (
                       <button
-                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, mode: 'handover' })}
+                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, name: req.student_name, mode: 'handover', signed: (req.esignatures ?? []).map((e) => e.kind) })}
                         className="text-sm rounded-lg bg-primary-50 text-primary-700 px-3 py-1 hover:bg-primary-100 font-medium border border-primary-200"
                       >
-                        จ่ายของ + เซ็นรับ
+                        จ่ายของ + ลงชื่อใบยืม
                       </button>
                     )}
-                    {req.items?.some((i) => i.returned) && !req.signatures?.includes('return_borrower') && (
+                    {req.items?.some((i) => i.returned) && !(isSigned(req, 'return_borrower') && isSigned(req, 'return_staff')) && (
                       <button
-                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, mode: 'return' })}
+                        onClick={() => setSignTarget({ id: req.id, code: req.request_code, name: req.student_name, mode: 'return', signed: (req.esignatures ?? []).map((e) => e.kind) })}
                         className="text-sm rounded-lg bg-emerald-50 text-emerald-700 px-3 py-1 hover:bg-emerald-100 font-medium border border-emerald-200"
                       >
-                        เซ็นรับคืน
+                        ลงชื่อใบคืน
                       </button>
                     )}
                     {req.status === 'approved' && req.items.some((i) => !i.returned && i.item_type_snapshot === 'durable') && (
@@ -448,7 +452,9 @@ export default function AllBorrowsPage() {
         <SignatureModal
           requestId={signTarget.id}
           requestCode={signTarget.code}
+          borrowerName={signTarget.name}
           mode={signTarget.mode}
+          signed={signTarget.signed}
           onClose={() => setSignTarget(null)}
           onDone={() => { setSignTarget(null); load() }}
         />

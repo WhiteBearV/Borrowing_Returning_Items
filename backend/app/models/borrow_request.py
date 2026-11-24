@@ -111,6 +111,16 @@ class BorrowRequest(Base):
         return [kind for kind, field in SIGNATURE_FIELDS.items() if getattr(self, field, None)]
 
     @property
+    def esignatures(self) -> list[dict]:
+        """การลงนามอิเล็กทรอนิกส์ (ยืนยันด้วยรหัสผ่าน — 16 พ.ย. 69) ไม่มีรูปให้เปิดดู ส่งแค่ใคร/เมื่อไหร่/เลขอ้างอิง
+        แยกจาก `signatures` (ลายเซ็นแบบรูปของคำขอเก่า ซึ่งยังเปิดดูได้ผ่าน endpoint ที่ตรวจสิทธิ์)"""
+        return sorted([  # เรียงตามเวลาลงชื่อ — dict ใน JSONB ไม่รับประกันลำดับ (หน้าเว็บเคยขึ้นผู้คืนก่อนผู้ยืม)
+            {"kind": kind, "signer_name": m.get("signer_name"), "signed_at": m.get("signed_at"), "ref": m.get("ref")}
+            for kind, m in (self.signature_meta or {}).items()
+            if kind in SIGNATURE_FIELDS and isinstance(m, dict) and m.get("method") == "password"
+        ], key=lambda e: e["signed_at"] or "")  # ข้ามคีย์เก็บหลักฐาน เช่น handover_borrower_superseded (ลายเซ็นที่ถูกพักเพราะแก้วันคืนตอนอนุมัติ)
+
+    @property
     def student_name(self) -> str | None:
         return self.student.full_name if self.student else None
 

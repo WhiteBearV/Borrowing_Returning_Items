@@ -1,4 +1,6 @@
+import asyncio
 import hashlib
+import json
 import os
 import uuid
 from pathlib import Path
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import TZ, settings
+from app.core.security import verify_password
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import SIGNATURE_FIELDS, BorrowRequest
 from app.models.equipment import Equipment, equipment_category_links
@@ -186,7 +189,8 @@ def _validate_requested_due_date(d: date) -> None:
 
 
 async def create_request(
-    db: AsyncSession, current_user: User, body: BorrowRequestCreate
+    db: AsyncSession, current_user: User, body: BorrowRequestCreate,
+    user_agent: str | None = None, ip: str | None = None,
 ) -> BorrowRequestResponse:
     """
     สร้างคำขอยืมใหม่ ตรวจสอบโควต้าและสต็อกก่อนสร้าง
@@ -299,6 +303,7 @@ async def create_request(
         id=uuid.uuid4(),
         request_code=await _next_request_code(db, current_user),
         student_id=current_user.id,
+        student=current_user,  # ตั้ง relationship ด้วย — hash ตอนลงชื่อใช้รหัสผู้ยืม (lazy load ใน async ไม่ได้)
         purpose=body.purpose,
         requested_due_date=body.requested_due_date,
         status="pending",
@@ -306,8 +311,9 @@ async def create_request(
     db.add(req)
     await db.flush()  # ได้ req.id
 
+    new_items: list[BorrowItem] = []
     for eq, quantity, item_due in resolved:
-        db.add(BorrowItem(
+        new_items.append(BorrowItem(
             borrow_request_id=req.id,
             equipment_id=eq.id,
             item_type_snapshot=eq.item_type,
@@ -319,7 +325,13 @@ async def create_request(
             equipment_unit=eq.unit,
             equipment_serial_number=eq.serial_number,
             equipment_asset_number=eq.asset_number,
+            item_status="pending",
         ))
+    db.add_all(new_items)
+    await db.flush()  # ได้ id รายการ — ใช้ใน hash เนื้อหาที่ลงชื่อ
+    if body.sign_password:
+        # ลงชื่อช่อง "ผู้ยืม" พร้อมยื่น (23 พ.ย. 69) — ไม่ต้องไปต่อคิวลงชื่อที่เคาน์เตอร์ · รหัสผิด = 400 ทั้งคำขอไม่ถูกบันทึก
+        await _esign(req, "handover_borrower", current_user, body.sign_password, user_agent, ip, new_items)
 
     # แจ้งเตือน admin ทุกคน (in-app) — ยกเว้นตัวเอง กัน admin ที่ยืมของตัวเอง
     # ได้แจ้งเตือน "มีคำขอใหม่" ซ้ำกับคำขอที่ตัวเองเพิ่งส่ง
@@ -343,6 +355,7 @@ async def create_request(
         "items": [f"{eq.name} ×{qty}" for eq, qty, _ in resolved],
         "requested_due_date": str(req.requested_due_date),
         "purpose": req.purpose,
+        "signed": bool(body.sign_password),
     })
     await db.commit()
 
@@ -593,7 +606,8 @@ def _build_item_row_html(item: BorrowItem, n: int) -> tuple[str, dict | None]:
 
 
 async def approve_request(
-    db: AsyncSession, admin: User, request_id: uuid.UUID, body: ApproveRequest | None = None
+    db: AsyncSession, admin: User, request_id: uuid.UUID, body: ApproveRequest | None = None,
+    user_agent: str | None = None, ip: str | None = None,
 ) -> None:
     """
     อนุมัติคำขอ (ทั้งใบ หรือเลือกอนุมัติบางชิ้น):
@@ -753,6 +767,17 @@ async def approve_request(
         req.pickup_location = await _default_pickup_location(db)
     pickup_text = _fmt_appoint(req.pickup_at, req.pickup_location)
 
+    # แก้วันคืนจากที่ผู้ยืมขอ = ลายเซ็นผู้ยืมไม่ครอบคลุมเนื้อหาใหม่ → พักไว้เป็นหลักฐาน แล้วให้ลงชื่อใหม่ (23 พ.ย. 69)
+    # อนุมัติบางชิ้น/เปลี่ยนหน่วยในรุ่นเดียวกัน ไม่นับ (ลดรายการลง ผู้ยืมไม่เสียประโยชน์)
+    meta = req.signature_meta or {}
+    resign_needed = bool(approved) and (meta.get("handover_borrower") or {}).get("method") == "password" and any(
+        due_by_item[i.id] != (i.requested_due_date or req.requested_due_date) for i in approved)
+    if resign_needed:
+        req.signature_meta = {k: v for k, v in meta.items() if k != "handover_borrower"} | {
+            "handover_borrower_superseded": meta["handover_borrower"]}   # dict ใหม่ — JSONB แก้ในที่ไม่ถูก commit
+    if approved and body and body.sign_password:
+        await _esign(req, "handover_staff", admin, body.sign_password, user_agent, ip)  # ช่อง "ผู้อนุมัติ"
+
     reject_summary = " · ".join(f"{i.equipment_name}: {r}" for i, r in rejected)
     if approved:
         req.status = "approved"
@@ -769,6 +794,8 @@ async def approve_request(
         # นัดรับของต้องอยู่ในแจ้งเตือนบรรทัดเดียวกัน ผู้ยืมจะได้ไม่ต้องเปิดหาว่าไปรับที่ไหนตอนไหน
         if pickup_text:
             msg += f" — รับของ {pickup_text}"
+        if resign_needed:
+            msg += " — วันคืนถูกปรับจากที่ขอ กรุณาลงชื่อใบยืมใหม่ที่หน้า \"การยืมของฉัน\""
         await _notify(db, req.student_id, "approved", msg, borrow_request_id=req.id)
     else:
         # ไม่มีของออกจากคลังสักชิ้น = ปฏิเสธทั้งใบ (ไม่งั้นใบนี้จะค้างเป็น approved ที่ไม่มีอะไรให้คืน)
@@ -786,6 +813,8 @@ async def approve_request(
             "approved_items": [f"{i.equipment_name} ({fmt_date(due_by_item[i.id])})" for i in approved],
             "rejected_items": [f"{i.equipment_name}: {r}" for i, r in rejected],
             "pickup": pickup_text or None,
+            "signed": bool(approved and body and body.sign_password),
+            **({"borrower_resign_needed": True} if resign_needed else {}),
         },
     )
     await db.commit()
@@ -1218,54 +1247,80 @@ async def get_signed_form(
     return path, filename
 
 
-SIGNATURE_EXT = {".png"}
-SIGNATURE_MAX_BYTES = 1 * 1024 * 1024   # ลายเซ็นจาก canvas ปกติ < 50KB — 1MB เหลือเฟือและกัน payload บวม
 # mapping kind → คอลัมน์อยู่ที่ models/borrow_request.py (ใช้ร่วมกับ property signatures ของ response)
-SIGNATURE_LABEL_TH = {
-    "handover_borrower": "ผู้รับของ",
-    "handover_staff": "ผู้จ่ายของ",
-    "return_borrower": "ผู้คืน",
-    "return_staff": "ผู้รับคืน",
-}
+from app.utils.pdf import SIGNATURE_LABEL_TH  # noqa: E402 — ป้ายชุดเดียวกับท้ายเอกสาร
 
 
-async def _save_signature(
-    req: BorrowRequest, kind: str, file: UploadFile, signer: User, user_agent: str | None
-) -> str:
-    """เก็บลายเซ็น 1 รูปลงโฟลเดอร์ส่วนตัว แล้วบันทึกชื่อไฟล์ + หลักฐานประกอบลงแถวคำขอ
+def _doc_digest(req: BorrowRequest, phase: str, items: list[BorrowItem] | None = None) -> str:
+    """sha256 ของเนื้อหาเอกสารที่กำลังลงนาม (รายการ/จำนวน/วันครบกำหนด และสภาพตอนคืนถ้าเป็นใบคืน)
 
-    หลักฐาน (`signature_meta[kind]`) เก็บ sha256 ของไฟล์ไว้ด้วย เพื่อให้ตอบได้ว่าไฟล์ที่เปิดดูวันนี้เป็นไฟล์
-    เดียวกับที่เซ็นไว้จริง — ลายเซ็นอิเล็กทรอนิกส์ต้องระบุตัวผู้ลงลายมือชื่อและเจตนาได้ (พ.ร.บ.ธุรกรรมฯ)
-    ไฟล์เก่าไม่ถูกลบตั้งใจ (เหมือนใบยืมที่เซ็นแล้ว) — ถ้าเถียงกันภายหลังยังตามจาก audit log ได้
+    เก็บไว้ใน signature_meta คู่กับผู้ลงนาม — แก้รายการในฐานข้อมูลทีหลัง hash จะไม่ตรง = พิสูจน์ได้ว่า
+    สิ่งที่เซ็นคืออะไร · เรียงแบบคงที่ (sort_keys + เรียงตาม id) ให้คำนวณซ้ำได้ค่าเดิมเสมอ
     """
-    filename = await equipment_service.save_private_upload(file, SIGNATURE_EXT, SIGNATURE_MAX_BYTES)
-    with open(os.path.join(settings.PRIVATE_UPLOAD_DIR, filename), "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-    setattr(req, SIGNATURE_FIELDS[kind], filename)
+    items = sorted(
+        (i for i in (req.items if items is None else items) if i.item_status != "rejected"), key=lambda i: str(i.id))
+    payload = {
+        "request_code": req.request_code,
+        "borrower": user_identifier(req.student) if req.student else None,
+        "phase": phase,
+        "items": [{
+            "id": str(i.id), "code": i.equipment_code, "name": i.equipment_name, "quantity": i.quantity,
+            "due": str(effective_due_date(i, req) or i.requested_due_date),  # ยังไม่อนุมัติ = วันที่ขอ
+            **({"condition": i.condition_on_return, "returned_at": i.returned_at.isoformat() if i.returned_at else None}
+               if phase == "return" else {}),
+        } for i in items],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+async def _esign(
+    req: BorrowRequest, kind: str, signer: User, password: str, user_agent: str | None, ip: str | None,
+    items: list[BorrowItem] | None = None,
+) -> None:
+    """ลงนามอิเล็กทรอนิกส์ 1 ฝั่ง — ยืนยันตัวตนด้วยรหัสผ่านของผู้ลงนามเอง (E-sign, 16 พ.ย. 69)
+
+    แทนการวาดลายเซ็นเก็บเป็นรูป: เดิมเซิร์ฟเวอร์ถูกแฮ็กเมื่อไหร่ รูปลายมือของทุกคนหลุดเอาไปปลอมเอกสารอื่นได้
+    ตอนนี้ไม่มีรูปให้หลุด หลักฐานคือ "ใคร (ยืนยันด้วยรหัสผ่าน) ลงนามเนื้อหาอะไร (doc_sha256) เมื่อไหร่ จากเครื่องไหน"
+    ตาม พ.ร.บ.ธุรกรรมทางอิเล็กทรอนิกส์ (ระบุตัวผู้ลงนามได้ + แสดงเจตนารับรองข้อความ) · ไม่เก็บรหัสผ่าน
+    รหัสผิด = 400 ไม่ใช่ 401 (401 ทำให้หน้าเว็บของเจ้าหน้าที่ที่เปิดจออยู่ถูกล็อกเอาต์)
+    """
+    if not password or not await asyncio.to_thread(verify_password, password, signer.password_hash):
+        who = SIGNATURE_LABEL_TH[kind]
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Incorrect password for the {who} ({signer.full_name}).")
+    phase = "return" if kind.startswith("return") else "handover"
     # สร้าง dict ใหม่เสมอ — SQLAlchemy ไม่เห็นการแก้ไข JSONB ในที่ (mutation) จึงจะไม่ commit ให้
     req.signature_meta = {**(req.signature_meta or {}), kind: {
-        "file": filename,
-        "sha256": digest,
+        "method": "password",
+        "ref": uuid.uuid4().hex[:10].upper(),
+        "doc_sha256": _doc_digest(req, phase, items),
         "signed_at": datetime.now(timezone.utc).isoformat(),
         "signer_user_id": str(signer.id),
         "signer_name": signer.full_name,
+        "signer_identifier": user_identifier(signer),
         "user_agent": (user_agent or "")[:300],
+        "ip": ip,
     }}
-    return filename
+
+
+def _is_signed(req: BorrowRequest, kind: str) -> bool:
+    """เซ็นแล้วหรือยัง — รูปแบบเก่า (มีไฟล์รูป) หรือ E-sign (มีแค่ signature_meta)"""
+    return bool(getattr(req, SIGNATURE_FIELDS[kind], None) or (req.signature_meta or {}).get(kind))
 
 
 async def handover_request(
     db: AsyncSession,
     admin: User,
     request_id: uuid.UUID,
-    borrower_signature: UploadFile | None,
-    staff_signature: UploadFile | None = None,
+    borrower_password: str | None,
+    staff_password: str | None = None,
     user_agent: str | None = None,
+    ip: str | None = None,
 ) -> BorrowRequestResponse:
-    """บันทึกการจ่ายของพร้อมลายเซ็นรับของบนหน้าจอ — แทนการปริ้นใบยืมไปเซ็นแล้วถ่ายรูปกลับมา
+    """บันทึกการจ่ายของพร้อมลงนามรับของ — แทนการปริ้นใบยืมไปเซ็นแล้วถ่ายรูปกลับมา
 
-    เจ้าหน้าที่เป็นคนกดที่เคาน์เตอร์ (ของอยู่ตรงนั้น) แล้วยื่นจอให้ผู้ยืมเซ็น ลายเซ็นเจ้าหน้าที่เว้นได้
-    เพราะบางที่เซ็นกำกับในสมุดอยู่แล้ว
+    เจ้าหน้าที่เป็นคนกดที่เคาน์เตอร์ (ของอยู่ตรงนั้น) แล้วยื่นจอให้ผู้ยืมพิมพ์รหัสผ่านของตัวเองเพื่อลงนาม (E-sign)
+    ฝั่งเจ้าหน้าที่เว้นได้ เพราะบางที่เซ็นกำกับในสมุดอยู่แล้ว
 
     **ไม่แตะสต็อกและไม่เปลี่ยน status** — ของออกจากคลังตั้งแต่อนุมัติตามกฎเดิม (ดู CLAUDE.md) การจ่ายของ
     เป็นการบันทึกการส่งมอบเท่านั้น จึงไม่กระทบ _all_settled / ค่าปรับ / ตัวนับใด ๆ
@@ -1279,18 +1334,21 @@ async def handover_request(
     if req.status != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Can only hand over approved requests.")
-    if req.handover_at or req.handover_sig_borrower:
+    if req.handover_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="This request has already been handed over.")
-    # ผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว = มีหลักฐานลายเซ็นอยู่แล้ว บันทึกจ่ายของได้โดยไม่ต้องเซ็นซ้ำบนจอ (10 พ.ย. 69)
-    if borrower_signature is None and not req.signed_form_file:
+    # ผู้ยืมลงชื่อแล้วตอนยื่นคำขอ/จากหน้า "การยืมของฉัน" (23 พ.ย. 69) หรืออัปโหลดใบยืมที่เซ็นแล้ว (10 พ.ย. 69)
+    # = มีหลักฐานแล้ว กดจ่ายของได้เลย · ยังไม่มี = ลงชื่อที่จอเจ้าหน้าที่ตรงนี้ (ทางสำรอง)
+    borrower_signed = _is_signed(req, "handover_borrower")
+    if not borrower_password and not borrower_signed and not req.signed_form_file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Borrower signature is required unless a signed form has been uploaded.")
 
-    if borrower_signature is not None:
-        await _save_signature(req, "handover_borrower", borrower_signature, req.student, user_agent)
-    if staff_signature is not None:
-        await _save_signature(req, "handover_staff", staff_signature, admin, user_agent)
+    if borrower_password and not borrower_signed:
+        await _esign(req, "handover_borrower", req.student, borrower_password, user_agent, ip)
+    staff_signed_now = bool(staff_password) and not _is_signed(req, "handover_staff")
+    if staff_signed_now:
+        await _esign(req, "handover_staff", admin, staff_password, user_agent, ip)
     req.handover_at = datetime.now(timezone.utc)
     req.handover_by = admin.id
     req.handover_staff = admin  # ตั้ง relationship ด้วย — selectin โหลดค่า None ไว้แล้ว ตั้งแค่ FK ชื่อจะไม่อัปเดตใน response
@@ -1300,8 +1358,8 @@ async def handover_request(
     await audit_service.log_action(db, admin, "handover_request", "borrow_requests", req.id, {
         "request_code": req.request_code,
         "student_name": req.student_name,
-        "staff_signed": staff_signature is not None,
-        "via_signed_form": borrower_signature is None,
+        "staff_signed": staff_signed_now,
+        "via_signed_form": not borrower_password and not borrower_signed,
     })
     await db.commit()
     await _attach_request_student_year(db, [req])
@@ -1312,11 +1370,12 @@ async def sign_return(
     db: AsyncSession,
     admin: User,
     request_id: uuid.UUID,
-    borrower_signature: UploadFile,
-    staff_signature: UploadFile | None = None,
+    borrower_password: str | None,
+    staff_password: str | None = None,
     user_agent: str | None = None,
+    ip: str | None = None,
 ) -> BorrowRequestResponse:
-    """เซ็นตอนรับคืน (ผู้คืน + ผู้รับคืน) — ปิดวงจรยืม-คืนโดยไม่ต้องใช้กระดาษ
+    """ลงนามตอนรับคืน (E-sign ด้วยรหัสผ่านเหมือนตอนรับของ) (ผู้คืน + ผู้รับคืน) — ปิดวงจรยืม-คืนโดยไม่ต้องใช้กระดาษ
 
     แยก endpoint จากการรับคืนจริง (`return_item`/`return_all_items`) โดยตั้งใจ เพราะการสรุปสภาพของทีละชิ้น
     กับการเซ็นรับรองเป็นคนละจังหวะกัน — เจ้าหน้าที่สรุปผลครบก่อน แล้วค่อยให้ผู้คืนเซ็นครั้งเดียวทั้งใบ
@@ -1328,18 +1387,56 @@ async def sign_return(
     if not any(i.returned for i in req.items):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="No returned items to sign for yet.")
-    if req.return_sig_borrower:
+    # ผู้คืนลงชื่อเองจากเครื่องตัวเองได้ (23 พ.ย. 69) — ที่นี่ลงเฉพาะฝั่งที่ยังไม่ได้ลง เซ็นซ้ำฝั่งเดิม = 400
+    todo = [(k, who, pw) for k, who, pw in (("return_borrower", req.student, borrower_password),
+                                            ("return_staff", admin, staff_password)) if pw]
+    if not todo:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A password is required to sign.")
+    if any(_is_signed(req, k) for k, _, _ in todo):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="This request has already been signed for return.")
-
-    await _save_signature(req, "return_borrower", borrower_signature, req.student, user_agent)
-    if staff_signature is not None:
-        await _save_signature(req, "return_staff", staff_signature, admin, user_agent)
+    for k, who, pw in todo:
+        await _esign(req, k, who, pw, user_agent, ip)
 
     await audit_service.log_action(db, admin, "sign_return", "borrow_requests", req.id, {
         "request_code": req.request_code,
         "student_name": req.student_name,
-        "staff_signed": staff_signature is not None,
+        "staff_signed": bool(staff_password),
+        "borrower_signed": bool(borrower_password),
+    })
+    await db.commit()
+    await _attach_request_student_year(db, [req])
+    return BorrowRequestResponse.model_validate(req)
+
+
+async def self_sign(
+    db: AsyncSession, current_user: User, request_id: uuid.UUID, phase: str, password: str,
+    user_agent: str | None = None, ip: str | None = None,
+) -> BorrowRequestResponse:
+    """ผู้ยืมลงชื่อเองจากเครื่องตัวเอง (23 พ.ย. 69) — ไม่ต้องต่อคิวที่เคาน์เตอร์ และไม่ต้องพิมพ์รหัสบนจอเจ้าหน้าที่
+
+    borrow = ช่อง "ผู้ยืม" ในใบยืม (คำขอที่ยื่นโดยไม่ได้ลงชื่อ / ลายเซ็นถูกพักเพราะแก้วันคืนตอนอนุมัติ / คำขอเก่า)
+    return = ช่อง "ผู้คืน" ในใบคืน — หลังเจ้าหน้าที่บันทึกรับคืนแล้ว ผู้ยืมเห็นผลตรวจสภาพ/ค่าปรับก่อนลงชื่อ
+    เจ้าของคำขอเท่านั้น (เจ้าหน้าที่ลงชื่อแทนผู้ยืมไม่ได้ — ใช้ทางเคาน์เตอร์ที่ผู้ยืมพิมพ์รหัสเอง)
+    """
+    req = await _load_request(db, request_id, lock=True)
+    if req.student_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the borrower can sign this request.")
+    await _lock_for_signing(db, req)
+    if phase == "borrow":
+        kind = "handover_borrower"
+        if req.status not in ("pending", "approved", "completed"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Cannot sign a request with status '{req.status}'.")
+    else:
+        kind = "return_borrower"
+        if not any(i.returned for i in req.items):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No returned items to sign for yet.")
+    if _is_signed(req, kind):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Already signed.")
+    await _esign(req, kind, current_user, password, user_agent, ip)
+    await audit_service.log_action(db, current_user, "self_sign", "borrow_requests", req.id, {
+        "request_code": req.request_code, "phase": phase,
     })
     await db.commit()
     await _attach_request_student_year(db, [req])
@@ -1383,6 +1480,11 @@ async def _fine_settings(db: AsyncSession) -> tuple[float, int, float]:
         int(await _get_setting_float(db, "fine_grace_days", "0")),
         await _get_setting_float(db, "fine_max_per_item", "0"),
     )
+
+
+def _rate_for(item: BorrowItem, default_rate: float) -> float:
+    """อัตราค่าปรับของรายการนี้ — อัตราที่ล็อกตอนอนุมัติ (0056) · รายการก่อนมีป้ายใช้อัตรากลางจาก setting"""
+    return float(item.fine_rate_snapshot) if item.fine_rate_snapshot is not None else default_rate
 
 
 def _compute_fine(
@@ -1462,6 +1564,10 @@ def _snapshot_unit(item: BorrowItem, chosen: Equipment, dep_years: int, dep_salv
     item.equipment_unit = chosen.unit
     item.equipment_serial_number = chosen.serial_number
     item.equipment_asset_number = chosen.asset_number
+    # อัตราค่าปรับคืนช้าล็อกตอนอนุมัติ (23 พ.ย. 69) — แก้ราคาป้ายทีหลังไม่กระทบของที่ยืมอยู่ · เปลี่ยนตัวระหว่างยืม
+    # แถวใหม่พาอัตราเดิมมาแล้ว (_SWAP_CARRY_COLUMNS) จึงไม่ทับ — อัตราผูกกับใบยืม ไม่ใช่กับหน่วยที่มาแทน
+    if item.fine_rate_snapshot is None:
+        item.fine_rate_snapshot = chosen.fine_rate_per_day
 
 
 def _apply_return_stock(item: BorrowItem, condition: str) -> None:
@@ -1555,8 +1661,8 @@ async def return_item(
     _apply_return_stock(item, body.condition_on_return)
 
     rate, grace, cap = await _fine_settings(db)
-    calc = _compute_fine(item, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap,
-                         late_charged)
+    calc = _compute_fine(item, req, body.condition_on_return, now.astimezone(TZ).date(), _rate_for(item, rate),
+                         grace, cap, late_charged)
     overriding = body.fine_late_amount_override is not None or body.fine_damage_amount_override is not None
     if overriding:
         _assert_not_own_fine(admin, req)   # รับคืนของตัวเองได้ แต่กรอกทับยอดค่าปรับของตัวเองไม่ได้
@@ -1615,7 +1721,7 @@ async def return_item(
 _SWAP_CARRY_COLUMNS = (
     "borrow_request_id", "item_type_snapshot", "quantity", "requested_due_date", "due_date", "item_status",
     "renewed_count", "extended_due_date", "renew_requested", "renew_requested_at", "renew_requested_date",
-    "renew_reason", "renew_rejected_reason",
+    "renew_reason", "renew_rejected_reason", "fine_rate_snapshot",
 )
 
 
@@ -1679,7 +1785,7 @@ async def swap_item(
     old.return_requested_at = None
     old.return_appoint_at = None
     rate, grace, cap = await _fine_settings(db)
-    calc = _compute_fine(old, req, body.condition_on_return, now.astimezone(TZ).date(), rate, grace, cap)
+    calc = _compute_fine(old, req, body.condition_on_return, now.astimezone(TZ).date(), _rate_for(old, rate), grace, cap)
     calc["days_late"], calc["late_amount"] = 0, 0.0
     calc["basis"] = {**calc["basis"], "swapped": True}
     _apply_fine(old, calc)
@@ -1734,7 +1840,7 @@ async def return_all_items(db: AsyncSession, admin: User, request_id: uuid.UUID)
             req.returned_by = admin.id
             # คืนสภาพปกติก็ยังโดนค่าปรับได้ถ้าเลยกำหนด — ปุ่มลัดนี้ไม่ใช่ทางหนีค่าปรับ
             fine_total += _apply_fine(
-                item, _compute_fine(item, req, "ok", now.astimezone(TZ).date(), rate, grace, cap,
+                item, _compute_fine(item, req, "ok", now.astimezone(TZ).date(), _rate_for(item, rate), grace, cap,
                                     _late_charged_on_splits(req, item)))
 
     # complete เฉพาะเมื่อไม่มี item ค้างสรุป (รวมวัสดุที่ยังไม่ถูกสรุปผล)
@@ -1777,7 +1883,9 @@ async def generate_pdf(
         req.due_date = req.requested_due_date
         return _gen_preview(req, value_source)
     await _attach_equipment_specs(db, req)
-    return generate_borrow_pdf(req, value_source)
+    # เธรดแยก: ตราดิจิทัล (pyHanko sign_pdf) เรียก asyncio.run ภายใน — บน event loop จะล้มแล้วได้ PDF ไม่ประทับเงียบ ๆ
+    # และ ReportLab + RSA ไม่ควรบล็อก worker เดียวของ prod อยู่แล้ว (req เป็น pydantic ไม่ใช่แถว ORM จึงปลอดภัย)
+    return await asyncio.to_thread(generate_borrow_pdf, req, value_source)
 
 
 async def _attach_equipment_specs(db: AsyncSession, req: BorrowRequestResponse) -> None:
@@ -1811,7 +1919,8 @@ async def generate_return_pdf(
     """สร้าง PDF ใบรับคืนอุปกรณ์ (สรุปสภาพเมื่อคืน) — เจ้าของหรือ admin"""
     from app.utils.pdf import generate_return_pdf as _gen
     req = await get_request(db, current_user, request_id)
-    return _gen(req, await _get_setting_str(db, "pdf_value_source", "acquisition"))
+    value_source = await _get_setting_str(db, "pdf_value_source", "acquisition")
+    return await asyncio.to_thread(_gen, req, value_source)  # เหตุผลเดียวกับ generate_pdf (ตราดิจิทัล)
 
 
 async def generate_preview_pdf(

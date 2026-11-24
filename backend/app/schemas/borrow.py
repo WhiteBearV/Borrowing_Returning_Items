@@ -1,3 +1,4 @@
+from typing import Literal
 import uuid
 from datetime import date, datetime
 
@@ -19,6 +20,8 @@ class BorrowRequestCreate(BaseModel):
     purpose: str = Field(..., min_length=1, max_length=500)
     requested_due_date: date
     items: list[BorrowItemRequest]
+    # รหัสผ่านผู้ยืม = ลงชื่อช่อง "ผู้ยืม" พร้อมยื่น (23 พ.ย. 69) — หน้าเว็บบังคับ backend ไม่บังคับ (ลงชื่อทีหลังได้ที่ /sign)
+    sign_password: str | None = Field(None, max_length=72)
 
     @field_validator("purpose")
     @classmethod
@@ -47,6 +50,7 @@ class BorrowItemResponse(BaseModel):
     equipment_specs: str | None = None
     equipment_value: float | None = None  # มูลค่าแท้จริง ณ วันอนุมัติ
     book_value: float | None = None       # มูลค่าตามบัญชี ณ วันอนุมัติ (ใบยืมเลือกโชว์ค่าใดค่าหนึ่ง)
+    fine_rate_snapshot: float | None = None  # อัตราค่าปรับคืนช้า (บาท/วัน) ที่ล็อกตอนอนุมัติ · ว่าง = อัตรากลาง
     item_type_snapshot: str
     quantity: int
     requested_due_date: date | None = None
@@ -121,6 +125,8 @@ class BorrowRequestResponse(BaseModel):
     handover_at: datetime | None = None
     handover_by_name: str | None = None
     signatures: list[str] = []
+    # ลงนามอิเล็กทรอนิกส์ด้วยรหัสผ่าน (16 พ.ย. 69) — [{kind, signer_name, signed_at, ref}] ไม่มีไฟล์รูป
+    esignatures: list[dict] = []
     # ชื่อไฟล์ + หลักฐานการเซ็น: ตัวสร้าง PDF ต้องใช้ (มันรับ response object ไม่ใช่แถว ORM) แต่
     # `exclude=True` ทำให้ไม่ถูก serialize ออก API — ชื่อไฟล์เป็นข้อมูลภายใน เปิดดูต้องผ่าน endpoint ที่ตรวจสิทธิ์
     handover_sig_borrower: str | None = Field(None, exclude=True)
@@ -170,6 +176,13 @@ class ApproveRequest(BaseModel):
     pickup_at: datetime | None = None
     pickup_location: str | None = Field(None, max_length=255)
     pickup_note: str | None = None
+    sign_password: str | None = Field(None, max_length=72)  # รหัสผ่านเจ้าหน้าที่ = ลงชื่อช่อง "ผู้อนุมัติ" (23 พ.ย. 69)
+
+
+class SelfSignRequest(BaseModel):
+    """ผู้ยืมลงชื่อเองจากเครื่องตัวเอง — borrow = ใบยืม (ช่องผู้ยืม) · return = ใบคืน (ช่องผู้คืน)"""
+    phase: Literal["borrow", "return"]
+    password: str = Field(..., min_length=1, max_length=72)
 
 
 class RenewRequestCreate(BaseModel):

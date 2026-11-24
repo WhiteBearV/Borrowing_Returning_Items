@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { borrowApi } from '../../api/borrowApi.js'
+import SignPasswordModal from '../../components/borrow/SignPasswordModal.jsx'
 import { useCart } from '../../context/CartContext.jsx'
 import { openPdf } from '../../utils/openPdf.js'
 import Tooltip from '../../components/common/Tooltip.jsx'
@@ -45,6 +46,7 @@ export default function BorrowRequestPage() {
   const [customPurpose, setCustomPurpose] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [signing, setSigning] = useState(false)
 
   const cartPayload = () => ({
     purpose: purpose.trim(),
@@ -90,19 +92,30 @@ export default function BorrowRequestPage() {
     }
   }
 
-  const handleSubmit = async (e) => {
+  // กด "ยื่นคำขอ" = เปิดกล่องลงชื่อก่อน (23 พ.ย. 69) — ยื่น+ลงชื่อช่องผู้ยืมในครั้งเดียว ไม่ต้องไปต่อคิวลงชื่อที่เคาน์เตอร์
+  const handleSubmit = (e) => {
     e.preventDefault()
     if (cart.length === 0) return
     if (!validate()) return
     setError('')
+    setSigning(true)
+  }
+
+  const submitSigned = async (password) => {
     setLoading(true)
     try {
-      const created = await borrowApi.create(cartPayload())
+      const created = await borrowApi.create({ ...cartPayload(), sign_password: password })
       clearCart()
       // หน้า "คำขอของฉัน" ขึ้นแบนเนอร์บอกขั้นต่อไป (รออนุมัติ → ไปรับของที่ไหน) จาก state นี้
       navigate('/my-borrows', { state: { submitted: created?.request_code, pickupPlace: created?.pickup_place } })
     } catch (err) {
-      setError(err.response?.data?.detail ?? 'ยื่นคำขอไม่สำเร็จ')
+      // รหัสผิดให้กล่องลงชื่อแสดงเอง · error อื่น (สต็อกหมด/โควตา) ปิดกล่องแล้วแสดงที่หน้าตะกร้า
+      if (err.response?.status !== 400 || !/incorrect password/i.test(err.response?.data?.detail ?? '')) {
+        setSigning(false)
+        setError(err.response?.data?.detail ?? 'ยื่นคำขอไม่สำเร็จ')
+        return
+      }
+      throw err
     } finally {
       setLoading(false)
     }
@@ -117,6 +130,9 @@ export default function BorrowRequestPage() {
             consumable เสมอ — รหัสวัสดุสิ้นเปลืองเป็นเลขที่ระบบตั้งเองอัตโนมัติ ไม่มีความหมายในตะกร้า */}
         {eq.unit_count === 1 && eq.item_type !== 'consumable' && (
           <p className="text-xs text-gray-400">{eq.code}</p>
+        )}
+        {eq.fine_rate_per_day != null && (
+          <p className="text-xs text-amber-700">คืนเกินกำหนด ปรับวันละ {Number(eq.fine_rate_per_day).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</p>
         )}
       </div>
       {/* การ์ดที่ยุบรวมหลายหน่วยรุ่นเดียวกันขอเกิน 1 ได้ ไม่ได้ล็อกตาม item_type อีกต่อไป */}
@@ -281,6 +297,19 @@ export default function BorrowRequestPage() {
           </div>
         </div>
       </form>
+
+      {signing && (
+        <SignPasswordModal title="ยื่นคำขอและลงชื่อใบยืม" confirmLabel="ยื่นคำขอและลงชื่อ"
+          onSign={submitSigned} onClose={() => setSigning(false)}>
+          <p className="text-sm text-gray-600">
+            ขอยืม {cart.length} รายการ ตามที่เลือกไว้ในตะกร้า
+          </p>
+          <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
+            ข้าพเจ้าขอรับรองว่า จะดูแลรักษาอุปกรณ์ที่ยืมเป็นอย่างดี หากเกิดความเสียหายหรือสูญหาย
+            ข้าพเจ้ายินดีรับผิดชอบตามระเบียบ และจะคืนภายในกำหนด
+          </p>
+        </SignPasswordModal>
+      )}
     </div>
   )
 }

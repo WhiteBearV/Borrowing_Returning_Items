@@ -1,12 +1,13 @@
-"""เซ็นรับของ/รับคืนบนหน้าจอ (เฟส 11) — POST /handover, /sign-return และ GET /signature/{kind}
+"""ลงนามรับของ/รับคืน (เฟส 11 → E-sign ด้วยรหัสผ่าน 16 พ.ย. 69) — POST /handover, /sign-return
 
-แทนการปริ้นใบยืมไปเซ็นแล้วถ่ายรูปกลับมา: เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมเซ็น
+แทนการปริ้นใบยืมไปเซ็นแล้วถ่ายรูปกลับมา: เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมพิมพ์รหัสผ่านตัวเอง
+ไม่เก็บรูปลายเซ็นใหม่อีก (รูปหลุด = เอาไปปลอมเอกสารอื่นได้) — หลักฐานคือ signature_meta + ตราดิจิทัลบน PDF
 
 สิ่งที่ต้องกันให้ได้:
 - นักศึกษากดจ่ายของเองไม่ได้ (require_admin เหมือน endpoint รับคืน)
 - คำขอที่ยังไม่อนุมัติจ่ายของไม่ได้ (ยังไม่มีของให้ส่งมอบ)
-- ไฟล์ที่ไม่ใช่ PNG จริง (เปลี่ยนแค่นามสกุล) ต้องถูกปฏิเสธตั้งแต่ตอนอัปโหลด
-- ลายเซ็นต้องไม่มี URL สาธารณะ เปิดได้เฉพาะเจ้าของคำขอ/เจ้าหน้าที่ และลง audit ทุกครั้งที่เปิดดู
+- รหัสผ่านผิด = 400 (ไม่ใช่ 401 ที่ทำให้จอเจ้าหน้าที่ถูกล็อกเอาต์) และไม่บันทึกอะไร
+- ไม่มีไฟล์รูปลายเซ็นใหม่เกิดขึ้น
 - **สต็อกต้องไม่เปลี่ยน** เพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว (กฎเดิมใน CLAUDE.md)
 
 หมายเหตุ: conftest.py มี PYTEST_ALLOW_DB=1 รันใส่ DB dev จริง — ทุกเทสต้อง cleanup ใน finally เสมอ
@@ -36,6 +37,7 @@ def _png(width: int = 60, height: int = 24) -> bytes:
 
 
 PNG_BYTES = _png()
+STUDENT_PW, ADMIN_PW = "Test1234!", "Admin1234!"  # ตรงกับ conftest
 
 
 async def _cleanup(req_id: str, eq_id: uuid.UUID, files: list[str]) -> None:
@@ -85,14 +87,15 @@ async def test_handover_stores_signature_without_touching_stock(
         # ผู้จ่ายของ ≠ ผู้อนุมัติ (เหมือนหน้างานจริง) — ถ้าคนเดียวกัน User อยู่ใน identity map จาก approver แล้ว
         # จะไม่เกิด lazy-load และจับบั๊ก MissingGreenlet ของ handover_by_name ไม่ได้
         r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(superadmin_token),
-                              files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                              data={"borrower_password": STUDENT_PW})
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["handover_at"] is not None
         assert body["handover_by_name"]
-        assert body["signatures"] == ["handover_borrower"]   # ไม่ได้เซ็นฝั่งเจ้าหน้าที่ = ต้องไม่โผล่
-        # ชื่อไฟล์ลายเซ็นต้องไม่หลุดออก API — เปิดดูได้ทางเดียวคือ endpoint ที่ตรวจสิทธิ์
-        assert "handover_sig_borrower" not in body and "signature_meta" not in body
+        assert body["signatures"] == []   # ไม่มีรูปลายเซ็นแล้ว
+        assert [e["kind"] for e in body["esignatures"]] == ["handover_borrower"]
+        assert body["esignatures"][0]["ref"] and body["esignatures"][0]["signer_name"]
+        assert "signature_meta" not in body
         # หน้ารายการต้องไม่พังเมื่อมีคำขอที่จ่ายของแล้ว (handover_by_name เคย lazy-load → 500 ทั้งหน้า)
         r = await client.get("/borrow-requests", params={"search": test_equipment.code},
                              headers=auth(admin_token))
@@ -101,28 +104,24 @@ async def test_handover_stores_signature_without_touching_stock(
 
         async with AsyncSessionLocal() as db:
             fresh = await db.get(BorrowRequest, uuid.UUID(req["id"]))
-            files.extend(_sig_files({"signature_meta": fresh.signature_meta}))
-            stored = fresh.handover_sig_borrower
-            # ชื่อไฟล์เปล่า ไม่ใช่ path/URL — ห้ามมีอะไรเอาไปแปะเป็นลิงก์ตรงได้
-            assert "/" not in stored and stored.endswith(".png")
-            assert fresh.signature_meta["handover_borrower"]["sha256"]
+            meta = fresh.signature_meta["handover_borrower"]
+            assert fresh.handover_sig_borrower is None   # ไม่มีไฟล์รูป
+            assert meta["method"] == "password" and len(meta["doc_sha256"]) == 64
+            assert STUDENT_PW not in str(fresh.signature_meta)   # ห้ามเก็บรหัสผ่าน
             # สต็อกต้องเท่าเดิมหลังจ่ายของ (ตัดไปแล้วตอนอนุมัติ)
             assert (await db.get(Equipment, test_equipment.id)).quantity_available == stock_after_approve
 
-        assert os.path.exists(os.path.join(settings.PRIVATE_UPLOAD_DIR, stored))
-        assert not os.path.exists(os.path.join(settings.UPLOAD_DIR, stored))
-
-        # เปิดดูได้ทั้งเจ้าของคำขอและเจ้าหน้าที่ · ชนิดที่ไม่มีไฟล์ = 404 · kind มั่ว = 400
-        assert (await client.get(f"/borrow-requests/{req['id']}/signature/handover_borrower",
-                                 headers=auth(student_token))).status_code == 200
-        assert (await client.get(f"/borrow-requests/{req['id']}/signature/handover_staff",
-                                 headers=auth(admin_token))).status_code == 404
-        assert (await client.get(f"/borrow-requests/{req['id']}/signature/nonsense",
-                                 headers=auth(admin_token))).status_code == 400
+        # ใบยืมพิมพ์ผู้ลงนาม + เลขอ้างอิงแทนรูป
+        import io
+        from pypdf import PdfReader
+        pdf = await client.get(f"/borrow-requests/{req['id']}/pdf", headers=auth(admin_token))
+        assert pdf.status_code == 200, pdf.text
+        text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.content)).pages)
+        assert body["esignatures"][0]["ref"] in text
 
         # เซ็นซ้ำไม่ได้ — ลายเซ็นคือหลักฐานการรับมอบ ทับได้เมื่อไหร่ก็อ้างได้ว่าไม่ใช่ฉบับที่ตัวเองเซ็น
         again = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(admin_token),
-                                  files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                                  data={"borrower_password": STUDENT_PW})
         assert again.status_code == 400, again.text
 
         async with AsyncSessionLocal() as db:
@@ -132,7 +131,6 @@ async def test_handover_stores_signature_without_touching_stock(
             )).scalars().all()
             await db.commit()
         assert "handover_request" in actions
-        assert "view_signature" in actions   # การเปิดดูลายเซ็นต้องถูกบันทึกเสมอ
     finally:
         await _cleanup(req["id"], test_equipment.id, files)
 
@@ -144,30 +142,36 @@ async def test_handover_requires_admin_and_approved_request(
     try:
         # ยังไม่อนุมัติ — เจ้าหน้าที่ก็จ่ายของไม่ได้ (ของยังไม่ออกจากคลัง)
         r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(admin_token),
-                              files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                              data={"borrower_password": STUDENT_PW})
         assert r.status_code == 400, r.text
 
         assert (await client.patch(f"/borrow-requests/{req['id']}/approve",
                                    headers=auth(admin_token))).status_code == 200
         # นักศึกษากดจ่ายของให้ตัวเองไม่ได้
         r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(student_token),
-                              files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                              data={"borrower_password": STUDENT_PW})
         assert r.status_code == 403, r.text
     finally:
         await _cleanup(req["id"], test_equipment.id, [])
 
 
-async def test_handover_rejects_file_that_is_not_really_png(
+async def test_handover_rejects_wrong_password(
     client: AsyncClient, student_token: str, admin_token: str, test_equipment: Equipment,
 ):
-    """ไฟล์อื่นเปลี่ยนนามสกุลเป็น .png ต้องไม่ผ่าน — ด่านเดียวกับการอัปโหลดอื่นในระบบ"""
+    """รหัสผ่านผิดทั้งฝั่งผู้ยืมและเจ้าหน้าที่ = 400 (ไม่ใช่ 401) และยังไม่จ่ายของ"""
     req = await _pending_request(client, student_token, test_equipment.id)
     assert (await client.patch(f"/borrow-requests/{req['id']}/approve",
                                headers=auth(admin_token))).status_code == 200
     try:
-        r = await client.post(f"/borrow-requests/{req['id']}/handover", headers=auth(admin_token),
-                              files={"borrower_signature": ("fake.png", b"<html>hi</html>", "image/png")})
+        url = f"/borrow-requests/{req['id']}/handover"
+        r = await client.post(url, headers=auth(admin_token), data={"borrower_password": "wrong-pw"})
         assert r.status_code == 400, r.text
+        r = await client.post(url, headers=auth(admin_token),
+                              data={"borrower_password": STUDENT_PW, "staff_password": "wrong-pw"})
+        assert r.status_code == 400, r.text
+        async with AsyncSessionLocal() as db:
+            fresh = await db.get(BorrowRequest, uuid.UUID(req["id"]))
+            assert fresh.handover_at is None and not fresh.signature_meta
     finally:
         await _cleanup(req["id"], test_equipment.id, [])
 
@@ -182,27 +186,26 @@ async def test_sign_return_requires_a_returned_item_and_shows_on_pdf(
     try:
         # ยังไม่มีชิ้นไหนถูกรับคืน — เซ็นใบคืนไม่ได้
         r = await client.post(f"/borrow-requests/{req['id']}/sign-return", headers=auth(admin_token),
-                              files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                              data={"borrower_password": STUDENT_PW})
         assert r.status_code == 400, r.text
 
         assert (await client.post(f"/borrow-requests/{req['id']}/return-all",
                                   headers=auth(admin_token))).status_code == 200
         r = await client.post(f"/borrow-requests/{req['id']}/sign-return", headers=auth(admin_token),
-                              files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png"),
-                                     "staff_signature": ("sig2.png", PNG_BYTES, "image/png")})
+                              data={"borrower_password": STUDENT_PW, "staff_password": ADMIN_PW})
         assert r.status_code == 200, r.text
-        assert set(r.json()["signatures"]) == {"return_borrower", "return_staff"}
+        assert {e["kind"] for e in r.json()["esignatures"]} == {"return_borrower", "return_staff"}
 
         # เซ็นรับคืนซ้ำก็ไม่ได้เช่นกัน
         again = await client.post(f"/borrow-requests/{req['id']}/sign-return", headers=auth(admin_token),
-                                  files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})
+                                  data={"borrower_password": STUDENT_PW})
         assert again.status_code == 400, again.text
 
         async with AsyncSessionLocal() as db:
             fresh = await db.get(BorrowRequest, uuid.UUID(req["id"]))
             files.extend(_sig_files({"signature_meta": fresh.signature_meta}))
 
-        # ใบคืนต้องมีทั้งรูปลายเซ็น วันที่ที่รับลายเซ็นจริง และป้ายว่าเซ็นในระบบแล้ว
+        # ใบคืนต้องมีผู้ลงนาม วันที่ที่ลงนามจริง และป้ายว่าเซ็นในระบบแล้ว
         pdf = (await client.get(f"/borrow-requests/{req['id']}/return-pdf", headers=auth(admin_token)))
         assert pdf.status_code == 200
         assert pdf.content.startswith(b"%PDF")
@@ -237,10 +240,91 @@ async def test_handover_without_signature_needs_uploaded_signed_form(
 
         r = await client.post(url, headers=auth(admin_token))
         assert r.status_code == 200, r.text
-        assert r.json()["handover_at"] and r.json()["signatures"] == []
+        assert r.json()["handover_at"] and r.json()["esignatures"] == []
         # บันทึกจ่ายของซ้ำไม่ได้ ทั้งแบบไม่เซ็นและแบบเซ็น
         assert (await client.post(url, headers=auth(admin_token))).status_code == 400
         assert (await client.post(url, headers=auth(admin_token),
-                                  files={"borrower_signature": ("sig.png", PNG_BYTES, "image/png")})).status_code == 400
+                                  data={"borrower_password": STUDENT_PW})).status_code == 400
     finally:
         await _cleanup(req["id"], test_equipment.id, files)
+
+
+def _kinds(resp: dict) -> set[str]:
+    return {e["kind"] for e in resp.get("esignatures") or []}
+
+
+async def test_sign_at_request_and_approval_no_counter_queue(
+    client: AsyncClient, student_token: str, admin_token: str, test_equipment
+):
+    """23 พ.ย. 69 — ผู้ยืมลงชื่อพร้อมยื่น · เจ้าหน้าที่ลงชื่อในโมดัลอนุมัติ · จ่ายของไม่ต้องใช้รหัสอีก ·
+    ลงชื่อใบคืนเองจากเครื่องตัวเอง · รหัสผิดตอนยื่น = ไม่มีคำขอเกิดขึ้น"""
+    S, H = auth(student_token), auth(admin_token)
+    body = {"purpose": "ทดสอบลงชื่อตอนยื่น", "requested_due_date": "2028-06-01",
+            "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}]}
+    before = (await client.get("/borrow-requests", headers=S)).json()["total"]
+    r = await client.post("/borrow-requests", headers=S, json={**body, "sign_password": "wrong"})
+    assert r.status_code == 400
+    assert (await client.get("/borrow-requests", headers=S)).json()["total"] == before
+
+    r = await client.post("/borrow-requests", headers=S, json={**body, "sign_password": STUDENT_PW})
+    assert r.status_code == 201, r.text
+    req = r.json()
+    rid = req["id"]
+    try:
+        assert _kinds(req) == {"handover_borrower"}
+        r = await client.patch(f"/borrow-requests/{rid}/approve", headers=H, json={"sign_password": "bad"})
+        assert r.status_code == 400  # รหัสเจ้าหน้าที่ผิด = อนุมัติไม่ผ่าน ไม่ตัดสต็อก
+        assert (await client.get(f"/borrow-requests/{rid}", headers=H)).json()["status"] == "pending"
+        r = await client.patch(f"/borrow-requests/{rid}/approve", headers=H, json={"sign_password": ADMIN_PW})
+        assert r.status_code == 200, r.text
+        assert _kinds((await client.get(f"/borrow-requests/{rid}", headers=H)).json()) == {"handover_borrower", "handover_staff"}
+
+        r = await client.post(f"/borrow-requests/{rid}/handover", headers=H)  # ลงชื่อครบแล้ว กดปุ่มเดียว
+        assert r.status_code == 200, r.text
+
+        item_id = r.json()["items"][0]["id"]
+        assert (await client.post(f"/borrow-requests/{rid}/sign", headers=S,
+                                  json={"phase": "return", "password": STUDENT_PW})).status_code == 400  # ยังไม่คืน
+        assert (await client.post(f"/borrow-requests/{rid}/items/{item_id}/return", headers=H,
+                                  json={"condition_on_return": "ok"})).status_code == 200
+        assert (await client.post(f"/borrow-requests/{rid}/sign", headers=H,
+                                  json={"phase": "return", "password": ADMIN_PW})).status_code == 403  # เจ้าหน้าที่แทนไม่ได้
+        r = await client.post(f"/borrow-requests/{rid}/sign", headers=S, json={"phase": "return", "password": STUDENT_PW})
+        assert r.status_code == 200 and "return_borrower" in _kinds(r.json()), r.text
+        assert (await client.post(f"/borrow-requests/{rid}/sign", headers=S,
+                                  json={"phase": "return", "password": STUDENT_PW})).status_code == 400  # ซ้ำ
+        # เจ้าหน้าที่ลงชื่อฝั่งผู้รับคืนทีหลังได้ โดยไม่ต้องใช้รหัสผู้ยืม
+        r = await client.post(f"/borrow-requests/{rid}/sign-return", headers=H, data={"staff_password": ADMIN_PW})
+        assert r.status_code == 200 and "return_staff" in _kinds(r.json()), r.text
+        for path in ("pdf", "return-pdf"):
+            assert (await client.get(f"/borrow-requests/{rid}/{path}", headers=S)).content[:4] == b"%PDF"
+    finally:
+        await _cleanup(rid, test_equipment.id, [])
+
+
+async def test_changed_due_date_at_approval_requires_borrower_to_resign(
+    client: AsyncClient, student_token: str, admin_token: str, test_equipment
+):
+    """แก้วันคืนตอนอนุมัติ = ลายเซ็นผู้ยืมถูกพัก + แจ้งให้ลงชื่อใหม่ · อนุมัติตามที่ขอ = ลายเซ็นคงเดิม"""
+    S, H = auth(student_token), auth(admin_token)
+    r = await client.post("/borrow-requests", headers=S, json={
+        "purpose": "ทดสอบแก้วันคืน", "requested_due_date": "2028-06-01", "sign_password": STUDENT_PW,
+        "items": [{"equipment_id": str(test_equipment.id), "quantity": 1}]})
+    assert r.status_code == 201, r.text
+    req = r.json()
+    rid = req["id"]
+    try:
+        r = await client.patch(f"/borrow-requests/{rid}/approve", headers=H, json={
+            "items": [{"item_id": req["items"][0]["id"], "approved": True, "due_date": "2028-05-01"}]})
+        assert r.status_code == 200, r.text
+        assert "handover_borrower" not in _kinds((await client.get(f"/borrow-requests/{rid}", headers=S)).json())
+        async with AsyncSessionLocal() as db:
+            row = await db.get(BorrowRequest, uuid.UUID(rid))
+            assert "handover_borrower_superseded" in row.signature_meta  # หลักฐานเดิมยังอยู่
+        notes = (await client.get("/notifications/me", headers=S)).json()
+        notes = notes.get("items", notes) if isinstance(notes, dict) else notes
+        assert any("ลงชื่อใบยืมใหม่" in n["message"] for n in notes)
+        r = await client.post(f"/borrow-requests/{rid}/sign", headers=S, json={"phase": "borrow", "password": STUDENT_PW})
+        assert r.status_code == 200 and "handover_borrower" in _kinds(r.json()), r.text
+    finally:
+        await _cleanup(rid, test_equipment.id, [])

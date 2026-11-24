@@ -1,12 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, require_admin, require_superadmin
 from app.models.user import User
 from app.schemas.borrow import (
+    SelfSignRequest,
     ApproveRequest,
     BorrowRequestCreate,
     BorrowRequestResponse,
@@ -31,10 +32,13 @@ router = APIRouter(prefix="/borrow-requests", tags=["borrow"])
 @router.post("", response_model=BorrowRequestResponse, status_code=201)
 async def create_borrow_request(
     body: BorrowRequestCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BorrowRequestResponse:
-    return await borrow_service.create_request(db, current_user, body)
+    return await borrow_service.create_request(
+        db, current_user, body,
+        user_agent=request.headers.get("user-agent"), ip=request.client.host if request.client else None)
 
 
 @router.get("", response_model=PaginatedBorrowRequests)
@@ -90,12 +94,16 @@ async def cancel_borrow_request(
 @router.patch("/{request_id}/approve")
 async def approve_borrow_request(
     request_id: uuid.UUID,
+    request: Request,
     body: ApproveRequest | None = None,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """อนุมัติคำขอ — ไม่ส่ง body = อนุมัติทั้งใบ ส่ง body = ตัดสินรายชิ้น (อนุมัติ/ไม่อนุมัติ/แก้วันคืน)"""
-    await borrow_service.approve_request(db, admin, request_id, body)
+    """อนุมัติคำขอ — ไม่ส่ง body = อนุมัติทั้งใบ ส่ง body = ตัดสินรายชิ้น (อนุมัติ/ไม่อนุมัติ/แก้วันคืน)
+    ส่ง sign_password = ลงชื่อช่อง "ผู้อนุมัติ" ในใบยืมไปพร้อมกัน"""
+    await borrow_service.approve_request(
+        db, admin, request_id, body,
+        user_agent=request.headers.get("user-agent"), ip=request.client.host if request.client else None)
     return {"detail": "Request approved."}
 
 
@@ -189,18 +197,18 @@ async def download_signed_form(
 async def handover_request(
     request_id: uuid.UUID,
     request: Request,
-    borrower_signature: UploadFile | None = File(None),
-    staff_signature: UploadFile | None = File(None),
+    borrower_password: str | None = Form(None, max_length=72),
+    staff_password: str | None = Form(None, max_length=72),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> BorrowRequestResponse:
-    """บันทึกการจ่ายของพร้อมลายเซ็นรับของบนหน้าจอ — เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมเซ็น
+    """บันทึกการจ่ายของ + ลงนามอิเล็กทรอนิกส์ — เจ้าหน้าที่กดที่เคาน์เตอร์แล้วยื่นจอให้ผู้ยืมพิมพ์รหัสผ่านตัวเอง
 
-    ลายเซ็นเจ้าหน้าที่ (staff_signature) เว้นได้ · ลายเซ็นผู้ยืมเว้นได้ถ้าผู้ยืมอัปโหลดใบยืมที่เซ็นแล้ว · ไม่แตะสต็อกเพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว
+    รหัสผ่านเจ้าหน้าที่ (staff_password) เว้นได้ · ผู้ยืมเว้นได้ถ้าอัปโหลดใบยืมที่เซ็นแล้ว · ไม่แตะสต็อกเพราะของออกจากคลังตั้งแต่ตอนอนุมัติแล้ว
     """
     req = await borrow_service.handover_request(
-        db, admin, request_id, borrower_signature, staff_signature,
-        user_agent=request.headers.get("user-agent"))
+        db, admin, request_id, borrower_password, staff_password,
+        user_agent=request.headers.get("user-agent"), ip=request.client.host if request.client else None)
     return req
 
 
@@ -208,16 +216,30 @@ async def handover_request(
 async def sign_return(
     request_id: uuid.UUID,
     request: Request,
-    borrower_signature: UploadFile = File(...),
-    staff_signature: UploadFile | None = File(None),
+    borrower_password: str | None = Form(None, max_length=72),
+    staff_password: str | None = Form(None, max_length=72),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> BorrowRequestResponse:
-    """เซ็นรับรองตอนรับคืน (ผู้คืน + ผู้รับคืน) หลังสรุปสภาพของครบแล้ว"""
+    """ลงนามรับรองตอนรับคืน (ผู้คืน + ผู้รับคืน) ด้วยรหัสผ่าน หลังสรุปสภาพของครบแล้ว"""
     req = await borrow_service.sign_return(
-        db, admin, request_id, borrower_signature, staff_signature,
-        user_agent=request.headers.get("user-agent"))
+        db, admin, request_id, borrower_password, staff_password,
+        user_agent=request.headers.get("user-agent"), ip=request.client.host if request.client else None)
     return req
+
+
+@router.post("/{request_id}/sign", response_model=BorrowRequestResponse)
+async def self_sign(
+    request_id: uuid.UUID,
+    body: SelfSignRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BorrowRequestResponse:
+    """ผู้ยืมลงชื่อใบยืม/ใบคืนเองจากเครื่องตัวเอง (ยืนยันด้วยรหัสผ่าน) — ไม่ต้องรอคิวที่เคาน์เตอร์"""
+    return await borrow_service.self_sign(
+        db, current_user, request_id, body.phase, body.password,
+        user_agent=request.headers.get("user-agent"), ip=request.client.host if request.client else None)
 
 
 @router.get("/{request_id}/signature/{kind}")

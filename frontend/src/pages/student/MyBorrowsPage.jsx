@@ -12,8 +12,9 @@ import { RenewModal } from '../../components/borrow/RenewModal.jsx'
 import { ReturnAppointModal } from '../../components/borrow/ReturnAppointModal.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import ReasonModal, { CANCEL_REASONS } from '../../components/common/ReasonModal.jsx'
-import { SIGNATURE_LABEL } from '../../components/borrow/SignatureModal.jsx'
+import { SIGNATURE_LABEL, esignText, isSigned } from '../../components/borrow/SignatureModal.jsx'
 import ItemLineTag from '../../components/borrow/ItemLineTag.jsx'
+import SignPasswordModal from '../../components/borrow/SignPasswordModal.jsx'
 
 const ITEM_CONDITION_LABEL = {
   ok: 'คืนแล้ว', damaged: 'เสียหาย', lost: 'สูญหาย',
@@ -33,6 +34,7 @@ export default function MyBorrowsPage() {
   const [renewTarget, setRenewTarget] = useState(null) // { reqId, item } — ขอต่อเวลา
   const [returnTarget, setReturnTarget] = useState(null) // { reqId, itemIds } — นัดคืน
   const [uploadingId, setUploadingId] = useState(null) // คำขอที่กำลังอัปโหลดใบยืมที่เซ็นแล้ว
+  const [signTarget, setSignTarget] = useState(null) // { req, phase: 'borrow' | 'return' } — ลงชื่อเองจากเครื่องตัวเอง
   const [filterStatus, setFilterStatus] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState('')
@@ -245,12 +247,16 @@ export default function MyBorrowsPage() {
                       {req.pickup_note && <p className="text-xs text-blue-600 mt-0.5">{req.pickup_note}</p>}
                     </div>
                   )}
-                  {/* เซ็นรับของบนหน้าจอแล้ว = ไม่ต้องเตือนให้ปริ้นไปเซ็นอีก (R5-07) */}
-                  {req.status === 'approved' && !req.signed_form_file && !req.signatures?.includes('handover_borrower') && (
-                    <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-                      อย่าลืม <b>ปริ้นใบยืมไปลงลายเซ็น</b> แล้วนำมาแสดงตอนรับของ
-                      หรืออัปโหลดไฟล์ที่เซ็นแล้วเข้าระบบ (PDF/รูปถ่าย ไม่เกิน 10MB) ที่ส่วน "เอกสาร" ด้านล่าง
-                    </p>
+                  {/* ยังไม่ได้ลงชื่อใบยืม (ยื่นแบบไม่ลงชื่อ/วันคืนถูกปรับตอนอนุมัติ/คำขอเก่า) — ลงชื่อจากเครื่องตัวเองได้เลย (23 พ.ย. 69) */}
+                  {['pending', 'approved'].includes(req.status) && !req.handover_at && !req.signed_form_file
+                    && !isSigned(req, 'handover_borrower') && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                      <span className="flex-1">ใบยืมยังไม่มีลายมือชื่อของคุณ — ลงชื่อด้วยรหัสผ่านได้ที่นี่ ไม่ต้องรอที่เคาน์เตอร์</span>
+                      <button onClick={() => setSignTarget({ req, phase: 'borrow' })}
+                        className="rounded-full bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-700">
+                        ลงชื่อใบยืม
+                      </button>
+                    </div>
                   )}
                   {req.rejection_reason && (
                     <p className="text-sm text-red-600">เหตุผลที่ปฏิเสธ: {req.rejection_reason}</p>
@@ -276,6 +282,9 @@ export default function MyBorrowsPage() {
                           <div>
                             <span className="text-gray-700">{item.equipment_name ?? item.equipment_id}</span>
                             <span className="ml-2 text-xs text-gray-400">×{item.quantity} {item.equipment_unit ?? ''}</span>
+                            {item.fine_rate_snapshot != null && !item.returned && (
+                              <span className="ml-2 text-xs text-amber-700">คืนช้าปรับ {fineMoney(item.fine_rate_snapshot)} บาท/วัน</span>
+                            )}
                             <ItemLineTag item={item} items={req.items} className="ml-2" />
                             {item.returned ? (
                               <span className={`ml-2 text-xs ${['ok', 'returned_full'].includes(item.condition_on_return) ? 'text-green-600' : 'text-red-500'}`}>
@@ -393,7 +402,7 @@ export default function MyBorrowsPage() {
                         <button onClick={() => viewPdf(req.id)}
                           className="text-sm font-medium text-primary-600 hover:underline">
                           {req.status === 'pending' ? 'ดูใบร่างคำขอ'
-                            : req.signatures?.includes('handover_borrower') ? 'ดูใบยืม (เซ็นบนหน้าจอแล้ว)' : 'ดูใบยืม (ยังไม่ได้เซ็น)'}
+                            : isSigned(req, 'handover_borrower') ? 'ดูใบยืม (ลงนามในระบบแล้ว)' : 'ดูใบยืม (ยังไม่ได้เซ็น)'}
                         </button>
                       )}
                       {req.status === 'approved' && (
@@ -409,7 +418,7 @@ export default function MyBorrowsPage() {
                     </div>
                     {/* ลายเซ็นบนหน้าจอ (เฟส 11) — ผู้ยืมเปิดดูของตัวเองได้ ผ่าน endpoint ที่ตรวจสิทธิ์ + ลง audit */}
                     {/* handover_at ด้วย — จ่ายของด้วยใบที่อัปโหลดแล้วไม่มีลายเซ็นบนจอ แต่ผู้ยืมต้องเห็นว่ารับของแล้ว */}
-                    {(req.signatures?.length > 0 || req.handover_at) && (
+                    {(req.signatures?.length > 0 || req.esignatures?.length > 0 || req.handover_at) && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                         {req.handover_at && (
                           <span className="text-xs text-gray-500">
@@ -422,6 +431,9 @@ export default function MyBorrowsPage() {
                             ✍ {SIGNATURE_LABEL[kind]}
                           </button>
                         ))}
+                        {req.esignatures?.map((e) => (
+                          <span key={e.kind} className="text-xs text-gray-500">✔ {esignText(e)}</span>
+                        ))}
                       </div>
                     )}
                     {req.items.some((i) => i.returned) && (
@@ -430,6 +442,12 @@ export default function MyBorrowsPage() {
                           className="text-sm font-medium text-emerald-600 hover:underline">
                           ดูใบรับคืน
                         </button>
+                        {!isSigned(req, 'return_borrower') && (
+                          <button onClick={() => setSignTarget({ req, phase: 'return' })}
+                            className="ml-auto rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">
+                            ลงชื่อใบคืน
+                          </button>
+                        )}
                         {lastReturnAt && (
                           <span className="text-xs text-gray-400">
                             อัปเดตล่าสุด {formatDateTime(lastReturnAt)} (ของชิ้นล่าสุดที่รับคืน)
@@ -464,6 +482,23 @@ export default function MyBorrowsPage() {
           onClose={() => setRenewTarget(null)}
           onDone={() => { setRenewTarget(null); load(true) }}
         />
+      )}
+
+      {signTarget && (
+        <SignPasswordModal
+          title={signTarget.phase === 'borrow' ? `ลงชื่อใบยืม ${signTarget.req.request_code}` : `ลงชื่อใบคืน ${signTarget.req.request_code}`}
+          onSign={async (pw) => { await borrowApi.selfSign(signTarget.req.id, signTarget.phase, pw); setSignTarget(null); load() }}
+          onClose={() => setSignTarget(null)}>
+          <p className="text-sm text-gray-600">
+            {signTarget.phase === 'borrow'
+              ? 'ยืนยันว่าขอยืมอุปกรณ์ตามรายการในใบยืม และรับรองว่าจะดูแลรักษาและคืนภายในกำหนด'
+              : 'ยืนยันว่าได้คืนอุปกรณ์ และรับทราบสภาพเมื่อคืน/ค่าปรับตามที่เจ้าหน้าที่บันทึกไว้ในใบคืน'}
+          </p>
+          {signTarget.phase === 'return' && (
+            <button type="button" onClick={() => viewReturnPdf(signTarget.req.id)}
+              className="text-sm font-medium text-emerald-600 hover:underline">เปิดดูใบคืนก่อนลงชื่อ</button>
+          )}
+        </SignPasswordModal>
       )}
 
       {cancelTarget && (

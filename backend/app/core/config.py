@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # เข้าถึงได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อนส่งไฟล์
     PRIVATE_UPLOAD_DIR: str = "./private_uploads"
     ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th"
+    # ใบรับรองสำหรับประทับตราดิจิทัลบนใบยืม/ใบคืน PDF (E-sign, 16 พ.ย. 69) — สร้างด้วย ./gen-signing-cert.sh
+    # ว่าง/หาไฟล์ไม่เจอ = ออก PDF แบบไม่ประทับตรา (เอกสารต้องออกได้เสมอ) · ห้าม commit ไฟล์ key
+    SIGNING_CERT_PATH: str = ""
+    SIGNING_KEY_PATH: str = ""
 
     # Dev
     DEV_AUTO_VERIFY_EMAIL: bool = False  # ต้องตั้งชัดเจน ห้าม True ใน production

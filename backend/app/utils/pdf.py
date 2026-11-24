@@ -1,11 +1,13 @@
 import os
+from dataclasses import dataclass
 import io
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.shapes import Drawing, PolyLine
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
@@ -16,6 +18,7 @@ from reportlab.platypus import (
 
 from app.core.config import TZ, settings
 from app.utils.duedate import effective_due_date
+from app.utils.pdf_seal import seal_pdf
 
 _FONT_DIR = Path(__file__).parent / "fonts"
 _REGISTERED = False
@@ -28,6 +31,14 @@ def _e(v):
     return escape(str(v)) if v is not None else None
 
 
+# ป้ายชนิดลายเซ็น — ใช้ทั้งข้อความ error ของ borrow_service._esign และเลขอ้างอิงท้ายเอกสาร
+SIGNATURE_LABEL_TH = {
+    "handover_borrower": "ผู้ยืม",       # ช่องเซ็นในใบยืม = ผู้ยืม / ผู้อนุมัติ (23 พ.ย. 69 ลงชื่อตอนยื่น/อนุมัติ)
+    "handover_staff": "ผู้อนุมัติ",
+    "return_borrower": "ผู้คืน",
+    "return_staff": "ผู้รับคืน",
+}
+
 _MAJOR_LABEL = {"comp_eng": "วิศวกรรมคอมพิวเตอร์", "digital_design": "ออกแบบดิจิทัล"}
 
 
@@ -37,6 +48,8 @@ def _register_fonts() -> None:
         return
     pdfmetrics.registerFont(TTFont("Thai", str(_FONT_DIR / "Garuda.ttf")))
     pdfmetrics.registerFont(TTFont("Thai-Bold", str(_FONT_DIR / "Garuda-Bold.ttf")))
+    # ฟอนต์ลายมือ (OFL) — ชื่อผู้ลงนาม E-sign ตรงช่องเซ็น ให้ดูเป็นลายมือชื่อแทนข้อความระบบ (23 พ.ย. 69)
+    pdfmetrics.registerFont(TTFont("Thai-Script", str(_FONT_DIR / "Charmonman-Regular.ttf")))
     _REGISTERED = True
 
 
@@ -111,6 +124,14 @@ def _fmt_date_th(d) -> str:
         return str(d)
 
 
+def _fmt_date_th_full(d) -> str:
+    """วันที่ไทยชื่อเดือนเต็ม เช่น "18 พฤศจิกายน 2569" — หัวใบตรวจครุภัณฑ์ (ผู้ใช้ขอไม่เอาตัวย่อ 23 พ.ย. 69)"""
+    if d is None:
+        return "-"
+    d = _local(d)
+    return f"{d.day} {_THAI_MONTHS[d.month - 1]} {d.year + 543}"
+
+
 def _fmt_datetime_th(dt) -> str:
     """วัน+เวลาแบบไทย เช่น "8 ก.ย. 2569 13:00" — ใช้กับนัดรับของ ให้เป็นปฏิทินเดียวกับกำหนดคืนในตาราง"""
     if dt is None:
@@ -161,8 +182,8 @@ def _doc_title(title_th: str, code: str | None = None) -> str:
 
 
 def generate_borrow_pdf(req: object, value_source: str = "acquisition") -> bytes:
-    """สร้าง PDF ใบยืมอุปกรณ์ ตามแบบฟอร์มกระดาษของคณะ"""
-    return _build_form(req, "borrow", value_source)
+    """สร้าง PDF ใบยืมอุปกรณ์ ตามแบบฟอร์มกระดาษของคณะ — ประทับตราดิจิทัลทั้งไฟล์ (ร่างไม่ประทับ)"""
+    return seal_pdf(_build_form(req, "borrow", value_source), f"ใบยืมอุปกรณ์ {req.request_code}")
 
 
 def generate_preview_pdf(req: object, value_source: str = "acquisition") -> bytes:
@@ -172,7 +193,7 @@ def generate_preview_pdf(req: object, value_source: str = "acquisition") -> byte
 
 def generate_return_pdf(req: object, value_source: str = "acquisition") -> bytes:
     """สร้าง PDF ใบคืนอุปกรณ์ — เลย์เอาต์ล้อใบยืม ใช้เลขคำขอเดียวกัน ต่างที่สภาพเมื่อคืน"""
-    return _build_form(req, "return", value_source)
+    return seal_pdf(_build_form(req, "return", value_source), f"ใบคืนอุปกรณ์ {req.request_code}")
 
 
 _THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -441,6 +462,17 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     ]))
     elems.append(table)
     elems.append(Spacer(1, 12))
+    # อัตราค่าปรับคืนเกินกำหนดที่ล็อกตอนอนุมัติ (23 พ.ย. 69) — ผู้ยืมต้องรู้ก่อนรับของ เป็นหลักฐานคู่กับใบยืม
+    # ไม่เพิ่มคอลัมน์เพราะตารางแคบอยู่แล้ว · ร่าง (ยังไม่อนุมัติ) ยังไม่มีอัตราจึงไม่พิมพ์
+    if not is_return:
+        rates: dict[float, list[str]] = {}
+        for n, it in enumerate(items, 1):
+            if getattr(it, "fine_rate_snapshot", None) is not None:
+                rates.setdefault(float(it.fine_rate_snapshot), []).append(str(n))
+        if rates:
+            txt = " · ".join(f"รายการที่ {', '.join(ns)} = {_fmt_money(r)} บาท/วัน" for r, ns in sorted(rates.items()))
+            elems.append(Paragraph(f"<b>อัตราค่าปรับคืนเกินกำหนด</b> {txt}", _style("FRATE", fontSize=10.5, leading=15)))
+            elems.append(Spacer(1, 8))
 
     elems.append(Paragraph(
         f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_RETURN_NOTE if is_return else _PLEDGE}",
@@ -470,8 +502,9 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
     left_kind, right_kind = (
         ("return_borrower", "return_staff") if is_return else ("handover_borrower", "handover_staff")
     )
-    left_img = _signature_image(req, left_field)
-    right_img = _signature_image(req, right_field)
+    # รูป (คำขอเก่า) ก่อน ไม่มีรูปแต่ลงนามด้วยรหัสผ่านแล้ว (E-sign) = ข้อความระบุผู้ลงนาม+เลขอ้างอิงแทนรูป
+    left_img = _signature_image(req, left_field) or _esign_block(req, left_kind)
+    right_img = _signature_image(req, right_field) or _esign_block(req, right_kind)
     # วันที่บนเอกสาร = **วันที่รับลายเซ็นนั้นจริง ๆ** ของแต่ละฝั่ง (จาก signature_meta) ไม่ใช่เวลาจ่ายของรวม
     # เพราะผู้ยืมกับเจ้าหน้าที่อาจเซ็นคนละจังหวะ — ฝั่งที่ยังไม่เซ็นคงเส้นว่างไว้ให้ลงวันที่ด้วยมือเหมือนเดิม
     left_date = _signed_date_line(req, left_kind) or date_line
@@ -504,8 +537,9 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
         elems.append(Spacer(1, 6))
         elems.append(Paragraph(
             "เอกสารฉบับนี้ลงลายมือชื่ออิเล็กทรอนิกส์ในระบบแล้ว "
-            "ตรวจสอบต้นฉบับได้จากเลขที่คำขอในระบบยืม-คืนอุปกรณ์",
-            _style("EN", fontSize=8, alignment=1, textColor=colors.gray)))
+            "ตรวจสอบต้นฉบับได้จากเลขที่คำขอในระบบยืม-คืนอุปกรณ์"
+            + (f"<br/>เลขอ้างอิงการลงนาม: {refs}" if (refs := _esign_refs(req, (left_kind, right_kind))) else ""),
+            _style("EN", fontSize=8, leading=12, alignment=1, textColor=colors.gray)))
 
     doc.build(elems)
     return buf.getvalue()
@@ -888,6 +922,26 @@ def _signature_image(req: object, field: str):
         return None
 
 
+def _esign_block(req: object, kind: str):
+    """ลงนามอิเล็กทรอนิกส์ด้วยรหัสผ่าน (16 พ.ย. 69) — ไม่มีรูปลายมือ พิมพ์ผู้ลงนาม + เลขอ้างอิงในกรอบขนาดเท่ารูปเดิม
+    เลขอ้างอิงใช้ตามหาบันทึกการลงนาม (เวลา/เครื่อง/hash ของเนื้อหา) ในระบบได้"""
+    meta = (getattr(req, "signature_meta", None) or {}).get(kind)
+    if not isinstance(meta, dict) or meta.get("method") != "password":
+        return None
+    # ชื่อด้วยฟอนต์ลายมือตรงช่องเซ็นเท่านั้น — เลขอ้างอิงย้ายไปบรรทัดท้ายเอกสาร (_esign_refs) ผู้ใช้เห็นแล้วแปลก (23 พ.ย. 69)
+    style = _style(f"ES{kind}", fontName="Thai-Script", fontSize=18, leading=SIGNATURE_IMG_H, alignment=1,
+                   textColor=colors.HexColor("#1E3A8A"))
+    return Paragraph(_e(meta.get("signer_name")) or "-", style)
+
+
+def _esign_refs(req: object, kinds: tuple[str, ...]) -> str:
+    """เลขอ้างอิงการลงนามของแต่ละฝั่ง สำหรับบรรทัดเล็กท้ายเอกสาร — ใช้ตามหาบันทึก (เวลา/เครื่อง/hash) ในระบบ"""
+    metas = getattr(req, "signature_meta", None) or {}
+    return " · ".join(
+        f"{SIGNATURE_LABEL_TH.get(k, k)} {_e(m.get('ref'))}" for k in kinds
+        if isinstance(m := metas.get(k), dict) and m.get("method") == "password" and m.get("ref"))
+
+
 def _signed_date_line(req: object, kind: str) -> str | None:
     """บรรทัดวันที่ของลายเซ็นฝั่งนั้น — ใช้เวลาที่ระบบรับลายเซ็นจริง (signature_meta[kind].signed_at)
 
@@ -916,3 +970,163 @@ def _sig_cell(label: str, name: str):
         ],
         colWidths=["100%"],
     )
+
+
+_STOCKTAKE_TH = {
+    "found": "พบ", "moved_here": "ย้ายมา", "missing": "ไม่พบ", "on_loan": "ถูกยืมอยู่", "pending": "ยังไม่ตรวจ",
+    "elsewhere": "พบที่ห้องอื่น",
+}
+# 5 ช่องติ๊กตามแบบรายงานทะเบียนคุมทรัพย์สินของคณะ — ลำดับเดียวกับเอกสารต้นฉบับ (ใช้ร่วมกับ stocktake_xlsx)
+CONDITION_COLUMNS = [("normal", "ปกติ"), ("damaged", "ชำรุด"), ("deteriorated", "เสื่อม\nสภาพ"),
+                     ("lost", "สูญหาย\n(ไม่พบ)"), ("wrong_category", "รายการ\nผิดประเภท")]
+
+
+def stocktake_note(i: object) -> str:
+    """หมายเหตุของ 1 แถวในใบตรวจ = ที่มาจากระบบ (ย้ายห้อง/ถูกยืม/ยังไม่พบ) + ที่ผู้ตรวจพิมพ์"""
+    sys_note = {
+        "moved_here": f"ย้ายจาก {i.from_location or '(ไม่ระบุ)'}",
+        "elsewhere": f"อยู่ที่ {i.from_location}",
+        "on_loan": "ถูกยืมอยู่",
+        # ไม่ติ๊กสูญหายให้เอง (ผู้ใช้เลือก 23 พ.ย. 69) — อาจไปเจอที่ห้องอื่นภายหลัง แค่บอกว่ารอบนี้ยังไม่เจอ
+        "missing": "" if i.condition == "lost" else "ยังไม่พบระหว่างตรวจ",
+    }.get(i.result, "")
+    return " · ".join(x for x in (sys_note, i.note) if x)
+
+
+def _tick() -> Drawing:
+    """เครื่องหมายถูกแบบวาดเส้น — ฟอนต์ไทยไม่มี ✓ และ ZapfDingbats บางโปรแกรมไม่มีจริง (เคยขึ้นเป็น ■)"""
+    d = Drawing(4 * mm, 4 * mm)
+    d.add(PolyLine([0.4 * mm, 2.1 * mm, 1.5 * mm, 0.7 * mm, 3.6 * mm, 3.5 * mm], strokeWidth=1.3, strokeColor=colors.black))
+    return d
+
+
+@dataclass
+class SheetRow:
+    """1 แถวของใบตรวจ (รายห้องหรือรวมทุกห้อง) — PDF / Excel / พรีวิว ใช้ชุดเดียวกัน"""
+    room: str | None
+    code: str
+    asset_number: str | None
+    name: str
+    location_detail: str | None
+    unit_value: float | None
+    acquired_at: object
+    condition: str | None
+    note: str
+
+
+def round_rows(rnd: object) -> list[SheetRow]:
+    return [SheetRow(rnd.location, i.equipment_code, i.asset_number, i.equipment_name, i.location_detail,
+                     i.unit_value, i.acquired_at, i.condition, stocktake_note(i)) for i in rnd.items]
+
+
+def _condition_summary(rows: list[SheetRow]) -> str:
+    marked = {k: sum(1 for r in rows if r.condition == k) for k, _ in CONDITION_COLUMNS}
+    unmarked = sum(1 for r in rows if not r.condition)
+    return " · ".join([f"{label.replace(chr(10), '')} {marked[k]}" for k, label in CONDITION_COLUMNS if marked[k]]
+                      + ([f"ยังไม่ได้ติ๊ก {unmarked}"] if unmarked else []))
+
+
+def _inspection_pdf(title: str, info: list[str], rows: list[SheetRow], show_room: bool, signer: str | None) -> bytes:
+    """ใบตรวจครุภัณฑ์ตามแบบรายงานทะเบียนคุมทรัพย์สินของคณะ — A4 แนวนอน · ติ๊กสภาพ 5 ช่อง (ยังไม่ติ๊ก = ว่าง)
+    · ไม่เติมแถวว่างตามกฎเอกสาร · show_room = ใบรวมทุกห้อง (เพิ่มคอลัมน์ห้อง)"""
+    _register_fonts()
+    buf = io.BytesIO()
+    page = landscape(A4)
+    doc = SimpleDocTemplate(
+        buf, pagesize=page, leftMargin=10 * mm, rightMargin=10 * mm, topMargin=12 * mm, bottomMargin=10 * mm,
+        title=_doc_title(title), author="ระบบยืม-คืนอุปกรณ์ คณะเทคโนโลยีดิจิทัล",
+    )
+    W = page[0] - 20 * mm
+    body = _style("STB", fontSize=11, leading=16)
+    cell = _style("STC", fontSize=9, leading=12)
+    mid = _style("STM", fontSize=9, leading=12, alignment=1)
+    head = _style("STH", fontName="Thai-Bold", fontSize=8, leading=10, alignment=1)
+    elems: list = [
+        Paragraph(title, _style("STT", fontName="Thai-Bold", fontSize=16, leading=22, alignment=1)),
+        Paragraph("สถาบันเทคโนโลยีจิตรลดา · คณะเทคโนโลยีดิจิทัล", _style("STS", fontSize=11, leading=15, alignment=1)),
+        Spacer(1, 4),
+        *(Paragraph(line, body) for line in info),
+        Paragraph(f"<b>สรุป</b> {_condition_summary(rows) or '-'} (ทั้งหมด {len(rows)} รายการ)", body),
+        Spacer(1, 6),
+    ]
+    heads = ["ลำดับ", "รหัสครุภัณฑ์", "รายการครุภัณฑ์ (รุ่น/ยี่ห้อ)", *(["ห้อง"] if show_room else []), "ราคา",
+             "ว/ด/ป<br/>ที่รับ", *(label for _, label in CONDITION_COLUMNS), "หมายเหตุ"]
+    data = [[Paragraph(h.replace("\n", "<br/>"), head) for h in heads]]
+    for n, r in enumerate(rows, 1):
+        code = _e(r.asset_number or r.code) + (f"<br/><font size=7.5>{_e(r.code)}</font>" if r.asset_number else "")
+        name = _e(r.name) + (f"<br/><font size=8>ตำแหน่ง: {_e(r.location_detail)}</font>" if r.location_detail else "")
+        data.append([
+            Paragraph(str(n), mid), Paragraph(code, cell), Paragraph(name, cell),
+            *([Paragraph(_e(r.room) or "-", mid)] if show_room else []),
+            Paragraph(_fmt_money(r.unit_value), _style("STR", fontSize=9, leading=12, alignment=2)),
+            Paragraph(_fmt_date_short(r.acquired_at), mid),
+            *(_tick() if r.condition == k else "" for k, _ in CONDITION_COLUMNS),
+            Paragraph(_e(r.note), cell),
+        ])
+    ticks = [12 * mm, 12 * mm, 13 * mm, 19 * mm, 19 * mm]  # สูญหาย(ไม่พบ)/รายการผิดประเภท หัวยาวกว่า
+    room_w = [16 * mm] if show_room else []
+    fixed = 13 * mm + 40 * mm + sum(room_w) + 20 * mm + 18 * mm + sum(ticks) + 50 * mm
+    first_tick = 6 if show_room else 5
+    table = Table(data, colWidths=[13 * mm, 40 * mm, W - fixed, *room_w, 20 * mm, 18 * mm, *ticks, 50 * mm],
+                  repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (first_tick, 1), (first_tick + 4, -1), "CENTER"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F3F4F6")),
+    ]))
+    elems += [table, Spacer(1, 16), Paragraph(
+        "ลงชื่อ ........................................ ผู้ตรวจ"
+        f"<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {_e(signer) or '........................................'} )"
+        "<br/>วันที่ ........ / ........ / ........", body)]
+    doc.build(elems)
+    return buf.getvalue()
+
+
+def generate_stocktake_pdf(rnd: object) -> bytes:
+    """ใบตรวจครุภัณฑ์ประจำห้อง (23 พ.ย. 69)"""
+    started, finished = _local(rnd.started_at), _local(rnd.finished_at) if rnd.finished_at else None
+    date_txt = _fmt_date_th_full(started)
+    if finished and finished.date() != started.date():
+        date_txt += f" – {_fmt_date_th_full(finished)}"
+    info = [f"<b>ห้อง</b> {_e(rnd.location)} &nbsp;&nbsp; <b>วันที่ตรวจ</b> {date_txt} &nbsp;&nbsp; "
+            f"<b>ผู้ตรวจ</b> {_e(rnd.started_by_name) or '-'} &nbsp;&nbsp; "
+            f"<b>สถานะ</b> {'ปิดรอบแล้ว' if finished else 'กำลังตรวจ'}"]
+    if rnd.note:
+        info.append(f"<b>หมายเหตุรอบตรวจ</b> {_e(rnd.note)}")
+    return _inspection_pdf("ใบตรวจครุภัณฑ์ประจำห้อง (รายงานทะเบียนคุมทรัพย์สิน)", info, round_rows(rnd),
+                           show_room=False, signer=rnd.started_by_name)
+
+
+def generate_stocktake_summary_pdf(rows: list[SheetRow], as_of: object) -> bytes:
+    """ใบตรวจครุภัณฑ์รวมทุกห้อง — แบบเดียวกับไฟล์รายงานทะเบียนคุมทรัพย์สินทั้งคณะ (สภาพ = ผลตรวจล่าสุดของแต่ละชิ้น)"""
+    return _inspection_pdf("รายงานทะเบียนคุมทรัพย์สิน (รวมทุกห้อง)",
+                           [f"<b>ข้อมูล ณ วันที่</b> {_fmt_date_th_full(as_of)}"], rows, show_room=True, signer=None)
+
+
+def generate_room_qr_pdf(rooms: list[tuple[str, int, bytes]]) -> bytes:
+    """QR ประจำห้องสำหรับติดหน้าห้อง — 2×3 ใบต่อหน้า แต่ละใบ: QR + ชื่อห้อง + จำนวนครุภัณฑ์ตามทะเบียน
+    rooms: [(ชื่อห้อง, จำนวน, PNG ของ QR)]"""
+    _register_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=12 * mm, title="QR ประจำห้อง ตรวจครุภัณฑ์")
+    W = A4[0] - 24 * mm
+    name_style = _style("RQN", fontName="Thai-Bold", fontSize=14, leading=19, alignment=1)
+    sub_style = _style("RQS", fontSize=9, leading=13, alignment=1)
+    cards = [[Image(io.BytesIO(png), width=55 * mm, height=55 * mm),
+              Paragraph(_e(loc), name_style),
+              Paragraph(f"สแกนเพื่อตรวจครุภัณฑ์ห้องนี้ ({n} รายการ)", sub_style)] for loc, n, png in rooms]
+    if not cards:  # ยังไม่มีอุปกรณ์ที่ระบุสถานที่ — Table ว่างทำ ReportLab ล้ม
+        doc.build([Paragraph("ยังไม่มีอุปกรณ์ที่ระบุสถานที่เก็บ", name_style)])
+        return buf.getvalue()
+    rows = [cards[i:i + 2] for i in range(0, len(cards), 2)]
+    if len(rows[-1]) == 1:
+        rows[-1].append("")
+    table = Table(rows, colWidths=[W / 2, W / 2], rowHeights=[88 * mm] * len(rows))
+    table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.grey), ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    doc.build([table])
+    return buf.getvalue()
