@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.user import (
     UserApprovalRequest,
     PaginatedUsers,
+    PatchSeenRequest,
     UserCreateRequest,
     UserResponse,
     UserRoleUpdateRequest,
@@ -36,6 +37,16 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     return await users_service.update_profile(db, current_user, body)
+
+
+@router.post("/me/patch-seen", status_code=204)
+async def mark_patch_seen(
+    body: PatchSeenRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """กดรับทราบ Patch Note — ไม่ลง audit (เหมือน login ไม่ใช่การกระทำที่มีความหมายทางธุรกิจ)"""
+    await users_service.mark_patch_seen(db, current_user, body.version)
 
 
 @router.post("/me/avatar", response_model=UserResponse)

@@ -116,10 +116,10 @@ export default function EligibleStudentsPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 my-4">
+      <div className="flex flex-wrap items-center gap-3 my-4">
         <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           placeholder="ค้นหารหัสนักศึกษา / ชื่อ / อาจารย์ที่ปรึกษา"
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm w-72" />
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm w-full sm:w-72" />
         {/* กรองตามรุ่น — ตัวเลือกมาจากรหัสที่มีอยู่จริงในตาราง (backend นับให้) ไม่ hardcode ปี */}
         <select value={cohort} onChange={(e) => { setCohort(e.target.value); setPage(1) }}
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">

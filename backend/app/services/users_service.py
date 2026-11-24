@@ -163,6 +163,12 @@ async def update_profile(db: AsyncSession, user: User, body: UserUpdateRequest) 
     return user
 
 
+async def mark_patch_seen(db: AsyncSession, user: User, version: str) -> None:
+    """จำว่าผู้ใช้อ่าน Patch Note เวอร์ชันนี้แล้ว — เก็บในบัญชีเพื่อไม่ให้เด้งซ้ำเมื่อเปลี่ยนเครื่อง"""
+    user.seen_patch = version
+    await db.commit()
+
+
 async def update_avatar(db: AsyncSession, user: User, file: UploadFile) -> User:
     """อัปโหลดรูปโปรไฟล์ของผู้ใช้เอง — ใช้ save_image ตัวเดียวกับรูปอุปกรณ์"""
     user.avatar_url = await equipment_service.save_image(file)

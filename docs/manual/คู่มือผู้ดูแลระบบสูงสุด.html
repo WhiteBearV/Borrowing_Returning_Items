@@ -1,0 +1,110 @@
+<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>คู่มือสำหรับผู้ดูแลระบบสูงสุด</title><style>
+@font-face { font-family: Sarabun; src: local('TH Sarabun New'); }
+@font-face { font-family: Sarabun; font-weight: bold; src: local('TH Sarabun New Bold'); }
+@page { size: A4; margin: 16mm 16mm 18mm; }
+body { font-family: 'TH Sarabun New', Sarabun, 'Noto Sans Thai', sans-serif; font-size: 17pt; line-height: 1.35; color: #1f2937; }
+h1 { font-size: 34pt; margin: 0 0 4pt; color: #0f3d73; }
+h2 { font-size: 24pt; color: #0f3d73; border-bottom: 2px solid #0f3d73; padding-bottom: 2pt; margin: 22pt 0 8pt; break-after: avoid; }
+h3 { font-size: 19pt; margin: 14pt 0 4pt; break-after: avoid; }
+p, li { margin: 3pt 0; }
+ol, ul { padding-left: 22pt; margin: 4pt 0; }
+figure { margin: 8pt 0 12pt; break-inside: avoid; text-align: center; }
+figure img { max-width: 100%; max-height: 98mm; border: 1px solid #d1d5db; border-radius: 4px; }
+figure.phone img { max-height: 120mm; }
+figcaption { font-size: 14pt; color: #6b7280; margin-top: 2pt; }
+.tip { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 4pt 10pt; margin: 6pt 0; break-inside: avoid; }
+.warn { background: #fef2f2; border-left: 4px solid #e11d48; padding: 4pt 10pt; margin: 6pt 0; break-inside: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0; break-inside: avoid; }
+th, td { border: 1px solid #d1d5db; padding: 2pt 6pt; text-align: left; vertical-align: top; }
+th { background: #f3f4f6; }
+.status td:first-child { white-space: nowrap; }
+.cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+.cover .sub { font-size: 22pt; color: #4b5563; }
+.toc li { margin: 1pt 0; }
+.pair { display: flex; gap: 8pt; justify-content: center; }
+.pair figure { flex: 1; }
+/* ไม่ให้หัวข้อถูกตัดข้ามหน้า (ผู้ใช้ขอ 5 พ.ย. 69) — ทั้งหัวข้อพอดีหน้าเดียวได้ก็ขึ้นหน้าใหม่ทั้งก้อน
+   หัวข้อที่ยาวเกินหนึ่งหน้า ตัดได้เฉพาะระหว่างก้อน (.keep / รูป) ไม่ตัดกลางรายการขั้นตอน */
+section.sec { break-inside: avoid; }
+.keep, ol, ul, table, .pair, .tip, .warn { break-inside: avoid; }
+h2, h3 { break-after: avoid; }
+
+/* หน้าจอ: ไม่ใช้ TH Sarabun (ตัวเล็กกว่าฟอนต์ทั่วไปราว 30% — โน้ตบุ๊กจอเล็กอ่านไม่ออก, feedback 24 พ.ย. 69) */
+@media screen {
+  body { max-width: 1120px; margin: 0 auto; padding: 16px 20px 64px; font-family: 'Leelawadee UI', 'Noto Sans Thai', Thonburi, Tahoma, sans-serif;
+         font-size: 18px; line-height: 1.75; background: #fff; }
+  h1 { font-size: 32px; } h2 { font-size: 25px; scroll-margin-top: 12px; } h3 { font-size: 20px; }
+  .cover { height: auto; padding: 12px 0 4px; } .cover .sub { font-size: 20px; }
+  figure img { max-height: none !important; height: auto; cursor: zoom-in; }
+  figure.phone img { max-width: min(100%, 420px); }
+  figcaption { font-size: 15px; }
+  .pair { flex-wrap: wrap; } .pair figure { min-width: 220px; }
+  .toc a { color: #0f3d73; }
+  li b, p b, td b { background: #fef3c7; padding: 0 4px; border-radius: 4px; }
+  .tip, .warn { padding: 8px 14px; border-radius: 6px; }
+  table { font-size: 16px; display: block; overflow-x: auto; }
+  .back { position: fixed; right: 16px; bottom: 16px; background: #0f3d73; color: #fff; border-radius: 999px;
+          padding: 8px 14px; font-size: 15px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+}
+@media print { .back, .web-only { display: none; } }
+</style></head><body>
+<div class="cover" id="top"><h1>คู่มือสำหรับผู้ดูแลระบบสูงสุด</h1><div class="sub">งานที่ทำได้เฉพาะผู้ดูแลระบบสูงสุด</div>
+<p style="margin-top:18pt">ระบบยืม-คืนอุปกรณ์ สาขาวิศวกรรมคอมพิวเตอร์ และสาขาออกแบบดิจิทัล<br>คณะเทคโนโลยีดิจิทัล สถาบันเทคโนโลยีจิตรลดา</p>
+<p>เข้าใช้งานที่ <b>https://172.16.46.130</b> · ฉบับวันที่ 23 พฤศจิกายน 2569</p><p class="web-only">งานประจำของเจ้าหน้าที่ เปิด <a href="คู่มือเจ้าหน้าที่.html">คู่มือเจ้าหน้าที่</a></p>
+<p style="color:#6b7280;font-size:14pt">ภาพในคู่มือถ่ายจากระบบจริงโดยใช้บัญชีและชื่อสมมติ</p>
+<h3>สารบัญ</h3><ol class="toc"><li><a href="#s1">ขอบเขตของคู่มือ</a></li><li><a href="#s2">ป้ายอัตราค่าปรับ</a></li><li><a href="#s3">ค่าปรับ: ยกเว้น และค่าตั้งค่าที่เกี่ยวกับเงิน</a></li><li><a href="#s4">ราคาและทะเบียนของอุปกรณ์</a></li><li><a href="#s5">คำขอแก้ไขข้อมูล</a></li><li><a href="#s6">บัญชีผู้ใช้: เปลี่ยนสิทธิ์และลบบัญชี</a></li><li><a href="#s7">ซ่อนและกู้คืนประวัติการยืม</a></li><li><a href="#s8">ตรวจสอบระบบ</a></li></ol></div><section class="sec" id="s1"><h2>1. ขอบเขตของคู่มือ</h2>
+<p>ผู้ดูแลระบบสูงสุดทำงานของผู้ดูแลคลังได้ทุกอย่าง งานประจำ เช่น อนุมัติคำขอ จ่ายของ รับคืน และตรวจครุภัณฑ์
+อ่านใน <a href="คู่มือเจ้าหน้าที่.html">คู่มือเจ้าหน้าที่</a> เล่มนี้มีเฉพาะงานที่ทำได้ในระดับนี้เท่านั้น</p>
+<div class="warn">งานในเล่มนี้กระทบเงิน สิทธิ์ของผู้อื่น หรือข้อมูลย้อนหลัง ทุกครั้งที่ทำจะถูกบันทึกในหน้า
+<b>ประวัติการใช้งาน</b> และงานส่วนใหญ่ต้องพิมพ์เหตุผลก่อนยืนยัน</div>
+</section><section class="sec" id="s2"><h2>2. ป้ายอัตราค่าปรับ</h2>
+<div class="keep"><p>อุปกรณ์แต่ละรุ่นใช้ป้ายอัตราค่าปรับคืนเกินกำหนดของตัวเอง ระบบตั้งป้ายไว้ให้ 4 ป้าย คือ 5, 10, 20 และ 30 บาทต่อวัน
+ป้าย 10 บาทเป็นค่าเริ่มต้น และอุปกรณ์ทุกชิ้นเริ่มต้นที่ป้ายนี้</p>
+<ol><li>ไปที่เมนู <b>การตั้งค่า</b> หัวข้อ <b>ป้ายอัตราค่าปรับคืนเกินกำหนด (รายรุ่น)</b></li>
+<li>กด <b>+ เพิ่มป้ายอัตราใหม่</b> เพื่อสร้างป้าย หรือกด <b>แก้ไข</b> เพื่อเปลี่ยนชื่อหรือจำนวนเงินของป้ายเดิม</li>
+<li>กด <b>ตั้งเป็นค่าเริ่มต้น</b> ที่ป้ายที่ต้องการให้อุปกรณ์รุ่นใหม่ได้โดยอัตโนมัติ</li>
+<li>กด <b>ลบ</b> เพื่อลบป้ายที่ไม่ใช้แล้ว</li></ol>
+<figure><a href="img/a09c_fine_rates.png" target="_blank" title="กดเพื่อดูภาพขนาดเต็ม"><img src="img/a09c_fine_rates.png"></a><figcaption>รายการป้ายอัตราค่าปรับในหน้าการตั้งค่า</figcaption></figure></div>
+<div class="tip">แก้จำนวนเงินของป้าย มีผลกับการยืมครั้งถัดไปเท่านั้น เพราะอัตราถูกล็อกไว้ตอนอนุมัติ ของที่ยืมอยู่จึงไม่เปลี่ยนตาม
+ลบป้ายที่ยังมีอุปกรณ์ใช้อยู่ หรือป้ายค่าเริ่มต้นไม่ได้ ให้ย้ายอุปกรณ์ไปป้ายอื่นก่อน
+การเลือกป้ายให้อุปกรณ์แต่ละรุ่นเป็นงานของผู้ดูแลคลัง ทำในฟอร์มอุปกรณ์</div>
+</section><section class="sec" id="s3"><h2>3. ค่าปรับ: ยกเว้น และค่าตั้งค่าที่เกี่ยวกับเงิน</h2>
+<div class="keep"><p>ผู้ดูแลระบบสูงสุดยกเว้นค่าปรับได้ทุกยอด ที่เมนู <b>ค่าปรับ</b> กดยกเว้นที่รายการที่ค้างชำระ แล้วพิมพ์เหตุผล
+ยอดที่ยกเว้นยังอยู่ในรายงาน ไม่ถูกล้างเป็นศูนย์ จึงตอบได้เสมอว่ายกเว้นไปเท่าไร
+จัดการค่าปรับของคำขอที่ตัวเองเป็นผู้ยืมไม่ได้ ต้องให้เจ้าหน้าที่คนอื่นทำ</p>
+<p>ในหน้า <b>การตั้งค่า</b> ช่องต่อไปนี้แก้ได้เฉพาะผู้ดูแลระบบสูงสุด</p>
+<ul><li>วันผ่อนผัน เพดานค่าปรับต่อรายการ และอัตรากลางที่ใช้กับรายการที่อนุมัติก่อนมีป้ายอัตรา</li>
+<li>ยอดค้างชำระที่ทำให้ระงับการยืม ค่าเริ่มต้น 200 บาท ถ้าใส่ 0 จะไม่ระงับเลย</li>
+<li>เพดานยอดที่ผู้ดูแลคลังยกเว้นได้เอง ถ้าใส่ 0 ผู้ดูแลคลังจะยกเว้นเองไม่ได้</li>
+<li>ค่าเสื่อม มูลค่าที่พิมพ์ในเอกสาร น้ำหนักที่ใช้คำนวณคุณภาพอุปกรณ์ และเวลาที่ระบบส่งแจ้งเตือนทุกวัน</li></ul></div>
+<figure><a href="img/a09b_fines_super.png" target="_blank" title="กดเพื่อดูภาพขนาดเต็ม"><img src="img/a09b_fines_super.png"></a><figcaption>หน้าค่าปรับของผู้ดูแลระบบสูงสุด</figcaption></figure>
+</section><section class="sec" id="s4"><h2>4. ราคาและทะเบียนของอุปกรณ์</h2>
+<p>ช่องในแท็บ <b>ทะเบียน & การเงิน</b> ของฟอร์มอุปกรณ์ คือ ราคาที่ซื้อ มูลค่าตามบัญชี วันที่ได้มา อายุการใช้งาน
+และเลขครุภัณฑ์ ผู้ดูแลคลังกรอกช่องเหล่านี้ได้ตอนเพิ่มอุปกรณ์ใหม่เท่านั้น ถ้าต้องแก้ภายหลัง จะแก้ทีละชิ้นหรือหลายรายการพร้อมกันก็ตาม
+ต้องเป็นผู้ดูแลระบบสูงสุด ผู้ดูแลคลังจะยื่นคำขอมาตามหัวข้อถัดไป</p>
+</section><section class="sec" id="s5"><h2>5. คำขอแก้ไขข้อมูล</h2>
+<div class="keep"><p>เมนู <b>คำขอแก้ไขข้อมูล</b> รวมงานที่ผู้ดูแลคลังขอให้แก้ พร้อมเหตุผล</p>
+<ol><li>เปิดคำขอ อ่านว่าต้องแก้อะไรและเพราะอะไร</li>
+<li>ไปแก้ข้อมูลนั้นด้วยตัวเองในหน้าที่เกี่ยวข้อง ระบบไม่แก้ข้อมูลให้อัตโนมัติจากคำขอ</li>
+<li>กลับมากดปิดงาน ระบุว่าทำให้แล้ว หรือไม่ดำเนินการพร้อมเหตุผล ผู้ยื่นจะเห็นผลนี้</li></ol>
+<figure><a href="img/a08f_change_requests.png" target="_blank" title="กดเพื่อดูภาพขนาดเต็ม"><img src="img/a08f_change_requests.png" style="max-height:112mm"></a><figcaption>หน้าคำขอแก้ไขข้อมูล</figcaption></figure></div>
+</section><section class="sec" id="s6"><h2>6. บัญชีผู้ใช้: เปลี่ยนสิทธิ์และลบบัญชี</h2>
+<div class="keep"><p>ที่เมนู <b>จัดการผู้ใช้</b> ผู้ดูแลระบบสูงสุดเปลี่ยนระดับสิทธิ์ (ผู้ใช้งาน ผู้ดูแลคลัง ผู้ดูแลระบบสูงสุด) และลบบัญชีได้
+ทั้งยังจัดการบัญชีของทุกระดับได้ ต่างจากผู้ดูแลคลังที่จัดการได้เฉพาะบัญชีที่ต่ำกว่าตัวเอง</p>
+<ul><li>ปิดบัญชีตัวเองไม่ได้ และปิดหรือลดสิทธิ์ผู้ดูแลระบบสูงสุดคนสุดท้ายที่ยังใช้งานอยู่ไม่ได้</li>
+<li>ลบบัญชีแล้วประวัติการใช้งานของบัญชีนั้นยังอยู่ครบ แสดงชื่อและระดับสิทธิ์ ณ เวลาที่ทำ</li>
+<li>ถ้าเพียงไม่ต้องการให้เข้าระบบชั่วคราว ให้ปิดบัญชีแทนการลบ</li></ul></div>
+<figure><a href="img/a09d_users_super.png" target="_blank" title="กดเพื่อดูภาพขนาดเต็ม"><img src="img/a09d_users_super.png"></a><figcaption>หน้าจัดการผู้ใช้ของผู้ดูแลระบบสูงสุด</figcaption></figure>
+</section><section class="sec" id="s7"><h2>7. ซ่อนและกู้คืนประวัติการยืม</h2>
+<p>ใช้เมื่อคำขอถูกบันทึกผิด เช่น ยื่นซ้ำโดยไม่ตั้งใจ ที่เมนู <b>ประวัติการยืม</b> เปิดคำขอแล้วกด <b>ลบประวัติ</b> พิมพ์เหตุผล
+คำขอจะถูกซ่อนจากทุกหน้า แต่ยังไม่หายจากฐานข้อมูล ท้ายหน้าเดียวกันมีปุ่ม <b>ดูประวัติที่ถูกลบ (กู้คืนได้)</b>
+กด <b>กู้คืน</b> ที่รายการที่ต้องการ</p>
+<div class="warn">คำขอที่มีประวัติค่าปรับซ่อนไม่ได้ เพราะยอดเงินจะหายจากรายงาน
+การลบถาวรทำได้ทางเดียวคือผู้ดูแลเซิร์ฟเวอร์รันสคริปต์บนเครื่อง และลบได้เฉพาะคำขอที่ซ่อนไว้แล้ว</div>
+</section><section class="sec" id="s8"><h2>8. ตรวจสอบระบบ</h2>
+<div class="keep"><p>เมนู <b>ตรวจสอบระบบ</b> แสดงความเร็วและสถานะของเซิร์ฟเวอร์ เช่น เวลาตอบสนองของแต่ละหน้า ภาระของฐานข้อมูล
+CPU และหน่วยความจำ รวมทั้งเวลาที่เสียไประหว่างเครื่องของคุณกับเซิร์ฟเวอร์ ใช้ตรวจเมื่อมีผู้ใช้แจ้งว่าระบบช้า
+การ์ดที่พบปัญหากดดูตัวอย่างแล้วไปยังหน้าที่ต้องแก้ได้</p>
+<figure><a href="img/a09a_system_check.png" target="_blank" title="กดเพื่อดูภาพขนาดเต็ม"><img src="img/a09a_system_check.png" style="max-height:200mm"></a><figcaption>หน้าตรวจสอบระบบ</figcaption></figure></div>
+</section><a class="back" href="#top">↑ สารบัญ</a></body></html>

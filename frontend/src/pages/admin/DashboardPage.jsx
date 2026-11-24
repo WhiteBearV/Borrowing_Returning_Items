@@ -40,7 +40,7 @@ export default function DashboardPage() {
       <h1 className="text-2xl font-light text-gray-800 mb-8">Admin Dashboard</h1>
 
       {/* Bento grid — ขนาด tile แปรตามความสำคัญ ไม่ใช่ตารางเท่ากันหมด */}
-      <div className="grid grid-cols-4 [grid-auto-flow:dense] auto-rows-[110px] gap-4 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 [grid-auto-flow:dense] auto-rows-[110px] gap-3 sm:gap-4 mb-3">
         <Link to="/admin/borrow-requests"
           className="col-span-2 row-span-2 rounded-2xl p-6 flex flex-col justify-between bg-yellow-50 text-yellow-700 hover:opacity-80 transition-opacity">
           <p className="text-sm font-semibold">รออนุมัติ</p>
@@ -126,7 +126,7 @@ export default function DashboardPage() {
 
       {/* ภาพรวมคลังอุปกรณ์ — สีกลาง แยกจาก tile แจ้งเตือนด้านบน */}
       <p className="text-sm font-semibold text-gray-500 mb-3 mt-8">ภาพรวมคลังอุปกรณ์</p>
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-8">
         {equipmentCounts.map((c) => (
           <Link key={c.label} to={`/admin/equipment?item_type=${c.itemType}`} className="rounded-xl p-5 text-center bg-slate-50 text-slate-700 hover:opacity-80 transition-opacity">
             <p className="text-3xl font-bold">{c.value}</p>

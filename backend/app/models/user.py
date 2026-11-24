@@ -35,6 +35,8 @@ class User(Base):
     # เวลาที่เรียก API ล่าสุด — ใช้ตอบ "ตอนนี้มีคนใช้งานอยู่กี่คน" ในหน้าตรวจสอบระบบ
     # อัปเดตแบบ throttle ใน dependencies.get_current_user (ไม่ใช่ทุก request) กันเขียน DB ถี่เกินจำเป็น
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # เวอร์ชัน Patch Note ที่กดรับทราบล่าสุด (0057) — หน้าเว็บเทียบกับ frontend/src/data/patchNotes.js
+    seen_patch: Mapped[str | None] = mapped_column(String(20), nullable=True)
     line_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     borrow_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")  # เลขรันคำขอยืมต่อผู้ใช้
     # ชั้นปีนักศึกษา (เฟส 10, 15 ก.ย. 69) — enrollment_year เป็น พ.ศ. (เช่น 2569) มาจากรหัสนักศึกษา

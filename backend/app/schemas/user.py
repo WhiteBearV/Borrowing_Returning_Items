@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     approval_status: str = "approved"
     approval_note: str | None = None
     created_at: datetime
+    seen_patch: str | None = None  # Patch Note ที่กดรับทราบล่าสุด
 
     # ชั้นปี (เฟส 10) — enrollment_year/study_years/is_transfer เป็นคอลัมน์จริง ส่วน year_level/is_retained/
     # remaining_study_years/study_year_label เป็นค่าคำนวณสด (users_service.attach_study_year เติมให้ก่อน
@@ -136,3 +137,7 @@ class UserApprovalRequest(BaseModel):
     """อนุมัติ/ปฏิเสธผู้สมัครที่ไม่อยู่ในรายชื่อของสาขา (เฟส 9)"""
     approve: bool
     note: str | None = Field(None, max_length=500)
+
+
+class PatchSeenRequest(BaseModel):
+    version: str = Field(min_length=1, max_length=20)
