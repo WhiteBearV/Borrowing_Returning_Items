@@ -38,6 +38,8 @@ class BorrowItem(Base):
     # มูลค่าตามบัญชี ณ วันอนุมัติ — ล็อกคู่กับ unit_value_snapshot เพราะค่าเสื่อมเดินทุกวัน
     # ใบยืมใบเดิมต้องพิมพ์ซ้ำได้ตัวเลขเดิมเสมอ ไม่ว่าเวลาผ่านไปนานแค่ไหนหรือ setting เปลี่ยน
     book_value_snapshot: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # อัตราค่าปรับคืนช้า (บาท/วัน) ณ วันอนุมัติ — จากป้ายของหน่วยที่จ่ายจริง (0056) · ว่าง = รายการก่อนมีป้าย ใช้อัตรากลางตอนคืน
+    fine_rate_snapshot: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     # ชื่อ/รหัส/หน่วยนับ ณ ตอนสร้างคำขอ (เขียนทับตอนอนุมัติเป็นค่าของหน่วยที่จัดสรรจริง) — snapshot คอลัมน์จริง
     # ไม่ใช่ live join เพราะแถว equipment อาจถูกลบถาวรได้ (ปลดระวาง+ไม่มีการยืมค้าง, ดู equipment_service.delete_equipment)
     # แล้ว equipment_id จะกลาย NULL (ON DELETE SET NULL) — ประวัติต้องยังอ่านชื่อ/รหัสเดิมได้เสมอ

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { settingsApi } from '../../api/settingsApi.js'
 import EmptyState from '../../components/common/EmptyState.jsx'
+import FineRatesPanel from '../../components/equipment/FineRatesPanel.jsx'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { isSuperadmin } from '../../utils/role.js'
 
@@ -156,6 +157,7 @@ export default function SettingsPage() {
             </div>
           </section>
         ))}
+        <FineRatesPanel canEdit={canEditAll} />
       </div>
     </div>
   )

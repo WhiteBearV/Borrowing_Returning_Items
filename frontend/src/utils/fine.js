@@ -26,7 +26,8 @@ export function previewFine(item, req, condition, settings, quantity = item.quan
     const v = Number(row?.value)
     return Number.isFinite(v) ? v : fallback
   }
-  const rate = num('fine_per_day_per_item', 10)
+  // อัตราที่ล็อกตอนอนุมัติก่อน (ป้ายรายรุ่น 0056) — ไม่มี = รายการก่อนมีป้าย ใช้อัตรากลาง (ตรงกับ backend _rate_for)
+  const rate = item.fine_rate_snapshot != null ? Number(item.fine_rate_snapshot) : num('fine_per_day_per_item', 10)
   const grace = num('fine_grace_days', 0)
   const cap = num('fine_max_per_item', 0)
 
