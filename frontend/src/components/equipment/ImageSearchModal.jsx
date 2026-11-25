@@ -82,7 +82,7 @@ export default function ImageSearchModal({ onClose }) {
           <p className="text-sm text-gray-600">ไม่พบรุ่นที่ใกล้เคียง</p>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500">รุ่นที่ใกล้เคียงที่สุด (เรียงจากใกล้สุด) — ระบบเดาจากรูป อาจไม่ตรงทุกครั้ง</p>
+            <p className="text-xs text-gray-500">รุ่นที่ใกล้เคียงที่สุด เรียงจากใกล้สุด ระบบเดาจากรูปจึงอาจไม่ตรงทุกครั้ง</p>
             {results.map((r) => (
               <Link key={r.equipment_id} to={`/equipment/${r.equipment_id}`} onClick={onClose}
                 className="flex items-center gap-3 rounded-lg border border-gray-200 p-2 hover:bg-gray-50">
