@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field
 from transformers import AutoModel, AutoProcessor
 
 MODEL = os.environ.get("VISION_MODEL", "google/siglip2-large-patch16-256")
+# กันรูประเบิด (ไฟล์ PNG เล็กแต่ภาพหลายหมื่นพิกเซล ถอดแล้วกิน RAM/CPU หลาย GB) — ภาพมือถือ 48MP ยังผ่าน
+Image.MAX_IMAGE_PIXELS = 50_000_000
+MAX_SIDE = 1024  # โมเดลใช้แค่ 256px ย่อก่อน convert ให้ถอดรูปเบาลง
 torch.set_num_threads(int(os.environ.get("VISION_THREADS", "2")))
 
 proc = AutoProcessor.from_pretrained(MODEL)
@@ -52,7 +55,12 @@ def health() -> dict:
 def embed_image(file: UploadFile = File(...)) -> dict:
     """รูป 1 รูป → เวกเตอร์ (normalize แล้ว) · def ธรรมดา = FastAPI รันใน threadpool ไม่บล็อก event loop"""
     try:
-        img = Image.open(io.BytesIO(file.file.read())).convert("RGB")
+        img = Image.open(io.BytesIO(file.file.read()))  # อ่านแค่หัวไฟล์ — เกิน MAX_IMAGE_PIXELS โยน error ที่นี่
+        if img.width * img.height > Image.MAX_IMAGE_PIXELS:
+            raise ValueError("image too large")
+        img.draft("RGB", (MAX_SIDE, MAX_SIDE))  # JPEG: ถอดที่ความละเอียดต่ำตั้งแต่แรก
+        img.thumbnail((MAX_SIDE, MAX_SIDE))
+        img = img.convert("RGB")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"Invalid image: {e}") from e
     with _lock, torch.no_grad():
