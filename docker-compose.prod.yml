@@ -55,6 +55,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       SIGNING_CERT_PATH: /app/signing/cert.pem
       SIGNING_KEY_PATH: /app/signing/key.pem
+      VISION_URL: http://vision:8001
     depends_on:
       db:
         condition: service_healthy
@@ -64,6 +65,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ค้นหาอุปกรณ์ด้วยรูป (SigLIP2 large-256, 25 พ.ย. 69) — แยก container: กิน RAM ~3.5 GB + CPU หนัก
+  # ล่ม/ช้าแล้วระบบยืมไม่ล่มตาม (backend ตอบ 503 เฉพาะปุ่มค้นด้วยรูป) · ไม่เปิด port ออกนอก
+  # build ครั้งแรกโหลดโมเดล ~3.5 GB ลง image — ช้า แต่ deploy รอบถัด ๆ ไปใช้ cache
+  vision:
+    build: ./vision
+    environment:
+      VISION_THREADS: "2"
+    # จำกัดไม่ให้แย่ง backend/db — 1.5 จาก 2 vCPU · RAM โมเดล fp32 ~3.5 GB + ระหว่างคำนวณ
+    cpus: 1.5
+    mem_limit: 4500m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     restart: unless-stopped
     logging: *default-logging
 

@@ -63,6 +63,12 @@ export const equipmentApi = {
     // ต้อง override ให้ axios ตั้ง multipart boundary เอง (default ของ instance เป็น application/json)
     return api.post('/equipment/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
   },
+  // ค้นหาด้วยรูป → 5 รุ่นที่ใกล้ที่สุด (รูปไม่ถูกเก็บที่เซิร์ฟเวอร์)
+  searchByImage: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/equipment/search-by-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
   qrcode: (id) => api.get(`/equipment/${id}/qrcode`, { responseType: 'blob' }).then((r) => r.data),
   // ชิ้นส่วน/การอัพเกรด — อายุและมูลค่าของแต่ละชิ้นแยกจากเครื่องหลัก (ถอดออกแล้วยังอยู่เป็นประวัติ)
   listParts: (id, includeRemoved = true) =>

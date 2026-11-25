@@ -422,6 +422,18 @@ class ImportCommitRequest(BaseModel):
     rows: list[ImportRowIn]
 
 
+class ImageSearchResult(BaseModel):
+    """ผลค้นหาด้วยรูป 1 รุ่น — การ์ดเบา ๆ (ไม่มีราคา/คุณภาพ) ผู้ยืมกดต่อไปหน้ารายละเอียดด้วย equipment_id"""
+    equipment_id: uuid.UUID
+    name: str
+    item_type: str
+    unit: str | None = None
+    image_url: str | None = None
+    quantity_total: int
+    quantity_available: int
+    score: float  # z-score รวม ใช้เรียงเท่านั้น ไม่ใช่ % ความมั่นใจ
+
+
 class PaginatedEquipment(BaseModel):
     items: list[EquipmentResponse]
     total: int

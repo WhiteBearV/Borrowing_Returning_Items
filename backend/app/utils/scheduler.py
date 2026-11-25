@@ -7,7 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.config import TZ
+from app.core.config import TZ, settings
 from app.core.database import AsyncSessionLocal
 from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
@@ -247,4 +247,12 @@ async def start_scheduler() -> None:
     scheduler.add_job(_check_due_soon, trigger, id="due_soon", misfire_grace_time=3600)
     scheduler.add_job(_check_overdue, trigger, id="overdue", misfire_grace_time=3600)
     scheduler.add_job(_check_inspection, trigger, id="inspection", misfire_grace_time=3600)
+    # ค้นหาด้วยรูป: เติมเวกเตอร์ที่ขาด/ลบที่ไม่ใช้ทุกคืน + 1 รอบหลังบูต (deploy ครั้งแรก/เปลี่ยนโมเดล)
+    # ไม่ได้ตั้ง VISION_URL = ข้าม (dev ส่วนใหญ่/เทส)
+    if settings.VISION_URL:
+        from app.services.image_search_service import fill_missing
+        scheduler.add_job(fill_missing, CronTrigger(hour=3, minute=30, timezone=TZ), id="image_embeddings",
+                          misfire_grace_time=3600)
+        scheduler.add_job(fill_missing, id="image_embeddings_boot",
+                          next_run_time=datetime.now(TZ) + timedelta(seconds=30))
     scheduler.start()

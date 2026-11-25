@@ -68,7 +68,7 @@ const SERVER_SECTIONS = [
     keys: ['database', 'db_pool', 'db_connections', 'db_activity', 'db_size', 'migration'] },
   { id: 'host', short: 'เครื่อง', title: 'ทรัพยากรของเครื่อง',
     desc: 'CPU · หน่วยความจำ · ดิสก์ · สำรองข้อมูลนอกเครื่อง — ถ้าหมวดนี้เต็ม ทุกอย่างบนเครื่องจะช้าพร้อมกัน',
-    keys: ['cpu_load', 'memory', 'disk', 'uploads', 'uptime', 'offsite_backup'] },
+    keys: ['cpu_load', 'memory', 'disk', 'uploads', 'uptime', 'offsite_backup', 'image_search'] },
   { id: 'service', short: 'บริการ', title: 'บริการและงานที่รอคน',
     desc: 'งานแจ้งเตือนอัตโนมัติ · อีเมล · ผู้ใช้ที่ออนไลน์ · งานค้างรอเจ้าหน้าที่',
     keys: ['scheduler', 'email', 'online_users', 'queue'] },

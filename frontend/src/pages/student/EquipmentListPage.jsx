@@ -7,6 +7,7 @@ import Pagination from '../../components/common/Pagination.jsx'
 import { STATUS_LABEL } from '../../components/equipment/StatusBadge.jsx'
 import EmptyState from '../../components/common/EmptyState.jsx'
 import QrScanModal from '../../components/common/QrScanModal.jsx'
+import ImageSearchModal from '../../components/equipment/ImageSearchModal.jsx'
 
 const TYPE_LABEL = { durable: 'ครุภัณฑ์', material: 'วัสดุใช้ซ้ำ', consumable: 'วัสดุสิ้นเปลือง' }
 
@@ -19,6 +20,7 @@ export default function EquipmentListPage() {
   const [bundleMsg, setBundleMsg] = useState('')
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
+  const [imageSearch, setImageSearch] = useState(false)
 
   // เก็บ filter ไว้ใน URL เพื่อให้กดย้อนกลับจากหน้ารายละเอียดแล้วหมวด/หน้าเดิมยังอยู่
   const [params, setParams] = useSearchParams()
@@ -96,6 +98,7 @@ export default function EquipmentListPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       {scanning && <QrScanModal onResult={handleScan} onClose={() => setScanning(false)} />}
+      {imageSearch && <ImageSearchModal onClose={() => setImageSearch(false)} />}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-light text-gray-800">อุปกรณ์ทั้งหมด</h1>
         <button
@@ -129,6 +132,10 @@ export default function EquipmentListPage() {
           className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
           สแกน QR
         </button>
+        <button type="button" onClick={() => setImageSearch(true)}
+          className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+          ค้นด้วยรูป
+        </button>
         <select
           value={categoryId}
           onChange={(e) => setCategoryId(e.target.value)}
@@ -140,14 +147,6 @@ export default function EquipmentListPage() {
           ))}
         </select>
       </div>
-      {/* ponytail: ค้นหาด้วยรูปแบบเบา (16 พ.ย. 69) — ส่งไป Google Lens ฝั่งผู้ใช้เอง รูปไม่ผ่านเซิร์ฟเวอร์เรา
-          ทำ CLIP บนเซิร์ฟเวอร์ + API เมื่ออาจารย์ยืนยันว่าต้องการจริง (Plans/2026-11-02-image-search-clip.md) */}
-      <p className="-mt-4 mb-6 text-xs text-gray-500">
-        ไม่รู้ชื่อของ?{' '}
-        <a href="https://lens.google.com/" target="_blank" rel="noopener noreferrer"
-          className="text-primary-600 hover:underline">ถ่ายรูปหาชื่อด้วย Google Lens</a>
-        {' '}แล้วกลับมาพิมพ์ชื่อในช่องค้นหา
-      </p>
 
       {loading ? (
         <EmptyState>กำลังโหลด…</EmptyState>

@@ -1,0 +1,10 @@
+# เวอร์ชันเดียวกับที่ใช้วัดผล PoC (Plans/2026-11-25-image-search) — torch มาจาก index CPU ใน Dockerfile
+transformers==5.24.1
+tokenizers==0.23.3
+huggingface-hub==2.4.0
+safetensors==0.8.0
+numpy==2.5.4
+pillow==12.2.0
+fastapi==0.138.0
+uvicorn==0.49.0
+python-multipart==0.0.32

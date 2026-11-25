@@ -28,6 +28,7 @@ from app.schemas.equipment import (
     EquipmentQualityAssessRequest,
     EquipmentResponse,
     EquipmentUpdate,
+    ImageSearchResult,
     ImportCommitRequest,
     PaginatedEquipment,
     PaginatedEquipmentGroup,
@@ -37,7 +38,7 @@ from app.schemas.equipment import (
     PartUpdate,
     RestockRequest,
 )
-from app.services import equipment_part_service, equipment_service, import_service
+from app.services import equipment_part_service, equipment_service, image_search_service, import_service
 
 router = APIRouter(tags=["equipment"])
 
@@ -219,6 +220,16 @@ async def assess_equipment_quality(
     """ปุ่ม "ประเมินคุณภาพ" ในหน้าอุปกรณ์ — บังคับเหตุผลเสมอ (schema บังคับ min_length=1 อยู่แล้ว)"""
     eq = await equipment_service.assess_quality(db, admin, equipment_id, body.quality_after, body.reason, "manual")
     return EquipmentResponse.model_validate(eq, from_attributes=True)
+
+
+@router.post("/equipment/search-by-image", response_model=list[ImageSearchResult])
+async def search_equipment_by_image(
+    file: UploadFile,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ImageSearchResult]:
+    """ถ่ายรูปของ → 5 รุ่นในคลังที่ใกล้ที่สุด · รูปไม่ถูกบันทึก · จำกัดอัตราที่ nginx"""
+    return await image_search_service.search_by_image(db, file)
 
 
 @router.post("/equipment/upload-image")

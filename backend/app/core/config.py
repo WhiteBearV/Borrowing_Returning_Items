@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # ว่าง/หาไฟล์ไม่เจอ = ออก PDF แบบไม่ประทับตรา (เอกสารต้องออกได้เสมอ) · ห้าม commit ไฟล์ key
     SIGNING_CERT_PATH: str = ""
     SIGNING_KEY_PATH: str = ""
+    # container ค้นหาด้วยรูป (vision/) — ว่าง = ปิดฟีเจอร์ (ปุ่มค้นด้วยรูปตอบ 503) · prod ตั้งใน docker-compose.prod.yml
+    VISION_URL: str = ""
 
     # Dev
     DEV_AUTO_VERIFY_EMAIL: bool = False  # ต้องตั้งชัดเจน ห้าม True ใน production

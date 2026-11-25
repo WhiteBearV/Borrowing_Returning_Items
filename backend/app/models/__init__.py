@@ -5,6 +5,7 @@ from app.models import (  # noqa: F401
     borrow_item,
     borrow_request,
     bundle,
+    embedding,
     change_request,
     eligible_student,
     equipment,

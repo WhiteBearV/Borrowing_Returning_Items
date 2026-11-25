@@ -22,6 +22,7 @@ from app.models.borrow_item import BorrowItem
 from app.models.borrow_request import BorrowRequest
 from app.models.equipment import Equipment
 from app.models.user import User
+from app.services import image_search_service
 from app.services.borrow_service import STOCK_RETURN_CONDITIONS
 from app.utils import perf
 
@@ -322,6 +323,7 @@ async def _health_checks(db: AsyncSession) -> list[dict]:
     except OSError:
         raw = None
     checks.append(_offsite_backup_check(raw, now))
+    checks.append(_image_search_check(await image_search_service.health(db)))
     checks.extend(await _performance_checks(db))
     return checks
 
@@ -351,6 +353,20 @@ def _offsite_backup_check(raw: str | None, now: datetime) -> dict:
         return {**base, "status": "error", "value": f"ส่งสำเร็จล่าสุด {when}{files}",
                 "hint": f"ไม่ได้ส่งเกิน {OFFSITE_STALE_HOURS // 24} วัน — backup คืนล่าสุดอาจล้มเหลว " + hint_fix}
     return {**base, "status": "ok", "value": f"ส่งสำเร็จ {when}{files}", "hint": ""}
+
+
+def _image_search_check(h: dict) -> dict:
+    """การ์ดค้นหาด้วยรูป — ฟังก์ชันบริสุทธิ์รับผลของ image_search_service.health()"""
+    base = {"key": "image_search", "label": "ค้นหาอุปกรณ์ด้วยรูป"}
+    if not h["configured"]:
+        return {**base, "status": "warn", "value": "ไม่ได้เปิดใช้", "hint": "ตั้ง VISION_URL และรัน container vision"}
+    if not h["up"]:
+        return {**base, "status": "error", "value": "บริการ vision ไม่ตอบ",
+                "hint": "ปุ่มค้นด้วยรูปใช้ไม่ได้ (ระบบยืมอื่นปกติ) — ดู docker compose logs vision"}
+    if h["missing"]:
+        return {**base, "status": "warn", "value": f"เตรียมข้อมูลแล้ว {h['total'] - h['missing']}/{h['total']}",
+                "hint": "ระบบกำลังเติมเบื้องหลัง (หรือรอรอบตี 3:30) — รุ่นที่ยังไม่ครบอาจค้นไม่เจอ"}
+    return {**base, "status": "ok", "value": f"พร้อม · {h['total']} รูป/ชื่อ", "hint": ""}
 
 
 # เกณฑ์ "ช้า" ของหน้าตรวจสอบระบบ — ผู้ใช้เริ่มรู้สึกหน่วงที่ราว 1 วินาทีต่อการกด 1 ครั้ง (หน้าเว็บยิงหลาย request)
