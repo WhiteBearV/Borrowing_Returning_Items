@@ -45,6 +45,7 @@ class BorrowItemResponse(BaseModel):
     equipment_unit: str | None = None
     equipment_serial_number: str | None = None
     equipment_asset_number: str | None = None  # เลขครุภัณฑ์ ณ วันยืม (snapshot)
+    equipment_asset_name: str | None = None  # ชื่อตามบัญชี ณ วันยืม (snapshot, 0059)
     # ชิ้นส่วนที่ติดตั้งอยู่ ณ ตอนออกเอกสาร (เฟส 8) — เติมโดย borrow_service._attach_equipment_specs
     # เฉพาะตอนสร้าง PDF ใบยืม ไม่ใช่คอลัมน์ใน DB (สเปกเปลี่ยนได้ตลอด อ่านสดตอนพิมพ์)
     equipment_specs: str | None = None

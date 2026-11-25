@@ -43,9 +43,11 @@ def test_parse_and_diff(tmp_path):
     existing = {
         # unit_value/acquired_at มีค่าอยู่แล้วในระบบ — diff ต้อง "ไม่" เสนอทับด้วยค่าจากไฟล์ (fill-only)
         "DT-D-00001": {"id": 1, "asset_number": "63-001-0001", "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
+                       "asset_name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
                        "location": "15310", "status": "available", "item_type": "durable",
                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
         "DT-D-00002": {"id": 2, "asset_number": "63-001-0002", "name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
+                       "asset_name": "คอมพิวเตอร์ตั้งโต๊ะ Dell",
                        "location": "15310", "status": "available", "item_type": "durable",
                        "unit_value": 1000.0, "acquired_at": date(2023, 5, 1)},
         "DT-D-00003": {"id": 3, "asset_number": "63-999-9999", "name": "เครื่องเก่าที่หลุดจากทะเบียน",

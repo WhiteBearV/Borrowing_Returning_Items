@@ -188,6 +188,8 @@ def parse_workbook(path: str) -> tuple[list[dict[str, Any]], list[dict[str, str]
         rows.append({
             "code": code, "asset_number": asset_number or None, "_sn": sn or None,
             "name": name, "location": loc or None,
+            # ครุภัณฑ์: ชื่อในไฟล์ = ชื่อตามบัญชี (0059) — นำเข้าซ้ำแก้แค่ asset_name ไม่ทับชื่อสั้นที่ตั้งไว้ในระบบ
+            "asset_name": name if item_type == "durable" else None,
             "status": st, "quantity_available": qa, "category": _categorize(name, code, item_type),
             "item_type": item_type, "quantity_total": qty, "unit": unit,
             "unit_value": unit_value, "acquired_at": acquired_at,
@@ -290,7 +292,9 @@ def diff_rows(
             result.append({"action": "new", **row, "serial_number": sn, "changes": changes})
             continue
         changes: dict[str, list[Any]] = {}
-        for field in ("name", "location", "status"):
+        # ครุภัณฑ์เทียบชื่อตามบัญชีแทนชื่อในระบบ — ตั้งชื่อสั้นไว้แล้วนำเข้าซ้ำต้องไม่ขึ้นว่า "เปลี่ยนชื่อ"
+        name_field = "asset_name" if row["item_type"] == "durable" else "name"
+        for field in (name_field, "location", "status"):
             if (old.get(field) or None) != (row.get(field) or None):
                 changes[field] = [old.get(field), row.get(field)]
         # จำนวนเทียบเฉพาะวัสดุ — ครุภัณฑ์เป็น 1 ชิ้น/1 เลขทะเบียนเสมอ
@@ -393,7 +397,7 @@ def _filter_bad_sn_updates(
 async def _load_existing(db: AsyncSession) -> dict[str, dict[str, Any]]:
     result = await db.execute(select(Equipment))
     return {
-        eq.code: {"id": eq.id, "name": eq.name, "location": eq.location, "status": eq.status,
+        eq.code: {"id": eq.id, "name": eq.name, "asset_name": eq.asset_name, "location": eq.location, "status": eq.status,
                   "item_type": eq.item_type, "quantity_total": eq.quantity_total,
                   "serial_number": eq.serial_number, "asset_number": eq.asset_number,
                   "unit_value": float(eq.unit_value) if eq.unit_value is not None else None,
@@ -570,7 +574,8 @@ async def commit_import(
             if code.startswith(NEW_KEY_PREFIX):
                 code = (await equipment_service.next_system_codes(db, row.item_type))[0]
             eq = Equipment(
-                code=code, asset_number=ref.get("asset_number"), name=row.name, item_type=row.item_type,
+                code=code, asset_number=ref.get("asset_number"), name=row.name, asset_name=row.name if row.item_type == "durable" else None,
+                item_type=row.item_type,
                 location=row.location, status=row.status,
                 unit=row.unit, description=row.description, serial_number=sn,
                 quantity_total=row.quantity,
@@ -636,12 +641,17 @@ async def commit_import(
                     detail=f"{eq.code}: จำนวนในไฟล์ ({row.quantity}) น้อยกว่าที่กำลังถูกยืมอยู่ ({loaned}) — รับคืนก่อนหรือแก้จำนวนในร่าง",
                 )
         old_group = (eq.name, eq.item_type)
+        # ครุภัณฑ์: ชื่อในไฟล์ลงชื่อตามบัญชีอย่างเดียว ชื่อในระบบ (ใช้ค้น/จับรุ่น) คงเดิม (0059)
+        keep_name = row.item_type == "durable"
+        new_name = eq.name if keep_name else row.name
         # ป้ายค่าปรับของรุ่นปลายทาง — ตัดสินก่อนเปลี่ยนชื่อ (ไม่งั้น autoflush นับตัวเองเป็นหน่วยในรุ่นปลายทาง)
         old_rate_name = eq.fine_rate_name
-        dest_rate = (await equipment_service._dest_group_fine_rate(db, row.name, row.item_type, {eq.id})
-                     if (row.name, row.item_type) != old_group else None)
+        dest_rate = (await equipment_service._dest_group_fine_rate(db, new_name, row.item_type, {eq.id})
+                     if (new_name, row.item_type) != old_group else None)
         old_quality = (eq.quality_tracked, eq.quality_life_years)
-        eq.name, eq.status = row.name, row.status
+        eq.name, eq.status = new_name, row.status
+        if keep_name:
+            eq.asset_name = row.name
         equipment_service.set_room(eq, row.location)  # ห้องเดิม = ตำแหน่งในตู้ที่กรอกไว้ไม่หาย
         eq.item_type, eq.quantity_total = row.item_type, row.quantity
         # ตั้งยอดคงเหลือทันทีคู่กับจำนวนรวม — query ถัดไป (หมวดหมู่/SN) จะ autoflush ถ้ายอดคงเหลือยังเป็นค่าเก่าที่

@@ -48,6 +48,7 @@ class BorrowItem(Base):
     equipment_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     equipment_serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     equipment_asset_number: Mapped[str | None] = mapped_column(String(50), nullable=True)  # เลขครุภัณฑ์ ณ วันยืม
+    equipment_asset_name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ชื่อตามบัญชี ณ วันยืม (0059)
     # วันคืนระดับรายชิ้น (เฟส 3) — นักศึกษาขอแยกชิ้นได้ ค่าว่าง = ใช้วันของทั้งคำขอ
     # requested_due_date = วันที่ขอไว้ตอนยื่น · due_date = วันครบกำหนดจริงหลังแอดมินอนุมัติ
     # อ่านค่าที่ "ใช้จริง" ผ่าน utils.duedate.effective_due_date เท่านั้น ห้าม coalesce เองซ้ำที่อื่น

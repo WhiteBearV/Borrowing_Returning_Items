@@ -1181,6 +1181,8 @@ async def create_equipment(db: AsyncSession, admin: User, body: EquipmentCreate)
     data = body.model_dump(exclude={"category_ids", "fine_rate_id"})
     data["code"] = code
     data["name"] = _normalize_name(data["name"])
+    # ชื่อตามบัญชีมีเฉพาะครุภัณฑ์ — ไม่กรอกมา = เริ่มจากชื่อในระบบ (แก้ทีหลังได้)
+    data["asset_name"] = (data.get("asset_name") or data["name"]) if body.item_type == "durable" else None
     data["image_url"] = data["image_urls"][0] if data.get("image_urls") else None  # cover = รูปแรก
     eq = Equipment(**data)
     eq.categories = await _resolve_categories(db, body.category_ids)
@@ -1304,6 +1306,7 @@ def _search_clause(search: str):
         Equipment.manufacturer.ilike(kw),
         Equipment.serial_number.ilike(kw),
         Equipment.asset_number.ilike(kw),
+        Equipment.asset_name.ilike(kw),  # ชื่อตามบัญชี (0059) — ตั้งชื่อในระบบให้สั้นแล้วค้นด้วยชื่อยาวก็ยังเจอ
         Equipment.location.ilike(kw),
         Equipment.location_detail.ilike(kw),
         # พิมพ์เลขครุภัณฑ์ไม่มีขีดก็เจอ (เก็บแบบมีขีด)
@@ -1679,6 +1682,7 @@ async def split_equipment_into_units(
             id=uuid.uuid4(),
             code=code,
             name=eq.name,
+            asset_name=eq.asset_name,
             item_type=eq.item_type,
             description=eq.description,
             image_url=eq.image_url,
@@ -1770,6 +1774,7 @@ async def restock_equipment(
     for code in new_codes:
         clone = Equipment(
             id=uuid.uuid4(), code=code, name=eq.name, item_type=eq.item_type,
+            asset_name=eq.asset_name,  # ซื้อเพิ่มรุ่นเดียวกัน — เริ่มจากชื่อตามบัญชีของต้นแบบ แก้รายชิ้นได้
             description=eq.description, image_url=eq.image_url, image_urls=list(eq.image_urls),
             location=eq.location, location_detail=eq.location_detail, fine_rate_id=eq.fine_rate_id,
             unit=eq.unit, unit_value=eq.unit_value,

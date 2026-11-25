@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useAuthContext } from '../../context/AuthContext.jsx'
 import { authApi } from '../../api/authApi.js'
-import { LATEST_PATCH, PATCH_NOTES, itemsFor } from '../../data/patchNotes.js'
+import { PATCH_NOTES, itemsFor } from '../../data/patchNotes.js'
 import { isStaff, isSuperadmin } from '../../utils/role.js'
 import { formatDate } from '../../utils/formatDate.js'
 
@@ -33,13 +33,17 @@ function Highlight({ text }) {
  *  บัญชีที่สร้างหลังวันอัปเดตไม่เด้ง (ไม่มี "แบบเดิม" ให้เทียบ) แค่บันทึกเงียบ ๆ */
 export default function PatchNoteModal() {
   const { user, setUser } = useAuthContext()
-  const unseen = user.seen_patch !== LATEST_PATCH
+  // เห็นเฉพาะเวอร์ชันที่มีข้อของตัวเอง — เวอร์ชันสำหรับเจ้าหน้าที่ล้วนไม่เด้งหน้าต่างว่างให้ผู้ยืม (25 พ.ย. 69)
+  const viewer = { staff: isStaff(user), superadmin: isSuperadmin(user) }
+  const notes = PATCH_NOTES.filter((n) => itemsFor(n, viewer).length > 0)
+  const latest = notes[0]?.version
+  const unseen = !!latest && user.seen_patch !== latest
   const [open, setOpen] = useState(false)
   const [idx, setIdx] = useState(0)
 
   useEffect(() => {
     if (!unseen) return
-    const isNewAccount = user.created_at?.slice(0, 10) >= PATCH_NOTES[0].date
+    const isNewAccount = user.created_at?.slice(0, 10) >= notes[0].date
     if (isNewAccount) markSeen()
     else setOpen(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -47,14 +51,14 @@ export default function PatchNoteModal() {
 
   async function markSeen() {
     try {
-      await authApi.markPatchSeen(LATEST_PATCH)
-      setUser((u) => ({ ...u, seen_patch: LATEST_PATCH }))
+      await authApi.markPatchSeen(latest)
+      setUser((u) => ({ ...u, seen_patch: latest }))
     } catch { /* ไม่สำเร็จ = เด้งอีกครั้งรอบหน้า ไม่เป็นไร */ }
   }
 
   const close = () => { setOpen(false); setIdx(0); if (unseen) markSeen() }
-  const note = PATCH_NOTES[idx]
-  const items = itemsFor(note, { staff: isStaff(user), superadmin: isSuperadmin(user) })
+  const note = notes[idx]
+  const items = note ? itemsFor(note, viewer) : []
   const count = (k) => items.filter((it) => kindOf(it) === k).length
 
   return (
@@ -67,7 +71,7 @@ export default function PatchNoteModal() {
         </svg>
         {unseen && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />}
       </button>
-      {open && (
+      {open && note && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4" onClick={close}>
           <div className="flex max-h-[96vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}>
@@ -76,10 +80,10 @@ export default function PatchNoteModal() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-xs font-bold tracking-widest text-slate-900">PATCH NOTES</span>
                 <span className="rounded-full border border-white/30 px-2.5 py-0.5 text-xs font-semibold">v{note.version}</span>
-                {PATCH_NOTES.length > 1 && (
+                {notes.length > 1 && (
                   <select value={idx} onChange={(e) => setIdx(Number(e.target.value))}
                     className="ml-auto rounded-md bg-white/10 px-2 py-1 text-xs text-white">
-                    {PATCH_NOTES.map((n, i) => <option key={n.version} value={i} className="text-gray-900">{n.title}</option>)}
+                    {notes.map((n, i) => <option key={n.version} value={i} className="text-gray-900">{n.title}</option>)}
                   </select>
                 )}
               </div>

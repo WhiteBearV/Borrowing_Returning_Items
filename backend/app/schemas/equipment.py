@@ -67,6 +67,7 @@ class EquipmentResponse(BaseModel):
     id: uuid.UUID
     code: str
     asset_number: str | None = None  # เลขครุภัณฑ์ (ทะเบียนราชการ) — แยกจาก code ตั้งแต่ migration 0048
+    asset_name: str | None = None  # ชื่อตามบัญชีทะเบียน (0059) — แยกจาก name
     serial_number: str | None = None
     name: str
     manufacturer: str | None = None
@@ -176,6 +177,7 @@ class EquipmentUnitSummary(BaseModel):
     id: uuid.UUID
     code: str
     asset_number: str | None = None
+    asset_name: str | None = None
     serial_number: str | None = None
     location: str | None = None
     location_detail: str | None = None
@@ -288,6 +290,7 @@ class EquipmentCreate(BaseModel):
     # เว้นว่างได้ทุกประเภท — equipment_service.next_system_codes ออกรหัส DT-D/M/C-xxxxx ให้ (24 ก.ย. 69)
     code: str | None = None
     asset_number: str | None = Field(None, max_length=50)  # เลขครุภัณฑ์ 15 หลัก (ไม่บังคับ)
+    asset_name: str | None = Field(None, max_length=255)  # ชื่อตามบัญชี — ครุภัณฑ์ไม่ส่งมา = ใช้ name
     serial_number: str | None = None
     name: NonBlank
     # ผู้ผลิต/รุ่น (เฟส 8) — ไม่บังคับ แต่ฟอร์มมี helper แนะนำให้แยกชื่อรุ่นออกจากชื่ออุปกรณ์
@@ -316,6 +319,7 @@ class EquipmentCreate(BaseModel):
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
     _normalize_asset_number = field_validator("asset_number", mode="before")(_blank_sn_to_none)  # ชื่อ generic ใช้กับ code ได้เหมือนกัน
+    _normalize_asset_name = field_validator("asset_name", mode="before")(_blank_sn_to_none)
 
 
 class RestockRequest(BaseModel):
@@ -332,6 +336,7 @@ class AdjustStockRequest(BaseModel):
 class EquipmentUpdate(BaseModel):
     code: str | None = None
     asset_number: str | None = Field(None, max_length=50)  # superadmin เท่านั้น (FINANCE_FIELDS)
+    asset_name: str | None = Field(None, max_length=255)  # เจ้าหน้าที่ทุกคนแก้ได้ (ไม่อยู่ใน FINANCE_FIELDS)
     item_type: ItemType | None = None
     serial_number: str | None = None
     name: NonBlank | None = None
@@ -369,6 +374,7 @@ class EquipmentUpdate(BaseModel):
     _normalize_serial_number = field_validator("serial_number", mode="before")(_blank_sn_to_none)
     _normalize_code = field_validator("code", mode="before")(_blank_sn_to_none)
     _normalize_asset_number = field_validator("asset_number", mode="before")(_blank_sn_to_none)
+    _normalize_asset_name = field_validator("asset_name", mode="before")(_blank_sn_to_none)
 
     # quality_tracked ลง Equipment.quality_tracked ซึ่งเป็นคอลัมน์ NOT NULL — ส่ง `null` มาตรง ๆ จะหลุด
     # exclude_unset (นับว่า "ส่งมา") แล้วไปตั้งค่า None ทับคอลัมน์นี้ตอน setattr กลายเป็น 500 IntegrityError

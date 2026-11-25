@@ -179,7 +179,8 @@ async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, a
                 select(AuditLog).where(AuditLog.target_id == uuid.UUID(eq_id), AuditLog.action == "update_equipment")
             )).scalars().first()
             changes = log.detail["changes"]
-            assert changes["name"] == ["ชื่อเดิมในระบบ", "ชื่อใหม่จากทะเบียน"]
+            # ครุภัณฑ์: ชื่อในไฟล์ลงชื่อตามบัญชี ไม่ทับชื่อในระบบ (0059)
+            assert changes["asset_name"] == ["ชื่อเดิมในระบบ", "ชื่อใหม่จากทะเบียน"] and "name" not in changes
             assert changes["status"] == ["available", "damaged"]
     finally:
         await _cleanup(eq_id)
@@ -188,31 +189,40 @@ async def test_import_commit_update_action_logs_real_diff(client: AsyncClient, a
 async def test_import_update_into_tracked_group_inherits_and_logs(
     client: AsyncClient, admin_token: str, tmp_path,
 ):
-    """นำเข้าทะเบียนแล้วชื่อเปลี่ยนจนย้ายเข้ารุ่นที่ติดตามคุณภาพทั้งรุ่น → ได้สวิตช์ตามรุ่น + โผล่ใน audit
-    (เดิมเส้นทาง update ของ import ข้าม inherit — รีวิวรอบ 4 MINOR ข้อ 5)"""
+    """นำเข้าชีตวัสดุแล้วชื่อเปลี่ยนจนย้ายเข้ารุ่นที่ติดตามคุณภาพทั้งรุ่น → ได้สวิตช์ตามรุ่น + โผล่ใน audit
+    (เดิมเส้นทาง update ของ import ข้าม inherit — รีวิวรอบ 4 MINOR ข้อ 5) · ใช้ชีตวัสดุเพราะตั้งแต่ 0059
+    ชีตทะเบียนครุภัณฑ์ไม่แตะชื่อในระบบแล้ว (ลงชื่อตามบัญชีแทน) จึงย้ายรุ่นผ่านไฟล์ไม่ได้"""
     h = auth(admin_token)
     tracked_name = f"ทดสอบ นำเข้า กลุ่มติดตาม {uuid.uuid4().hex[:6]}"
-    code = f"{uuid.uuid4().int % 10**15:015d}"
-    g = await _make_equipment(client, h, name=tracked_name)
-    eq_id = await _make_equipment(client, h, asset_number=code)  # ทะเบียนจับคู่ด้วยเลขครุภัณฑ์
+    code = f"TSTMAT-{uuid.uuid4().hex[:8]}"
+    g = await _make_equipment(client, h, name=tracked_name, item_type="material", code=None)
+    eq_id = await _make_equipment(client, h, code=code, item_type="material")
     try:
         r = await client.patch(f"/equipment/{g}", headers=h, json={"quality_tracked": True, "quality_life_years": 5})
         assert r.status_code == 200, r.text
-        with open(_register_file(tmp_path, code, tracked_name), "rb") as f:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "วัสดุ"
+        ws.append(["รหัส", "รายการ", "ประเภท", "หน่วยนับ", "จำนวน", "สถานที่", "ราคา"])
+        ws.append([code, tracked_name, "วัสดุใช้ซ้ำ", "ชิ้น", 1, "15310", 1000])
+        path = tmp_path / "mat.xlsx"
+        wb.save(path)
+        with open(path, "rb") as f:
             res = await client.post(
                 "/equipment/import/preview",
-                files={"file": ("register.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                files={"file": ("mat.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
                 headers=h,
             )
         assert res.status_code == 200, res.text
         draft = res.json()
-        row = next(r for r in draft["rows"] if (r.get("asset_number") or "").replace("-", "") == code)
+        row = next(r for r in draft["rows"] if r["code"] == code)
         res = await client.post(f"/equipment/import/{draft['import_id']}/commit",
-                                json={"filename": "register.xlsx", "rows": [row]}, headers=h)
+                                json={"filename": "mat.xlsx", "rows": [row]}, headers=h)
         assert res.status_code == 200, res.text
 
         async with AsyncSessionLocal() as db:
             eq = await db.get(Equipment, uuid.UUID(eq_id))
+            assert eq.name == tracked_name
             assert (eq.quality_tracked, eq.quality_life_years) == (True, 5)
             log = (await db.execute(
                 select(AuditLog).where(AuditLog.target_id == uuid.UUID(eq_id), AuditLog.action == "update_equipment")

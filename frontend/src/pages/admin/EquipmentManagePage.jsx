@@ -38,7 +38,7 @@ function ImportCode({ row }) {
   )
 }
 
-const EMPTY_FORM = { code: '', asset_number: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', location_detail: '', fine_rate_id: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
+const EMPTY_FORM = { code: '', asset_number: '', asset_name: '', serial_number: '', name: '', manufacturer: '', model_number: '', category_ids: [], item_type: 'durable', description: '', location: '', location_detail: '', fine_rate_id: '', unit: '', unit_value: '', acquired_at: '', useful_life_years: '', book_value_override: '', quantity_total: 1, image_urls: [], is_borrowable: true, low_stock_threshold: '' }
 
 // แบ่งฟอร์มตาม "ความเสี่ยง/วงจรชีวิต" ไม่ใช่ "รายละเอียด vs อื่นๆ" (เฟส 8, feedback ข้อ 15)
 // ข้อมูลประจำตัว = แก้ได้อิสระ · สถานะ = เป็น action ที่ต้องมีเหตุผล · ทะเบียน/การเงิน = กระทบตัวเลขย้อนหลัง
@@ -232,6 +232,7 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
         serial_number: form.serial_number || null,
         code: form.code?.trim() || (isEdit ? form.code : null),
         asset_number: (isEdit || form.item_type === 'durable') ? (form.asset_number?.trim() || null) : null,
+        asset_name: form.item_type === 'durable' ? (form.asset_name?.trim() || null) : null,
         location: form.location?.trim() || null,
         location_detail: form.location_detail?.trim() || null,
         fine_rate_id: form.fine_rate_id || undefined,   // undefined = ไม่ส่ง (ทุกรุ่นต้องมีป้าย ล้างไม่ได้)
@@ -559,6 +560,16 @@ function EquipmentModal({ initial, categories, onClose, onSave }) {
               </p>
             )}
             {/* เลขครุภัณฑ์มีเฉพาะครุภัณฑ์ — วัสดุไม่มีเลขทะเบียนราชการ ซ่อนช่องไว้ไม่ให้สับสน (ผู้ใช้ขอ 24 ก.ย. 69) */}
+            {/* ชื่อตามบัญชี (0059) — เจ้าหน้าที่ทุกคนแก้ได้ จึงไม่ disable ตาม canEditFinance */}
+            {form.item_type === 'durable' && <div className="md:col-span-2">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                ชื่อครุภัณฑ์ (ตามทะเบียน)
+                <Tooltip text={'ชื่อเต็มตามบัญชีทะเบียนครุภัณฑ์ของราชการ ใช้พิมพ์ในใบตรวจครุภัณฑ์และใบยืม\nชื่อที่ใช้ค้นหาในระบบคือช่อง "ชื่ออุปกรณ์" ตั้งให้สั้นได้ตามสะดวก\nเว้นว่างตอนเพิ่มใหม่ = ใช้ชื่ออุปกรณ์'} />
+              </label>
+              <input type="text" maxLength={255}
+                value={form.asset_name ?? ''} onChange={set('asset_name')} placeholder="เช่น เครื่องคอมพิวเตอร์สำหรับประมวลผลแบบที่ 2 จอขนาดไม่น้อยกว่า 19 นิ้ว"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            </div>}
             {form.item_type === 'durable' && <div className="md:col-span-2">
               <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
                 เลขครุภัณฑ์
@@ -1019,10 +1030,10 @@ export default function EquipmentManagePage() {
         location: filterLocation || undefined,
       })
       downloadCsv('equipment', [
-        'รหัส', 'เลขครุภัณฑ์', 'ชื่อ', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'ห้อง', 'ตำแหน่งในห้อง', 'ประเภท', 'หมวดหมู่', 'สถานะ',
+        'รหัส', 'เลขครุภัณฑ์', 'ชื่อ', 'ชื่อตามทะเบียน', 'ผู้ผลิต', 'รุ่น', 'Serial Number', 'ห้อง', 'ตำแหน่งในห้อง', 'ประเภท', 'หมวดหมู่', 'สถานะ',
         'จำนวนทั้งหมด', 'คงเหลือ', 'หน่วย', 'มูลค่าต่อหน่วย (บาท)', 'วันที่ได้มา', 'มูลค่าตามบัญชี (บาท)',
       ], rows.map((e) => [
-        e.code, e.asset_number, e.name, e.manufacturer, e.model_number, e.serial_number, e.location, e.location_detail,
+        e.code, e.asset_number, e.name, e.asset_name, e.manufacturer, e.model_number, e.serial_number, e.location, e.location_detail,
         TYPE_LABEL[e.item_type] ?? e.item_type, e.categories?.map((c) => c.name).join(', '),
         STATUS_LABEL[e.status] ?? e.status, e.quantity_total, e.quantity_available, e.unit,
         e.unit_value, e.acquired_at ? formatDate(e.acquired_at) : '', e.book_value,
@@ -1448,6 +1459,7 @@ export default function EquipmentManagePage() {
                       </td>
                       <td className="px-4 py-2.5 font-medium text-gray-800">
                         {eq.name}
+                        {(!grouped || eq.unit_count === 1) && eq.asset_name && eq.asset_name !== eq.name && <span className="block text-[11px] font-normal text-gray-400">ทะเบียน: {eq.asset_name}</span>}
                         {grouped && (
                           <button onClick={() => toggleExpand(eq.id)} className="ml-2 text-xs font-normal text-primary-600 hover:underline">
                             {expanded[eq.id] ? 'ซ่อนรายหน่วย ▲' : `${eq.unit_count} หน่วย ▾`}
@@ -1548,6 +1560,7 @@ export default function EquipmentManagePage() {
                         <td className="px-4 py-1.5 text-xs text-gray-400" colSpan={3}>
                           <LocationIcon /> {formatPlace(u.location, u.location_detail) || 'ไม่ระบุสถานที่'}
                           {u.serial_number && <span className="ml-2">· SN: {u.serial_number}</span>}
+                          {u.asset_name && u.asset_name !== eq.name && <span className="block">ทะเบียน: {u.asset_name}</span>}
                         </td>
                         <td className="px-4 py-1.5 text-xs text-gray-500">{u.quantity_available}/{u.quantity_total}</td>
                         {/* หน่วยในกลุ่มเดียวกันซื้อคนละล็อตคนละราคาได้ — ต้องเห็นอายุ/มูลค่าแยกรายหน่วย */}
@@ -1743,7 +1756,7 @@ const IMPORT_ACTION = {
   retire: { label: 'เสนอปลดระวาง', cls: 'bg-red-50 text-red-700', log: 'ปลดระวางอุปกรณ์' },
   unchanged: { label: 'ไม่เปลี่ยน', cls: 'bg-gray-50 text-gray-500', log: '—' },
 }
-const FIELD_LABEL = { name: 'ชื่อ', location: 'สถานที่', status: 'สถานะ', quantity_total: 'จำนวน', serial_number: 'SN' }
+const FIELD_LABEL = { name: 'ชื่อ', asset_name: 'ชื่อตามทะเบียน', location: 'สถานที่', status: 'สถานะ', quantity_total: 'จำนวน', serial_number: 'SN' }
 const IMPORT_STATUS = { available: 'ปกติ', damaged: 'ชำรุด', unavailable: 'สูญหาย/เสื่อมสภาพ', retired: 'ปลดระวาง', borrowed: 'ถูกยืม', under_repair: 'ซ่อม' }
 const EDITABLE_STATUS = ['available', 'damaged', 'unavailable']
 const ITEM_TYPES = [['durable', 'ครุภัณฑ์'], ['material', 'วัสดุใช้ซ้ำ'], ['consumable', 'วัสดุสิ้นเปลือง']]

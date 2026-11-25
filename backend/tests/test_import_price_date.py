@@ -59,6 +59,7 @@ def test_diff_fills_only_empty_fields(tmp_path):
     """ช่องว่าง → เสนอเติม · ช่องที่มีค่าแล้ว → ต้องไม่เสนอทับ แม้ค่าในไฟล์จะต่างกัน"""
     rows, _s, _sn = parse_workbook(str(_register_file(tmp_path)))
     base = {"id": 1, "asset_number": CODE, "name": "ออสซิลโลสโคป Rigol DS1054Z", "location": "15311",
+            "asset_name": "ออสซิลโลสโคป Rigol DS1054Z",
             "status": "available", "item_type": "durable"}
     resolve_keys(rows, {}, {"DT-D-00001": base})
 

@@ -30,6 +30,8 @@ class Equipment(Base):
     # SN จากผู้ผลิต — คนละอย่างกับ code (รหัสระบบ) และ asset_number (เลขครุภัณฑ์) ไม่บังคับกรอก ใช้ตรวจนับของจริง
     serial_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # ชื่อตามบัญชีทะเบียนราชการ (0059) — แยกจาก name ที่ใช้ค้น/จับกลุ่มรุ่น · นำเข้าไฟล์ทะเบียนแก้ช่องนี้ ไม่ทับ name
+    asset_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # ผู้ผลิต + รุ่น (เฟส 8) — แยกออกจาก name ตามมาตรฐานการตั้งชื่อครุภัณฑ์ (docs/naming-convention.md)
     # ชื่อ = ป้ายให้คนอ่าน ("เซ็นเซอร์อุณหภูมิและความชื้น DHT11") · รุ่น = ค่าที่เหมือนกันทุกชิ้น ("DHT11")
     # ต่างจาก serial_number (ไม่ซ้ำรายชิ้น) และ code (รหัสทะเบียนที่ระบบออกให้)

@@ -403,6 +403,10 @@ def _build_form(req: object, kind: str, value_source: str = "acquisition") -> by
         sn = _e(getattr(item, "equipment_serial_number", None))
         if sn:
             name_display += f"(SN:{'รออนุมัติ' if draft else sn})"
+        # ชื่อตามบัญชีทะเบียน (0059) — พิมพ์เมื่อต่างจากชื่อในระบบ เอกสารจะอ้างกลับไปที่ทะเบียนราชการได้
+        asset_name = None if draft else _e(getattr(item, "equipment_asset_name", None))
+        if asset_name and asset_name != _e(getattr(item, "equipment_name", None)):
+            name_display += f"<br/><font size=7 color='#555555'>ชื่อตามทะเบียน: {asset_name}</font>"
         # สเปกที่ติดตั้งอยู่ ณ วันยืม (เฟส 8, ข้อ 17) — กันเคส "ยืมไปมี RAM 16GB คืนมาเหลือ 8GB"
         # เอกสารที่ผู้ยืมเซ็นต้องระบุว่าตอนรับของเครื่องมีอะไรอยู่บ้าง ไม่ใช่แค่ชื่อเครื่อง
         specs = _e(getattr(item, "equipment_specs", None))
@@ -1015,7 +1019,8 @@ class SheetRow:
 
 
 def round_rows(rnd: object) -> list[SheetRow]:
-    return [SheetRow(rnd.location, i.equipment_code, i.asset_number, i.equipment_name, i.location_detail,
+    # ใบตรวจตามแบบทะเบียนคุมทรัพย์สิน = ชื่อตามบัญชี (0059) · หน้าจอเดินตรวจยังโชว์ชื่อในระบบ
+    return [SheetRow(rnd.location, i.equipment_code, i.asset_number, i.asset_name or i.equipment_name, i.location_detail,
                      i.unit_value, i.acquired_at, i.condition, stocktake_note(i)) for i in rnd.items]
 
 

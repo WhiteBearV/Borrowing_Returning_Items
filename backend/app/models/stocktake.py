@@ -44,6 +44,7 @@ class StocktakeItem(Base):
     equipment_code: Mapped[str] = mapped_column(String(50), nullable=False)
     equipment_name: Mapped[str] = mapped_column(String(255), nullable=False)
     asset_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    asset_name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ชื่อตามบัญชี — พิมพ์ในใบตรวจ (0059)
     result: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     # moved_here = ห้องเดิมก่อนย้ายมา · elsewhere = ห้องที่ทะเบียนบอกตอนปิดรอบ (รอบอื่นสแกนเจอที่นั่น)
     from_location: Mapped[str | None] = mapped_column(String(255), nullable=True)

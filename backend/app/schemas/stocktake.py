@@ -72,6 +72,7 @@ class StocktakeItemResponse(BaseModel):
     equipment_code: str
     equipment_name: str
     asset_number: str | None
+    asset_name: str | None = None  # ชื่อตามบัญชี — ใบตรวจพิมพ์ช่องนี้ (0059)
     result: str
     from_location: str | None
     location_detail: str | None = None  # ตำแหน่งในห้องปัจจุบัน (ตู้/ชั้น)

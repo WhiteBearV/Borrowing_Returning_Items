@@ -134,7 +134,7 @@ async def start_round(db: AsyncSession, actor: User, location: str) -> Stocktake
     for u in units:
         db.add(StocktakeItem(
             round_id=rnd.id, equipment_id=u.id, equipment_code=u.code, equipment_name=u.name,
-            asset_number=u.asset_number, result="on_loan" if u.id in holders else "pending",
+            asset_number=u.asset_number, asset_name=u.asset_name, result="on_loan" if u.id in holders else "pending",
         ))
     await audit_service.log_action(db, actor, "stocktake_start", "stocktake_rounds", rnd.id,
                                    {"location": location, "expected": len(units)})
@@ -199,7 +199,7 @@ async def scan(db: AsyncSession, actor: User, round_id: uuid.UUID, body: Stockta
         set_room(eq, rnd.location)
         item = StocktakeItem(
             round_id=rnd.id, equipment_id=eq.id, equipment_code=eq.code, equipment_name=eq.name,
-            asset_number=eq.asset_number, result="moved_here", from_location=from_location,
+            asset_number=eq.asset_number, asset_name=eq.asset_name, result="moved_here", from_location=from_location,
             from_location_detail=from_detail,
             scanned_at=now, scanned_by=actor.id,
         )
@@ -308,7 +308,7 @@ async def summary_rows(db: AsyncSession) -> list[SheetRow]:
         hit = latest.get(u.id)
         note = " · ".join(x for x in (hit and hit.note, hit and f"ตรวจล่าสุด {_fmt_date_th_full(hit.started_at)}") if x) \
             if hit else "ยังไม่เคยตรวจ"
-        rows.append(SheetRow(u.location, u.code, u.asset_number, u.name, u.location_detail,
+        rows.append(SheetRow(u.location, u.code, u.asset_number, u.asset_name or u.name, u.location_detail,
                              float(u.unit_value) if u.unit_value is not None else None, u.acquired_at,
                              hit.condition if hit else None, note))
     return rows

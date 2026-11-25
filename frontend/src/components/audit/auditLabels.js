@@ -90,6 +90,7 @@ export const FIELD_LABEL = {
   code: 'รหัส',
   manufacturer: 'ผู้ผลิต',
   model_number: 'รุ่น',
+  asset_name: 'ชื่อครุภัณฑ์ (ตามทะเบียน)',
   serial_number: 'หมายเลขเครื่อง (SN)',
   item_type: 'ประเภท',
   location: 'ห้อง',

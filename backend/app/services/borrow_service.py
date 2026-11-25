@@ -325,6 +325,7 @@ async def create_request(
             equipment_unit=eq.unit,
             equipment_serial_number=eq.serial_number,
             equipment_asset_number=eq.asset_number,
+            equipment_asset_name=eq.asset_name,
             item_status="pending",
         ))
     db.add_all(new_items)
@@ -1564,6 +1565,7 @@ def _snapshot_unit(item: BorrowItem, chosen: Equipment, dep_years: int, dep_salv
     item.equipment_unit = chosen.unit
     item.equipment_serial_number = chosen.serial_number
     item.equipment_asset_number = chosen.asset_number
+    item.equipment_asset_name = chosen.asset_name
     # อัตราค่าปรับคืนช้าล็อกตอนอนุมัติ (23 พ.ย. 69) — แก้ราคาป้ายทีหลังไม่กระทบของที่ยืมอยู่ · เปลี่ยนตัวระหว่างยืม
     # แถวใหม่พาอัตราเดิมมาแล้ว (_SWAP_CARRY_COLUMNS) จึงไม่ทับ — อัตราผูกกับใบยืม ไม่ใช่กับหน่วยที่มาแทน
     if item.fine_rate_snapshot is None:
@@ -1950,6 +1952,9 @@ async def generate_preview_pdf(
             ),
             equipment_asset_number=(
                 eq_map[it.equipment_id].asset_number if it.equipment_id in eq_map else None
+            ),
+            equipment_asset_name=(
+                eq_map[it.equipment_id].asset_name if it.equipment_id in eq_map else None
             ),
             equipment_value=(
                 float(eq_map[it.equipment_id].unit_value)

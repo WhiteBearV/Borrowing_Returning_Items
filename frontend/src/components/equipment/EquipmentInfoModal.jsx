@@ -48,6 +48,7 @@ export default function EquipmentInfoModal({ id, onClose, onEdit }) {
               <div>
                 <h2 className="text-lg font-bold text-gray-800">{eq.name}</h2>
                 <p className="font-mono text-xs text-gray-500">{eq.code}{eq.asset_number && ` · ครุภัณฑ์ ${eq.asset_number}`}</p>
+                {eq.asset_name && eq.asset_name !== eq.name && <p className="text-xs text-gray-500">ชื่อตามทะเบียน: {eq.asset_name}</p>}
               </div>
               <StatusBadge status={eq.status} isCurrentlyBorrowed={eq.is_currently_borrowed} isBorrowable={eq.is_borrowable} />
             </div>
