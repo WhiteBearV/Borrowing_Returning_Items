@@ -43,6 +43,8 @@ STALE_UNVERIFIED_DAYS = 30
 ONLINE_WINDOW_MINUTES = 15
 # ดิสก์เหลือน้อยกว่านี้ = เตือน (ไฟล์แนบ/รูปความเสียหายโตเงียบ ๆ จนดิสก์เต็มเป็นเคสที่เกิดจริง)
 DISK_WARN_FREE_GB = 2.0
+# ส่ง backup ขึ้น Drive ทุกคืนตี 2 — สำเร็จล่าสุดเก่ากว่านี้ = มีคืนที่ไม่ได้ส่ง (เผื่อคืนที่ส่งช้า)
+OFFSITE_STALE_HOURS = 48
 # เวลาที่เซิร์ฟเวอร์เริ่มทำงาน — ใช้บอก uptime (ไม่ต้องพึ่ง systemd/docker)
 _STARTED_AT = datetime.now(timezone.utc)
 
@@ -314,8 +316,41 @@ async def _health_checks(db: AsyncSession) -> list[dict]:
                    "status": "ok" if total_pending == 0 else "warn",
                    "value": f"คำขอยืม {pending_req} · ผู้สมัคร {pending_users}",
                    "hint": "" if total_pending == 0 else "มีคนรออยู่ — เข้าหน้าอนุมัติคำขอ/จัดการผู้ใช้"})
+    # 10) สำรองข้อมูลนอกเครื่อง (Google Drive) — ล้มเงียบ ๆ ได้ถ้าไม่มีใครเปิด log
+    try:
+        raw = (Path(settings.BACKUP_STATUS_DIR) / "offsite.status").read_text(encoding="utf-8")
+    except OSError:
+        raw = None
+    checks.append(_offsite_backup_check(raw, now))
     checks.extend(await _performance_checks(db))
     return checks
+
+
+def _offsite_backup_check(raw: str | None, now: datetime) -> dict:
+    """การ์ดสำรองข้อมูลนอกเครื่อง (Google Drive) จากไฟล์สถานะของ scripts/offsite_backup.sh
+
+    ฟังก์ชันบริสุทธิ์ (รับเนื้อไฟล์) ให้เทสได้ · ล้มเหลวหรือไม่ได้ส่งเกิน OFFSITE_STALE_HOURS = แดง
+    เพราะ backup บนเครื่องเก็บแค่ 7 วัน ถ้าเงียบไปนานกว่านั้นโดยไม่มีใครรู้ สำเนานอกเครื่องจะไม่มีของใหม่เลย
+    รูปแบบไฟล์: "OK <iso> <n> files" หรือ "FAILED <iso>"
+    """
+    base = {"key": "offsite_backup", "label": "สำรองข้อมูลขึ้น Google Drive"}
+    hint_fix = "ดู /var/log/eqb-offsite.log บนเซิร์ฟเวอร์ แล้วรัน backend/scripts/offsite_backup.sh ซ้ำ"
+    parts = (raw or "").split()
+    if len(parts) < 2:
+        return {**base, "status": "warn", "value": "ยังไม่พบสถานะ",
+                "hint": "ยังไม่เคยส่ง หรือยังไม่ได้ตั้งค่าบนเครื่องนี้ (ดูคู่มือใน offsite_backup.sh)"}
+    try:
+        at = datetime.fromisoformat(parts[1])
+    except ValueError:
+        return {**base, "status": "error", "value": "อ่านสถานะไม่ได้", "hint": hint_fix}
+    when = at.astimezone(timezone(timedelta(hours=7))).strftime("%d/%m/%Y %H:%M")
+    if parts[0] != "OK":
+        return {**base, "status": "error", "value": f"ส่งไม่สำเร็จ ({when})", "hint": hint_fix}
+    files = f" · บน Drive {parts[2]} ไฟล์" if len(parts) > 2 else ""
+    if now - at > timedelta(hours=OFFSITE_STALE_HOURS):
+        return {**base, "status": "error", "value": f"ส่งสำเร็จล่าสุด {when}{files}",
+                "hint": f"ไม่ได้ส่งเกิน {OFFSITE_STALE_HOURS // 24} วัน — backup คืนล่าสุดอาจล้มเหลว " + hint_fix}
+    return {**base, "status": "ok", "value": f"ส่งสำเร็จ {when}{files}", "hint": ""}
 
 
 # เกณฑ์ "ช้า" ของหน้าตรวจสอบระบบ — ผู้ใช้เริ่มรู้สึกหน่วงที่ราว 1 วินาทีต่อการกด 1 ครั้ง (หน้าเว็บยิงหลาย request)

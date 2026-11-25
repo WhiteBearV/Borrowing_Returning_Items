@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     # ต้องอยู่นอก UPLOAD_DIR เพราะ UPLOAD_DIR ถูก mount เป็น StaticFiles ที่ใครรู้ URL ก็เปิดได้
     # เข้าถึงได้ทางเดียวคือ GET /borrow-requests/{id}/signed-form ที่ตรวจสิทธิ์ก่อนส่งไฟล์
     PRIVATE_UPLOAD_DIR: str = "./private_uploads"
+    # ไฟล์สถานะที่ scripts/offsite_backup.sh เขียน (prod mount /var/backups/eqb-status อ่านอย่างเดียว) — การ์ดหน้าตรวจสอบระบบ
+    BACKUP_STATUS_DIR: str = "./backup_status"
     ALLOWED_EMAIL_DOMAINS: str = "cdti.ac.th"
     # ใบรับรองสำหรับประทับตราดิจิทัลบนใบยืม/ใบคืน PDF (E-sign, 16 พ.ย. 69) — สร้างด้วย ./gen-signing-cert.sh
     # ว่าง/หาไฟล์ไม่เจอ = ออก PDF แบบไม่ประทับตรา (เอกสารต้องออกได้เสมอ) · ห้าม commit ไฟล์ key

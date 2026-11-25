@@ -45,6 +45,8 @@ services:
       - private_uploads_data:/app/private_uploads
       # ใบรับรองประทับตรา PDF (./gen-signing-cert.sh) — ไม่มีโฟลเดอร์ = PDF ออกแบบไม่ประทับตรา
       - ./certs/signing:/app/signing:ro
+      # สถานะส่ง backup ขึ้น Google Drive (backend/scripts/offsite_backup.sh) — การ์ดหน้าตรวจสอบระบบ
+      - /var/backups/eqb-status:/app/backup_status:ro
     env_file:
       - .env
     environment:
